@@ -1,0 +1,4 @@
+.component-next-button { --component-fill: var(--component-next-button-fill, #fff); --component-border: var(--component-next-button-border, #0d0e0e); --component-text: var(--component-next-button-text, #0d0e0e); }
+.component-next-button .next-button-shape { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 7; vector-effect: non-scaling-stroke; }
+.component-next-button .next-button-arrow { fill: none; stroke: var(--element-text, var(--component-text)); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.component-next-button:hover .next-button-shape { filter: brightness(.94); }

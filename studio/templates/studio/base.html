@@ -1,0 +1,36 @@
+{% load static %}
+<!doctype html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TilTale{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'studio/app.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body data-page="{{ page|default:'' }}">
+  <header class="site-header">
+    <a class="brand" href="{% url 'studio:home' %}" aria-label="TilTale home">TilTale</a>
+    {% if project %}
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="{% url 'studio:develop' %}" {% if page == 'develop' or page == 'frame-editor' %}aria-current="page"{% endif %}>Develop</a>
+        <a href="{% url 'studio:flowchart' %}" {% if page == 'flowchart' %}aria-current="page"{% endif %}>Flowchart</a>
+        <a href="{% url 'studio:config' %}" {% if page == 'config' %}aria-current="page"{% endif %}>Project settings</a>
+        <a href="{% url 'studio:results' %}" {% if page == 'results' %}aria-current="page"{% endif %}>Results</a>
+      </nav>
+    {% endif %}
+    <a class="help-link" href="{% url 'studio:quick_guide' %}" target="_blank" rel="noreferrer" title="Open the local guide">?</a>
+  </header>
+
+  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+  {% block body %}{% endblock %}
+
+  <footer class="status-bar" data-status-bar data-url="{% url 'studio:status_api' %}" aria-live="polite">
+    <span class="status-dot" aria-hidden="true"></span>
+    <strong data-status-label>Checking project…</strong>
+    <span data-status-detail></span>
+  </footer>
+  <script src="{% static 'studio/app.js' %}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

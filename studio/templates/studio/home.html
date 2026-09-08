@@ -1,0 +1,32 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale{% endblock %}
+{% block body %}
+<main class="page page-narrow">
+  <section class="hero">
+    <p class="eyebrow">Interactive story authoring</p>
+    <h1>{% if project %}Project found: {{ project.name }}{% else %}Build an interactive story without writing its runtime by hand.{% endif %}</h1>
+    {% if not health.exists %}
+      <p>TilTale could not find <code>/project/</code>. To use an existing project, copy its entire <code>project</code> folder into this repository root and reload this page.</p>
+      <div class="actions"><a class="button primary" href="{% url 'studio:new_project' %}">Create a new project</a></div>
+    {% elif not health.ready %}
+      <div class="callout error">
+        <strong>The project folder is incomplete.</strong>
+        <p>TilTale will not silently replace missing project files.</p>
+        <ul>{% for problem in health.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+      </div>
+    {% elif database_problem %}
+      <div class="callout error"><strong>Database problem</strong><p>{{ database_problem }}</p></div>
+    {% else %}
+      <p>Choose the side of the project you want to work on. The developer side changes the story; Results only reads study logs.</p>
+      <div class="choice-grid">
+        <a class="choice-card" href="{% url 'studio:develop' %}"><span>Develop</span><small>Edit frames, flow and regenerate the story.</small></a>
+        <a class="choice-card" href="{% url 'studio:results' %}"><span>Results</span><small>Inspect local session logs or import JSONL logs.</small></a>
+      </div>
+    {% endif %}
+  </section>
+  <section class="plain-section">
+    <h2>Where data lives</h2>
+    <p><code>/project/</code> is the only durable study/project workspace and is intentionally ignored by Git. Generated websites go to <code>/dist/</code> and can always be rebuilt.</p>
+  </section>
+</main>
+{% endblock %}

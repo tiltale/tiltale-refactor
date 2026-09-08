@@ -1,0 +1,11 @@
+{
+  "slug": "speech-bubble",
+  "name": "Speech bubble",
+  "description": "Scalable text bubble for dialogue or narration.",
+  "accepts_content": true,
+  "clickable": false,
+  "default_size": {"width": 620, "height": 230},
+  "default_font_size": 44,
+  "colors": {"fill": "#FFFFFF", "border": "#0D0E0E", "text": "#0D0E0E"},
+  "variants": ["default"]
+}

@@ -1,26 +1,20 @@
-node_modules
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+.pytest_cache/
 
-# Output
-.output
-.vercel
-.netlify
-.wrangler
-/.svelte-kit
-/build
-
-# OS
+# Editors / OS
+.vscode/
 .DS_Store
 Thumbs.db
 
-# Env
-.env
-.env.*
-!.env.example
-!.env.test
+# TilTale user data: NEVER commit study/project data.
+/project/
 
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+# Generated output: rebuild it from project data.
+/dist/
 
-# Project-specific
-project/
+# Local diagnostics
+*.log

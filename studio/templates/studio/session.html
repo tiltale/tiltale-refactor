@@ -1,0 +1,13 @@
+{% extends 'studio/base.html' %}
+{% load studio_extras %}
+{% block title %}Session · TilTale{% endblock %}
+{% block body %}
+<main class="page">
+  <a class="back-link" href="{% url 'studio:results' %}">← All sessions</a>
+  <p class="eyebrow">Session log</p><h1>{{ file_name }}</h1>
+  {% if parse_error %}<div class="inline-alert error">{{ parse_error }}</div>{% endif %}
+  <div class="table-scroll"><table><thead><tr><th>#</th><th>Time</th><th>Event</th><th>Frame</th><th>Details</th></tr></thead><tbody>
+    {% for event in events %}<tr><td>{{ event.seq|default:forloop.counter }}</td><td>{{ event.timestamp|default:event.received_at }}</td><td><strong>{{ event.event }}</strong></td><td>{{ event.frame|default:'—' }}</td><td><code class="json-cell">{{ event }}</code></td></tr>{% empty %}<tr><td colspan="5">No valid events in this log.</td></tr>{% endfor %}
+  </tbody></table></div>
+</main>
+{% endblock %}

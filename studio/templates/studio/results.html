@@ -1,0 +1,17 @@
+{% extends 'studio/base.html' %}
+{% block title %}Results · TilTale{% endblock %}
+{% block body %}
+<main class="page">
+  <div class="page-heading split-heading"><div><p class="eyebrow">Study data</p><h1>Results</h1><p>Local preview sessions are written to <code>/project/logs/*.jsonl</code>. A deployed story can later point at a proper remote collector.</p></div></div>
+  <section class="form-card compact-card">
+    <h2>Import a log</h2><p>Use this when logs were collected elsewhere and downloaded as JSONL.</p>
+    <form method="post" enctype="multipart/form-data" action="{% url 'studio:import_logs' %}" class="inline-controls">{% csrf_token %}<input type="file" name="log_file" accept=".jsonl,application/json"><button class="button" type="submit">Import</button></form>
+  </section>
+  <section class="plain-section">
+    <h2>Sessions</h2>
+    <div class="table-scroll"><table><thead><tr><th>Session</th><th>Events</th><th>Last frame</th><th>Started</th><th>Last event</th></tr></thead><tbody>
+      {% for session in sessions %}<tr><td><a href="{% url 'studio:session_detail' session.file_name %}"><code>{{ session.session_id }}</code></a></td><td>{{ session.event_count }}</td><td>{{ session.last_frame|default:'—' }}</td><td>{{ session.first_timestamp }}</td><td>{{ session.last_timestamp }}</td></tr>{% empty %}<tr><td colspan="5">No logs yet. Restart/play a generated story from the developer preview to create a local session.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</main>
+{% endblock %}

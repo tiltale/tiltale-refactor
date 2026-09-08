@@ -1,0 +1,11 @@
+{
+  "slug": "next-button",
+  "name": "Next button",
+  "description": "Simple arrow button that advances to a selected frame.",
+  "accepts_content": false,
+  "clickable": true,
+  "default_size": {"width": 150, "height": 150},
+  "default_font_size": 36,
+  "colors": {"fill": "#FFFFFF", "border": "#0D0E0E", "text": "#0D0E0E"},
+  "variants": ["default"]
+}

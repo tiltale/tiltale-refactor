@@ -1,0 +1,19 @@
+{% extends 'studio/base.html' %}
+{% block title %}Project settings · TilTale{% endblock %}
+{% block body %}
+<main class="page page-narrow">
+  <p class="eyebrow">Developer side</p><h1>Project settings</h1>
+  <p>These are language-independent defaults. A frame or element can later opt into its own behavior.</p>
+  <form method="post" class="form-card">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}<label>{{ field.label }} {{ field }} {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>{% endfor %}
+    <button class="button primary" type="submit">Save settings</button>
+  </form>
+  <section class="plain-section">
+    <h2>Languages</h2>
+    <p>{% for language in languages %}<span class="pill">{{ language }}</span>{% endfor %}</p>
+    <p class="muted">Languages come from the columns between <code>content_id</code> and <code>note</code> in <code>/project/content.xlsx</code>. Add/remove language columns there, not here.</p>
+  </section>
+</main>
+{% endblock %}

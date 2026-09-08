@@ -1,0 +1,3 @@
+.component-speech-bubble { --component-fill: var(--component-speech-bubble-fill, #fff); --component-border: var(--component-speech-bubble-border, #0d0e0e); --component-text: var(--component-speech-bubble-text, #0d0e0e); }
+.component-speech-bubble .speech-bubble-shape { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 8; vector-effect: non-scaling-stroke; }
+.component-speech-bubble .component-text { inset: 12% 11% 22%; }

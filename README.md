@@ -2,9 +2,7 @@
 
 **TilTale** is a platform for building and running **interactive digital narratives (IDNs)**.
 
-You do **not** need previous experience with Svelte, Node.js, or command-line development to work on this project.
-
-TilTale is intentionally developed with students and less-experienced developers in mind. If some of the tools below are new to you, that is fine: this README explains only what you need to get started.
+You do **not** need previous Django experience to start working on TilTale. The repository is intentionally small, conventional and documented for student developers.
 
 ---
 
@@ -12,125 +10,64 @@ TilTale is intentionally developed with students and less-experienced developers
 
 | Section | What you will find |
 |---|---|
-| [Before you begin](#before-you-begin) | The tools you need and what they do. |
-| [Install Node.js](#install-nodejs) | Setup for Windows, macOS, and Linux. |
-| [Get TilTale](#get-tiltale) | Download the project as a ZIP or clone it with Git. |
-| [Run TilTale](#run-tiltale) | Install dependencies and start the app. |
-| [Useful commands](#useful-commands) | The commands you will use most often. |
-| [Tech stack](#tech-stack) | A short explanation of the technologies used. |
-| [Project structure](#project-structure) | Where the important files live. |
-| [Development conventions](#development-conventions) | A few rules that keep the code readable. |
-| [Quick fixes](#quick-fixes) | Common setup problems and how to diagnose them. |
+| [Before you begin](#before-you-begin) | Required software and recommended environment. |
+| [Get TilTale](#get-tiltale) | Download the project as a ZIP or clone it with Git, then create a virtual environment. |
+| [Run TilTale](#run-tiltale) | Install dependencies and start Django. |
+| [First project](#first-project) | How `/project/` is created. |
+| [Useful commands](#useful-commands) | Commands you will use most often. |
+| [Tech stack](#tech-stack) | Why each dependency exists. |
+| [Project structure](#project-structure) | Where authoring, components and runtime code live. |
+| [Content and languages](#content-and-languages) | How `content.xlsx` and stable `content_id` values work. |
+| [Development conventions](#development-conventions) | The rules that keep TilTale simple. |
+| [Quick fixes](#quick-fixes) | Common Windows/PowerShell problems. |
 
 ---
 
 ## Before you begin
 
-You need two main tools:
-
 ### Visual Studio Code
 
-**Visual Studio Code (VS Code)** is the code editor we use for TilTale. It lets you edit the project and run terminal commands in one place.
+VS Code is the recommended editor. No project-specific VS Code extensions are required.
 
-Download:
+Useful extensions, if you already use them:
 
-https://code.visualstudio.com/
+- Python
+- Pylance
 
-Recommended extension:
+### Python
 
-- **Svelte for VS Code**
+TilTale targets **Python 3.14**; the pinned/recommended maintenance release for this base is **Python 3.14.7**.
 
-### Node.js
+Check:
 
-**Node.js** lets your computer run the development tools used by TilTale.
+```powershell
+python --version
+where.exe python
+```
 
-Installing Node.js also installs **npm**, which downloads and manages the project's dependencies.
-
-Use the current **Node.js LTS** release.
-
-### Development environment used for TilTale
+### Recommended development environment
 
 | Software | Version / environment |
 |---|---|
-| Operating system | Windows 11 Pro |
-| Node.js | 24.20.0 LTS |
-| npm | 11.19.0 |
+| Operating system | Windows 11 |
+| Python | 3.14.7 |
+| Django | 6.1.1 |
+| openpyxl | 3.1.5 |
+| Pillow | 12.3.0 |
 | Editor | Visual Studio Code |
+| Shell | PowerShell |
 
-TilTale can also be developed on macOS and Linux.
+Exact Python dependencies are pinned in `requirements.txt`.
 
----
-
-## Install Node.js
-
-Official download:
-
-https://nodejs.org/en/download
-
-### Windows 11
-
-1. Download the **LTS** Windows installer.
-2. Run it using the default options.
-3. Restart VS Code.
-4. Open **Terminal → New Terminal**.
-
-Check the installation:
-
-```powershell
-node -v
-npm -v
-```
-
-Check where Node.js is installed:
-
-```powershell
-where.exe node
-```
-
-> **More experienced?**
->
-> ```powershell
-> winget install OpenJS.NodeJS.LTS
-> ```
-
-### macOS
-
-1. Download the **LTS** macOS installer from the Node.js website.
-2. Install it and restart VS Code.
-
-Check:
-
-```bash
-node -v
-npm -v
-which node
-```
-
-### Linux
-
-Using **nvm** is recommended:
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
-```
-
-Restart your terminal, then install Node.js 24 LTS:
-
-```bash
-nvm install 24
-```
-
-Check:
-
-```bash
-node -v
-npm -v
-which node
-```
+> TilTale is a **local authoring tool**. Django's development server is deliberately configured for localhost use; do not expose it as a production web service.
 
 ---
 
 ## Get TilTale
+
+You first need a local copy of the TilTale repository on your computer.
+
+There are two ways to get it.
 
 ### Recommended: Download ZIP
 
@@ -145,178 +82,25 @@ This is the easiest option if you are new to Git.
 6. Open the unpacked `tiltale-refactor` folder.
 7. Select **Terminal → New Terminal**.
 
-Check that you opened the correct folder:
-
-```powershell
-Test-Path package.json
-```
-
-It should return:
-
-```text
-True
-```
-
 ### More experienced? Use Git
 
-```powershell
+If Git is installed, you can clone the repository instead:
+
+```bash
 git clone https://github.com/tiltale/tiltale-refactor.git
 cd tiltale-refactor
 ```
 
----
+Then open the folder in VS Code.
 
-## Run TilTale
+### Check that you opened the repository root
 
-Install the exact project dependencies recorded in `package-lock.json`:
+The terminal must be inside the folder containing `manage.py`.
 
-```powershell
-npm ci
-```
-
-Then start the development server:
+#### Windows
 
 ```powershell
-npm run dev -- --open
-```
-
-Your browser should open TilTale automatically.
-
-If it does not, open the local address shown in the terminal, usually:
-
-```text
-http://localhost:5173
-```
-
-Stop the server with:
-
-```text
-Ctrl + C
-```
-
----
-
-## Useful commands
-
-| Command | What it does |
-|---|---|
-| `npm ci` | Installs the project's exact locked dependency versions. |
-| `npm install <package>` | Adds a new dependency to the project. |
-| `npm run dev` | Starts the local development server. |
-| `npm run dev -- --open` | Starts the server and opens TilTale. |
-| `npm run check` | Checks Svelte and TypeScript for problems. |
-| `npm run build` | Creates a production build. |
-| `npm run preview` | Tests the production build locally. |
-
-Before committing or handing in work:
-
-```powershell
-npm run check
-npm run build
-```
-
----
-
-## Tech stack
-
-You do not need to know these tools before you begin.
-
-| Technology | What it does |
-|---|---|
-| **Svelte 5** | Builds the user interface from reusable components. |
-| **SvelteKit 2** | Handles pages, routing, loading, and builds. |
-| **TypeScript** | Adds type checking and catches many mistakes earlier. |
-| **Vite 8** | Runs the development server and build process. |
-| **Tailwind CSS 4** | Provides utility classes for styling. |
-| **daisyUI 5** | Adds reusable UI components and themes. |
-| **adapter-static 3** | Builds TilTale as static files for deployment. |
-
-Exact installed versions are recorded in:
-
-```text
-package.json
-package-lock.json
-```
-
----
-
-## Project structure
-
-The parts of the project you will work with most:
-
-```text
-tiltale-refactor/
-├── src/
-│   ├── lib/        Reusable components and application code
-│   ├── routes/     Pages and routes
-│   └── app.css     Global styling
-├── static/         Images and other static files
-├── package.json
-```
-
-A few useful examples:
-
-- `src/routes/+page.svelte` → the home page
-- `src/lib/components/` → reusable Svelte components
-- `src/lib/types/` → shared TypeScript types
-- `static/` → images, icons, and other files served directly
-
----
-
-## Development conventions
-
-To keep TilTale understandable for everyone:
-
-- Use **TypeScript** for application code.
-- Name Svelte components with **PascalCase**, for example `StoryCard.svelte`.
-- Put reusable code in `src/lib`.
-- Use **Tailwind CSS**, **daisyUI**, and normal CSS for styling.
-- Do not manually edit `node_modules/`, `.svelte-kit/`, or `build/`.
-- Prefer readable code over clever code.
-
-In Svelte components, use:
-
-```svelte
-<script lang="ts">
-    // TypeScript here
-</script>
-```
-
----
-
-## Quick fixes
-
-### `node` or `npm` is not recognized
-
-Restart VS Code, then run:
-
-```powershell
-node -v
-npm -v
-```
-
-On Windows, check whether Node.js can be found:
-
-```powershell
-where.exe node
-```
-
-If nothing is returned, reinstall the current Node.js LTS release.
-
----
-
-### You are in the wrong folder
-
-Check your current location:
-
-```powershell
-Get-Location
-```
-
-Then check for `package.json`:
-
-```powershell
-Test-Path package.json
+Test-Path manage.py
 ```
 
 Expected:
@@ -325,45 +109,371 @@ Expected:
 True
 ```
 
----
+#### macOS
 
-### Dependencies are missing
-
-Run:
-
-```powershell
-npm ci
+```bash
+test -f manage.py && echo "True"
 ```
 
-Then:
+Expected:
+
+```text
+True
+```
+
+#### Linux
+
+```bash
+test -f manage.py && echo "True"
+```
+
+Expected:
+
+```text
+True
+```
+
+If you do not see `True`, open the correct repository folder before continuing.
+
+### Create the local virtual environment
+
+The virtual environment keeps TilTale's Python packages separate from other Python projects on your computer.
+
+#### Windows
 
 ```powershell
-npm run dev
+py -3.14 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+#### macOS
+
+```bash
+python3.14 -m venv .venv
+source .venv/bin/activate
+```
+
+#### Linux
+
+```bash
+python3.14 -m venv .venv
+source .venv/bin/activate
+```
+
+The terminal prompt should now start with:
+
+```text
+(.venv)
 ```
 
 ---
 
-### PowerShell says `npm.ps1` cannot be loaded
+## Run TilTale
 
-Use the Windows command wrapper instead:
+Install the pinned dependencies:
 
 ```powershell
-npm.cmd ci
-npm.cmd run dev
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-This avoids changing your PowerShell security settings.
+Check Django's configuration:
+
+```powershell
+python manage.py check
+```
+
+Start TilTale:
+
+```powershell
+python manage.py runserver
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/
+```
+
+Stop the server with:
+
+```text
+Ctrl + C
+```
+
+### Important: do not run the normal migration command on first start
+
+Do **not** run:
+
+```powershell
+python manage.py migrate
+```
+
+TilTale's authoring models belong to the active project's own SQLite file. The app creates and migrates `/project/project.sqlite3` when you create a project from the start page.
+
+That is intentional: **no `/project/` folder means “no active project.”** Merely starting Django must not create one.
 
 ---
+
+## First project
+
+If `/project/` does not exist, the home page gives you two paths:
+
+1. **Existing project:** copy its complete `project` folder into the TilTale repository root, then reload.
+2. **New project:** press **Create a new project** and enter its name, base language and optional extra languages.
+
+A new project looks like this:
+
+```text
+project/
+├── project.sqlite3
+├── content.xlsx
+├── default-colors.css
+├── style-overrides.css
+├── materials/
+└── logs/
+```
+
+`/project/` is ignored by Git because it may contain study data, project assets and local authoring state.
+
+Generated websites go to `/dist/`. That folder is also ignored because it is disposable: press **Regenerate** to rebuild it from source project data.
+
+---
+
+## Useful commands
+
+| Command | What it does |
+|---|---|
+| `.\.venv\Scripts\Activate.ps1` | Activates the local Python environment. |
+| `python -m pip install -r requirements.txt` | Installs TilTale's pinned dependencies. |
+| `python manage.py check` | Checks Django configuration without creating a project. |
+| `python manage.py test` | Runs the small source-level test suite. |
+| `python manage.py runserver` | Starts the local authoring application. |
+| `git status` | Shows source changes before you commit. |
+
+Before committing source work:
+
+```powershell
+python manage.py check
+python manage.py test
+git status
+```
+
+Verify that `project/` and `dist/` are **not** listed by Git.
+
+---
+
+## Tech stack
+
+The dependency budget is deliberately small.
+
+| Technology | Why TilTale needs it |
+|---|---|
+| **Python 3.14** | Main programming language. Type annotations are used on function inputs/returns and non-obvious local values. |
+| **Django 6.1** | Local routing, templates, validation, CSRF protection and SQLite ORM. |
+| **openpyxl** | Reads/writes `content.xlsx` without adding a dataframe dependency. |
+| **Pillow** | Creates responsive WebP variants of large project images during generation. |
+| **SQLite** | Project-local authoring database. No database server is required. |
+| **Vanilla JavaScript** | Dragging, flowchart interaction, device preview and the generated story runtime. |
+| **HTML/CSS/SVG** | Developer interface and framework-free generated stories/components. |
+
+### Why there is no frontend framework
+
+The authoring UI needs some rich interactions, but not enough to justify a second application framework and build tool today. Small browser behaviors live in one documented `studio/static/studio/app.js` file. If this becomes the wrong trade-off later, the requirement—not fashion—should trigger that change.
+
+---
+
+## Project structure
+
+```text
+tiltale/
+├── README.md
+├── QUICK_GUIDE.html          Visual project guide
+├── PROJECT_SPEC.md           Full product idea and roadmap boundaries
+├── requirements.txt
+├── manage.py
+│
+├── config/                   Minimal Django project plumbing
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+│
+├── studio/                   The one Django authoring app
+│   ├── models.py             Project-scoped authoring data
+│   ├── forms.py              Server-side durable-input validation
+│   ├── views.py              HTTP layer; delegates non-HTTP work
+│   ├── urls.py               All authoring routes
+│   ├── tests.py              Small behavior tests for durable rules
+│   ├── services/             Workbook/files/generation/log operations
+│   ├── templates/studio/     Django UI templates
+│   ├── static/studio/        One CSS + one authoring JS file
+│   └── migrations/           Project database schema
+│
+├── components/               Reusable story component definitions
+│   ├── speech-bubble/
+│   ├── choice-button/
+│   └── next-button/
+│
+└── runtime/                  Generic plain HTML/CSS/JS story runtime
+
+# Created locally and never committed:
+/project/
+/dist/
+/.venv/
+```
+
+### Component vs. element
+
+Use these terms consistently:
+
+- **Component** = reusable source definition in `/components/`.
+- **Element** = one placed instance of a component on a specific frame.
+
+This avoids phrases such as “component instance component” and keeps the database/source-code distinction clear.
+
+---
+
+## Content and languages
+
+`/project/content.xlsx` starts with:
+
+| content_id | en-US | nl-NL | note |
+|---:|---|---|---|
+| 1 | Hello. | Hallo. | opening bubble |
+| 2 | Continue | Verder | next choice |
+
+TilTale uses a **machine-managed positive integer `content_id`**:
+
+- If you type content on a new row and leave the ID empty, TilTale assigns the next unused ID when it reads the workbook.
+- Existing IDs never get renumbered.
+- Duplicate IDs are reported as an error.
+- The content picker still displays the physical Excel row to help humans find it.
+- `note` is optional and does not need to be unique.
+
+### Adding a language
+
+Add a new language column **before `note`** in `content.xlsx`, for example `de-DE`. Reload TilTale. The language automatically becomes available in the developer-side language selector and the next regeneration creates a new language-specific build.
+
+Element position, size and font size can be overridden for a selected translation without changing the shared frame/background/flow.
+
+---
+
+## Main workflows
+
+### `/`
+
+Project gate. It intentionally starts without a database/project if `/project/` is absent.
+
+### `/develop/`
+
+Developer dashboard with:
+
+- searchable frame list;
+- current generated story preview plus rendered frame thumbnails;
+- draggable/hideable frame-panel divider;
+- device viewport presets including older phones;
+- language selector;
+- Restart and Regenerate;
+- stale-build notice;
+- validation warnings linking back to frames.
+
+### `/develop/edit/frame-x/`
+
+Frame editor with:
+
+- image/solid/no background;
+- frame fade-in setting;
+- source components from `/components/`;
+- direct element dragging;
+- workbook content picker;
+- target-frame choice;
+- project/per-element colors;
+- delay behavior;
+- per-language geometry/font overrides.
+
+### `/develop/flowchart/`
+
+Dependency-free flowchart with persisted draggable positions, zoom-to-selection, edges and selected-frame connection details.
+
+### `/results/`
+
+Reads JSONL session logs from `/project/logs/` and can import downloaded JSONL logs.
+
+### Regeneration
+
+Regeneration deletes/recreates `/dist/`, runs practical project checks, creates responsive image variants and emits one plain website per workbook language:
+
+```text
+dist/
+└── project-slug---en-US/
+    ├── index.html
+    ├── script.js
+    ├── style.css
+    └── assets/
+```
+
+Warnings do not block generation; they are there to make problems visible while the story remains testable.
+
+---
+
+## Quick fixes
+
+### PowerShell says `Activate.ps1` cannot be loaded
+
+For your user account:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Open a new VS Code terminal, then:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### `python` is not recognized
+
+```powershell
+where.exe python
+py -0p
+```
+
+Check that the directory containing `python.exe` is in your user `PATH`.
+
+### Django is not installed
+
+Make sure the virtual environment is active, then:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+### Port 8000 is already in use
+
+Use another local port:
+
+```powershell
+python manage.py runserver 8001
+```
+
+### The preview did not update
+
+Look for the amber bottom status line / stale notice, then press **Regenerate**. `/dist/` is intentionally not updated on every database write.
+
+### A language is missing
+
+Open `/project/content.xlsx`. Language columns must appear after `content_id` and before `note`. Save the workbook and reload TilTale.
 
 ### Asking for help
 
-Include the output of:
+Include:
 
 ```powershell
-node -v
-npm -v
-npm run check
+python --version
+python -m django --version
+python manage.py check
+git status
 ```
 
-Also include the **first error message** shown in the terminal.
+Also include the **first error message**, not only the final stack-trace line.

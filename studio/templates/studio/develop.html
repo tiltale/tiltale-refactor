@@ -1,0 +1,74 @@
+{% extends 'studio/base.html' %}
+{% block title %}Develop · TilTale{% endblock %}
+{% block body %}
+<main class="develop-shell" data-develop data-preview="{{ preview_url }}" data-language="{{ selected_language }}">
+  <aside class="frame-panel" data-frame-panel>
+    <div class="panel-heading">
+      <div><p class="eyebrow">Frames</p><strong>{{ frames|length }} total</strong></div>
+      <button class="icon-button" type="button" data-collapse-panel title="Hide frame panel">←</button>
+    </div>
+    <input class="search" type="search" placeholder="Search unique frame name" aria-label="Search frames" data-frame-search>
+    <div class="frame-list" data-frame-list>
+      {% for frame in frames %}
+      <article class="frame-thumb" data-frame-name="{{ frame.name }}">
+        <div class="thumb-canvas" data-thumb-canvas aria-hidden="true">
+          {% if dist_ready %}<iframe loading="lazy" tabindex="-1" src="{{ preview_url }}?preview=1&inspect=1&frame={{ frame.name|urlencode }}" title=""></iframe>{% else %}<span>{{ frame.name }}</span>{% endif %}
+        </div>
+        <strong>{{ frame.name }}</strong>
+        <div class="thumb-actions">
+          {% if dist_ready %}<button type="button" class="button small" data-view-frame="{{ frame.name }}">View</button>{% endif %}
+          <a class="button small secondary" href="{% url 'studio:frame_editor' frame.name %}?lang={{ selected_language|urlencode }}">Edit</a>
+        </div>
+      </article>
+      {% empty %}<p class="empty">No frames yet. Create the first frame from the toolbar.</p>{% endfor %}
+    </div>
+  </aside>
+
+  <div class="panel-resizer" data-panel-resizer role="separator" aria-label="Resize frame panel" aria-orientation="vertical" tabindex="0"></div>
+
+  <section class="preview-panel">
+    <div class="develop-toolbar">
+      <button class="icon-button panel-opener" type="button" data-open-panel title="Show frame panel">→</button>
+      <form method="post" action="{% url 'studio:regenerate' %}">{% csrf_token %}<button class="button primary" type="submit">Regenerate</button></form>
+      <button class="button" type="button" data-restart-preview>Restart</button>
+      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<button class="button" type="submit">+ Frame</button></form>
+      <label class="compact-field">View
+        <select data-device-select>
+          {% for device in devices %}<option value="{{ device.width }}x{{ device.height }}" {% if device.key == 'iphone-15' %}selected{% endif %}>{{ device.label }} · {{ device.width }}×{{ device.height }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="compact-field">Language
+        <select data-language-select>
+          {% for language in languages %}<option value="{{ language }}" {% if language == selected_language %}selected{% endif %}>{{ language }}</option>{% endfor %}
+        </select>
+      </label>
+      <a class="button" href="{% url 'studio:flowchart' %}?lang={{ selected_language|urlencode }}">Flowchart</a>
+    </div>
+
+    {% if content_error %}<div class="inline-alert error"><strong>Content file:</strong> {{ content_error }}</div>{% endif %}
+    {% if dist_stale %}<div class="inline-alert warning"><strong>Preview is stale.</strong> Changes were found after the last build. Regenerate to see them in the demo.</div>{% endif %}
+    {% if issues %}
+      <details class="validation" {% if not dist_ready %}open{% endif %}>
+        <summary>{{ issues|length }} preflight check{{ issues|length|pluralize }}</summary>
+        <ul>
+          {% for issue in issues %}
+            <li class="{{ issue.severity }}"><strong>{{ issue.severity|title }}:</strong> {{ issue.message }}
+              {% if issue.frame_name %}<a href="{% url 'studio:frame_editor' issue.frame_name %}?lang={{ selected_language|urlencode }}">Edit {{ issue.frame_name }}</a>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+
+    <div class="preview-stage" data-preview-stage>
+      {% if dist_ready %}
+        <div class="device-shell" data-device-shell>
+          <iframe title="Generated TilTale story preview" src="{{ preview_url }}?preview=1" data-preview-iframe></iframe>
+        </div>
+      {% else %}
+        <div class="empty-state"><h2>No generated preview yet</h2><p>Create/edit frames, then press <strong>Regenerate</strong>. Validation warnings do not block generation.</p></div>
+      {% endif %}
+    </div>
+  </section>
+</main>
+{% endblock %}

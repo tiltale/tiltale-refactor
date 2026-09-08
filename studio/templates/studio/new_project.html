@@ -1,0 +1,17 @@
+{% extends 'studio/base.html' %}
+{% block title %}New project · TilTale{% endblock %}
+{% block body %}
+<main class="page page-narrow">
+  <a class="back-link" href="{% url 'studio:home' %}">← Back</a>
+  <h1>Create a project</h1>
+  <p>This creates <code>/project/</code>, its SQLite authoring database, <code>content.xlsx</code>, materials/log folders, and editable project color files.</p>
+  <form method="post" class="form-card">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <label>Project name {{ form.name }} {{ form.name.errors }}</label>
+    <label>Base language {{ form.base_language }} <small>Use a code such as <code>en-US</code>.</small>{{ form.base_language.errors }}</label>
+    <label>Extra languages {{ form.extra_languages }} <small>Optional, comma-separated. You can also add language columns to <code>content.xlsx</code> later.</small>{{ form.extra_languages.errors }}</label>
+    <button class="button primary" type="submit">Create project</button>
+  </form>
+</main>
+{% endblock %}

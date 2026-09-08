@@ -1,0 +1,32 @@
+{% extends 'studio/base.html' %}
+{% block title %}Flowchart · TilTale{% endblock %}
+{% block body %}
+<main class="page flow-page" data-flowchart>
+  <div class="page-heading split-heading">
+    <div><p class="eyebrow">Story structure</p><h1>Flowchart</h1><p>Dots show frames. Arrows show clickable elements that lead elsewhere. Drag a frame to keep a layout you prefer.</p></div>
+    <div class="actions">
+      <label class="compact-field">Language <select data-flow-language>{% for language in languages %}<option {% if language == selected_language %}selected{% endif %}>{{ language }}</option>{% endfor %}</select></label>
+      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<button class="button" type="submit">+ Frame</button></form>
+    </div>
+  </div>
+  <div class="flow-toolbar"><button class="button small" type="button" data-flow-zoom="out">−</button><output data-flow-zoom-label>100%</output><button class="button small" type="button" data-flow-zoom="in">+</button><span class="muted">Click a frame to inspect its outgoing choices.</span></div>
+  <div class="flow-viewport" data-flow-viewport>
+    <div class="flow-world" data-flow-world>
+      <svg class="flow-lines" data-flow-lines aria-hidden="true"></svg>
+      {% for node in nodes %}
+        <button class="flow-node {% if node.fade_in %}has-fade{% endif %}" type="button" data-flow-node="{{ node.name }}" data-x="{{ node.x }}" data-y="{{ node.y }}" style="left:{{ node.x }}px;top:{{ node.y }}px">
+          <span class="flow-dot"></span><strong>{{ node.name }}</strong>{% if node.fade_in %}<span title="Frame fades in">◐</span>{% endif %}
+        </button>
+      {% empty %}<div class="empty-state">No frames yet.</div>{% endfor %}
+    </div>
+  </div>
+  <aside class="flow-inspector" data-flow-inspector hidden>
+    <button class="icon-button" type="button" data-flow-close>×</button>
+    <p class="eyebrow">Selected frame</p><h2 data-flow-title></h2>
+    <div data-flow-connections></div>
+    <a class="button primary" href="#" data-flow-edit>Edit frame</a>
+  </aside>
+  {{ nodes|json_script:"flow-nodes-data" }}
+  {{ edges|json_script:"flow-edges-data" }}
+</main>
+{% endblock %}
