@@ -2,6 +2,7 @@
 {% block title %}Flowchart · TilTale{% endblock %}
 {% block body %}
 <main class="page flow-page" data-flowchart>
+  {% if content_error %}<div class="inline-alert error">{{ content_error }}</div>{% endif %}
   <div class="page-heading split-heading">
     <div><p class="eyebrow">Story structure</p><h1>Flowchart</h1><p>Dots show frames. Arrows show clickable elements that lead elsewhere. Drag a frame to keep a layout you prefer.</p></div>
     <div class="actions">

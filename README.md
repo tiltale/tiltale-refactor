@@ -57,7 +57,7 @@ where.exe python
 | Editor | Visual Studio Code |
 | Shell | PowerShell |
 
-Exact Python dependencies are pinned in `requirements.txt`.
+Compatible dependency ranges are recorded in `requirements.txt`; patch updates within the current minor release are allowed.
 
 > TilTale is a **local authoring tool**. Django's development server is deliberately configured for localhost use; do not expose it as a production web service.
 
@@ -170,7 +170,7 @@ The terminal prompt should now start with:
 
 ## Run TilTale
 
-Install the pinned dependencies:
+Install the project dependencies:
 
 ```powershell
 python -m pip install --upgrade pip
@@ -201,17 +201,23 @@ Stop the server with:
 Ctrl + C
 ```
 
-### Important: do not run the normal migration command on first start
+### Database migrations
 
-Do **not** run:
+You do **not** need to run a migration command during normal setup. TilTale's authoring models belong to the active project's own SQLite file, and a newly created project is migrated automatically.
+
+That is intentional: **no `/project/` folder means “no active project.”** Merely starting Django must not create one.
+
+Do not run the normal default-database command:
 
 ```powershell
 python manage.py migrate
 ```
 
-TilTale's authoring models belong to the active project's own SQLite file. The app creates and migrates `/project/project.sqlite3` when you create a project from the start page.
+If a future TilTale update requires an older copied project to update its database schema, use the project database explicitly:
 
-That is intentional: **no `/project/` folder means “no active project.”** Merely starting Django must not create one.
+```powershell
+python manage.py migrate --database=project
+```
 
 ---
 
@@ -245,7 +251,7 @@ Generated websites go to `/dist/`. That folder is also ignored because it is dis
 | Command | What it does |
 |---|---|
 | `.\.venv\Scripts\Activate.ps1` | Activates the local Python environment. |
-| `python -m pip install -r requirements.txt` | Installs TilTale's pinned dependencies. |
+| `python -m pip install -r requirements.txt` | Installs TilTale's project dependencies. |
 | `python manage.py check` | Checks Django configuration without creating a project. |
 | `python manage.py test` | Runs the small source-level test suite. |
 | `python manage.py runserver` | Starts the local authoring application. |
@@ -288,8 +294,6 @@ The authoring UI needs some rich interactions, but not enough to justify a secon
 ```text
 tiltale/
 ├── README.md
-├── QUICK_GUIDE.html          Visual project guide
-├── PROJECT_SPEC.md           Full product idea and roadmap boundaries
 ├── requirements.txt
 ├── manage.py
 │
@@ -337,10 +341,11 @@ This avoids phrases such as “component instance component” and keeps the dat
 
 `/project/content.xlsx` starts with:
 
-| content_id | en-US | nl-NL | note |
+| content_id | note | en-US | nl-NL |
 |---:|---|---|---|
-| 1 | Hello. | Hallo. | opening bubble |
-| 2 | Continue | Verder | next choice |
+| 1 | opening bubble | Hello. | Hallo. |
+| 2 | next choice | Continue | Verder |
+ 
 
 TilTale uses a **machine-managed positive integer `content_id`**:
 
@@ -352,7 +357,7 @@ TilTale uses a **machine-managed positive integer `content_id`**:
 
 ### Adding a language
 
-Add a new language column **before `note`** in `content.xlsx`, for example `de-DE`. Reload TilTale. The language automatically becomes available in the developer-side language selector and the next regeneration creates a new language-specific build.
+Column A is `content_id` and column B is `note`. Every named column after that is a language. To add a language, enter its code (for example `de-DE`) in the next empty column and reload TilTale. The language automatically becomes available in the developer-side language selector and the next regeneration creates a new language-specific build.
 
 Element position, size and font size can be overridden for a selected translation without changing the shared frame/background/flow.
 
@@ -463,7 +468,13 @@ Look for the amber bottom status line / stale notice, then press **Regenerate**.
 
 ### A language is missing
 
-Open `/project/content.xlsx`. Language columns must appear after `content_id` and before `note`. Save the workbook and reload TilTale.
+Open `/project/content.xlsx`. Column A must be `content_id`, column B must be `note`, and language columns come after them. Add new languages in the next empty column, save the workbook and reload TilTale.
+
+### `content.xlsx` cannot be read or updated
+
+Close `content.xlsx` in Excel or any other program that may be locking the file, then reload TilTale or press **Regenerate** again.
+
+---
 
 ### Asking for help
 

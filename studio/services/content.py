@@ -36,12 +36,12 @@ def create_content_workbook(path: Path, languages: list[str]) -> None:
     workbook: Workbook = Workbook()
     sheet: Worksheet = workbook.active
     sheet.title = "content"
-    sheet.append(["content_id", *languages, "note"])
+    sheet.append(["content_id", "note", *languages])
     sheet.freeze_panes = "A2"
     sheet.column_dimensions["A"].width = 14
-    for index in range(2, 2 + len(languages)):
+    sheet.column_dimensions["B"].width = 28
+    for index in range(3, 3 + len(languages)):
         sheet.column_dimensions[sheet.cell(row=1, column=index).column_letter].width = 42
-    sheet.column_dimensions[sheet.cell(row=1, column=2 + len(languages)).column_letter].width = 28
     workbook.save(path)
 
 
@@ -74,22 +74,26 @@ def load_content_table(path: Path, assign_missing_ids: bool = True) -> ContentTa
     if not path.is_file():
         raise FileNotFoundError(f"Content workbook not found: {path}")
 
-    workbook = load_workbook(path)
+    try:
+        workbook = load_workbook(path)
+    except PermissionError as error:
+        raise ValueError(
+            "content.xlsx cannot be read. Close it in Excel or another program, then reload TilTale."
+        ) from error
     sheet: Worksheet = workbook.active
     headers: list[str] = [_text(cell.value) for cell in sheet[1]]
     while headers and not headers[-1]:
         headers.pop()
     if not headers or headers[0] != "content_id":
         raise ValueError("content.xlsx must start with a 'content_id' column.")
-    if not headers or headers[-1] != "note":
-        raise ValueError("content.xlsx must end with a final 'note' column; language columns go before it.")
+    if len(headers) < 2 or headers[1] != "note":
+        raise ValueError("The second column in content.xlsx must be 'note'. Language columns go after it.")
 
-    note_index: int = len(headers) - 1
-    languages: tuple[str, ...] = tuple(
-        header for header in headers[1:note_index] if header
-    )
+    languages: tuple[str, ...] = tuple(headers[2:])
     if not languages:
-        raise ValueError("content.xlsx needs at least one language column.")
+        raise ValueError("content.xlsx needs at least one language column after 'note'.")
+    if any(not language for language in languages):
+        raise ValueError("Language columns in content.xlsx must be named; do not leave blank columns between languages.")
     if len({language.casefold() for language in languages}) != len(languages):
         raise ValueError("Language column names in content.xlsx must be unique.")
 
@@ -111,10 +115,10 @@ def load_content_table(path: Path, assign_missing_ids: bool = True) -> ContentTa
     workbook_changed: bool = False
     for excel_row in range(2, sheet.max_row + 1):
         language_values: dict[str, str] = {
-            language: _text(sheet.cell(excel_row, 2 + index).value)
+            language: _text(sheet.cell(excel_row, 3 + index).value)
             for index, language in enumerate(languages)
         }
-        note: str = _text(sheet.cell(excel_row, note_index + 1).value)
+        note: str = _text(sheet.cell(excel_row, 2).value)
         raw_id = sheet.cell(excel_row, 1).value
         row_has_content: bool = bool(note or any(language_values.values()))
         if not row_has_content and raw_id in (None, ""):
@@ -140,6 +144,11 @@ def load_content_table(path: Path, assign_missing_ids: bool = True) -> ContentTa
         )
 
     if workbook_changed:
-        workbook.save(path)
+        try:
+            workbook.save(path)
+        except PermissionError as error:
+            raise ValueError(
+                "content.xlsx could not be updated. Close it in Excel or another program, then reload TilTale."
+            ) from error
 
     return ContentTable(languages=languages, rows=tuple(rows))

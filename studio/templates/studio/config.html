@@ -12,8 +12,9 @@
   </form>
   <section class="plain-section">
     <h2>Languages</h2>
+    {% if content_error %}<div class="inline-alert error">{{ content_error }}</div>{% endif %}
     <p>{% for language in languages %}<span class="pill">{{ language }}</span>{% endfor %}</p>
-    <p class="muted">Languages come from the columns between <code>content_id</code> and <code>note</code> in <code>/project/content.xlsx</code>. Add/remove language columns there, not here.</p>
+    <p class="muted">In <code>/project/content.xlsx</code>, column A is <code>content_id</code>, column B is <code>note</code>, and every following named column is a language. Add a language in the next empty column and reload TilTale.</p>
   </section>
 </main>
 {% endblock %}

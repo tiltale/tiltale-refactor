@@ -132,12 +132,11 @@ def _element_view(
     }
 
 
-def quick_guide(request: HttpRequest) -> HttpResponse:
-    """Serve the standalone guide from the repository root."""
-    path: Path = settings.BASE_DIR / "QUICK_GUIDE.html"
-    if not path.is_file():
-        return HttpResponseNotFound("Quick guide not found.")
-    return FileResponse(path.open("rb"), content_type="text/html; charset=utf-8")
+def help_page(request: HttpRequest) -> HttpResponse:
+    """Show concise in-app explanations without depending on separate guide files."""
+    return render(request, "studio/help.html", {
+        "page": "help", "project": _active_project(),
+    })
 
 
 def home(request: HttpRequest) -> HttpResponse:
@@ -222,13 +221,16 @@ def project_config(request: HttpRequest) -> HttpResponse:
     if request.method == "POST" and form.is_valid():
         form.save()
         return _notice_redirect("studio:config", "Project settings saved.")
+    content_error: str = ""
     try:
         languages: tuple[str, ...] = _content_table().languages
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
+        content_error = str(error)
         languages = (project.base_language,)
     return render(request, "studio/config.html", {
         "page": "config", "project": project, "form": form,
-        "languages": languages, "notice": request.GET.get("notice", ""),
+        "languages": languages, "content_error": content_error,
+        "notice": request.GET.get("notice", ""),
     })
 
 
@@ -244,12 +246,14 @@ def flowchart(request: HttpRequest) -> HttpResponse:
     project: ProjectSettings | None = _active_project()
     if project is None:
         return redirect("studio:home")
+    content_error: str = ""
     try:
         content: ContentTable = _content_table()
         language: str = _language(content, project, request.GET.get("lang"))
         content_by_id: dict[int, ContentRow] = content.by_id()
         languages: tuple[str, ...] = content.languages
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
+        content_error = str(error)
         language = project.base_language
         languages = (project.base_language,)
         content_by_id = {}
@@ -276,7 +280,7 @@ def flowchart(request: HttpRequest) -> HttpResponse:
     return render(request, "studio/flowchart.html", {
         "page": "flowchart", "project": project, "nodes": nodes, "edges": edges,
         "languages": languages, "selected_language": language,
-        "notice": request.GET.get("notice", ""),
+        "content_error": content_error, "notice": request.GET.get("notice", ""),
     })
 
 

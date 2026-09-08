@@ -4,8 +4,10 @@ These tests intentionally avoid HTML formatting, line counts, private helpers,
 and other brittle implementation details.
 """
 
+from importlib.resources import path
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 from openpyxl import load_workbook
@@ -28,13 +30,21 @@ class LanguageTests(SimpleTestCase):
 
 
 class ContentWorkbookTests(SimpleTestCase):
+    def test_created_workbook_puts_note_before_languages(self) -> None:
+        with TemporaryDirectory() as directory:
+            path: Path = Path(directory) / "content.xlsx"
+            create_content_workbook(path, ["en-US", "nl-NL"])
+            workbook = load_workbook(path)
+            headers = [cell.value for cell in workbook.active[1]]
+            self.assertEqual(headers, ["content_id", "note", "en-US", "nl-NL"])
+
     def test_missing_id_is_assigned_once_and_survives_row_insertion(self) -> None:
         with TemporaryDirectory() as directory:
             path: Path = Path(directory) / "content.xlsx"
             create_content_workbook(path, ["en-US", "nl-NL"])
             workbook = load_workbook(path)
             sheet = workbook.active
-            sheet.append([None, "Hello", "Hallo", "opening"])
+            sheet.append([None, "opening", "Hello", "Hallo"])
             workbook.save(path)
 
             first = load_content_table(path)
@@ -52,12 +62,21 @@ class ContentWorkbookTests(SimpleTestCase):
             path: Path = Path(directory) / "content.xlsx"
             create_content_workbook(path, ["en-US"])
             workbook = load_workbook(path)
-            workbook.active.append([1.5, "Hello", "bad ID"])
+            workbook.active.append([1.5, "bad ID", "Hello"])
             workbook.save(path)
             with self.assertRaisesRegex(ValueError, "must be an integer"):
                 load_content_table(path)
 
 
+    def test_locked_workbook_has_a_clear_error(self) -> None:
+        with TemporaryDirectory() as directory:
+            path: Path = Path(directory) / "content.xlsx"
+            path.touch()
+            with patch("studio.services.content.load_workbook", side_effect=PermissionError):
+                with self.assertRaisesRegex(ValueError, "Close it in Excel"):
+                    load_content_table(path)
+
+ 
 class FileBoundaryTests(SimpleTestCase):
     def test_safe_child_rejects_parent_traversal(self) -> None:
         with TemporaryDirectory() as directory:

@@ -18,3 +18,6 @@ Thumbs.db
 
 # Local diagnostics
 *.log
+
+# ZIP files
+*.zip

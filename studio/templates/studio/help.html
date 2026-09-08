@@ -1,0 +1,35 @@
+{% extends 'studio/base.html' %}
+{% block title %}Help · TilTale{% endblock %}
+{% block body %}
+<main class="page page-narrow">
+  <section class="hero">
+    <p class="eyebrow">TilTale help</p>
+    <h1>How TilTale fits together</h1>
+    <p>TilTale is a local Django authoring tool. You edit a project here, then <strong>Regenerate</strong> to create a separate framework-free story website in <code>/dist/</code>.</p>
+  </section>
+
+  <section class="plain-section">
+    <h2>Project files</h2>
+    <p>Your active work lives in <code>/project/</code>. It contains the project database, <code>content.xlsx</code>, materials, colors and study logs.</p>
+    <div class="callout"><strong>Keep local data local.</strong> <code>/project/</code> and generated <code>/dist/</code> are ignored by Git and should not be committed.</div>
+  </section>
+
+  <section class="plain-section">
+    <h2>Content and languages</h2>
+    <p>The workbook uses this simple order:</p>
+    <p><code>content_id | note | en-US | nl-NL | ...</code></p>
+    <p><code>content_id</code> is managed by TilTale. <code>note</code> is for your own context. Every named column after that is a language, so adding a language means typing its code in the next empty column.</p>
+    <div class="callout"><strong>If Excel is open:</strong> close <code>content.xlsx</code> before reloading or regenerating when TilTale reports that the workbook cannot be read or updated.</div>
+  </section>
+
+  <section class="plain-section">
+    <h2>Main pages</h2>
+    <p><strong>Develop</strong> previews frames and the generated story. <strong>Flowchart</strong> shows frame connections. <strong>Project settings</strong> contains project-wide defaults. <strong>Results</strong> reads local or imported JSONL session logs.</p>
+  </section>
+
+  <section class="plain-section">
+    <h2>First-start rule</h2>
+    <p>No <code>/project/</code> folder means there is no active project. Create one from TilTale or copy in a complete existing <code>project</code> folder. Do not run <code>python manage.py migrate</code> as a first-start setup step.</p>
+  </section>
+</main>
+{% endblock %}

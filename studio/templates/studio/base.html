@@ -19,7 +19,7 @@
         <a href="{% url 'studio:results' %}" {% if page == 'results' %}aria-current="page"{% endif %}>Results</a>
       </nav>
     {% endif %}
-    <a class="help-link" href="{% url 'studio:quick_guide' %}" target="_blank" rel="noreferrer" title="Open the local guide">?</a>
+    <a class="help-link" href="{% url 'studio:help' %}" title="Help and explanations">?</a>
   </header>
 
   {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}

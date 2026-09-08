@@ -1,8 +1,8 @@
 """Small, local-only Django settings for TilTale.
 
 TilTale deliberately has two database aliases:
-- ``default`` is an in-memory bootstrap database. It lets Django start even when
-  no project exists yet.
+- ``default`` is intentionally unconfigured. Django requires the alias to exist,
+  but TilTale does not store application data there.
 - ``project`` points to ``/project/project.sqlite3``. Studio models are routed
   there and are migrated only when a project is created or imported.
 
@@ -57,10 +57,10 @@ TEMPLATES: list[dict[str, object]] = [
 WSGI_APPLICATION: str = "config.wsgi.application"
 
 DATABASES: dict[str, dict[str, object]] = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": ":memory:",
-    },
+    # Django requires a ``default`` alias even when an application routes all
+    # model access elsewhere. Leaving it empty prevents Django's development
+    # server from reporting studio migrations against a disposable database.
+    "default": {},
     "project": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": str(PROJECT_DB),
