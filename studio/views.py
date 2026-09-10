@@ -25,13 +25,14 @@ from .services.content import ContentTable, append_content_row, load_content_tab
 from .services.flow import create_frame, tidy_layout
 from .services.generate import dist_is_stale, generate_dist, language_folder, load_build_report, page_path, story_css
 from .services.llm import frame_prompt, parse_elements
-from .services.project import BRANDING_FILES, create_project, list_materials, project_health, project_settings, safe_child
+from .services.project import BRANDING_FILES, create_project, image_size, list_materials, project_health, project_settings, safe_child
 from .services.study_logs import append_event, import_jsonl, logs_dir, read_events, session_summaries
 from .services.validate import DEVICE_PRESETS, validate_project
 
-GEOMETRY_FIELDS: tuple[tuple[str, str, float | None], ...] = (
-    ("x", "X", None), ("y", "Y", None), ("width", "Width", 20), ("height", "Height", 20), ("font_size", "Font size", 6),
+BOX_FIELDS: tuple[tuple[str, str, float | None], ...] = (
+    ("x", "X", None), ("y", "Y", None), ("width", "Width", 20), ("height", "Height", 20),
 )
+GEOMETRY_FIELDS: tuple[tuple[str, str, float | None], ...] = (*BOX_FIELDS, ("font_size", "Font size", 6))
 PREVIEW_MISSING: str = (
     '<!doctype html><meta charset="utf-8"><body style="margin:0;display:grid;place-items:center;height:100vh;'
     'background:#e6e8ec;font:15px/1.5 system-ui,sans-serif;color:#677084;text-align:center">'
@@ -131,6 +132,13 @@ def _save_geometry(element: Element, language: str, project: ProjectSettings, va
         override.delete()
     else:
         override.save()
+
+
+def _cover_box(image: str, project: ProjectSettings) -> dict[str, float]:
+    """Where an unmoved background image sits: centered and filling the frame, like CSS ``background-size: cover``."""
+    width, height = image_size(image)
+    scale: float = max(project.frame_width / width, project.frame_height / height)
+    return {"x": project.frame_width / 2, "y": project.frame_height / 2, "width": width * scale, "height": height * scale}
 
 
 def _rebuild_preview(request: HttpRequest, project: ProjectSettings) -> None:
@@ -348,7 +356,7 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) 
     elements: list[dict[str, Any]] = []
     for element in frame.elements.prefetch_related("language_overrides"):
         component = components.get(element.component)
-        if component is None:
+        if component is None and not element.image:
             continue  # the dashboard's preflight list reports unknown components
         row = rows.get(element.content_id) if element.content_id else None
         elements.append({
@@ -371,13 +379,16 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) 
         target_options.append(("end", "End story (go to the finish redirect URL)"))
     target_options.append(("new", "+ Create a new frame and go there"))
 
-    background_url: str = ""
-    if frame.background_type == Frame.BackgroundType.IMAGE and frame.background_image:
-        background_url = reverse("studio:material_file", kwargs={"path": frame.background_image})
+    background: dict[str, Any] | None = None
+    if frame.background_type == Frame.BackgroundType.IMAGE and frame.background_image in materials:
+        background = {
+            "url": reverse("studio:material_file", kwargs={"path": frame.background_image}),
+            "box": frame.background_box or _cover_box(frame.background_image, project),
+        }
     return render(request, "studio/edit_frame.html", {
         "project": project, "frame": frame, "form": form, "content": content, "language": language,
         "materials": materials, "components": component_list, "project_css": story_css(),
-        "background_url": background_url, "elements": elements, "target_options": target_options,
+        "background": background, "elements": elements, "target_options": target_options,
         "content_rows": [
             {"id": row.content_id, "excel_row": row.excel_row, "text": row.values.get(language, ""), "note": row.note}
             for row in content.table.rows
@@ -415,6 +426,26 @@ def add_element(request: HttpRequest, project: ProjectSettings, frame_id: int) -
     )
     messages.success(request, f"Added a {component.name}. Drag it into place; right-click it for settings.")
     return _to("frame_editor", lang=lang, frame_id=frame.id)
+
+
+@require_POST
+@project_view
+def add_image(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
+    frame: Frame = get_object_or_404(Frame, pk=frame_id)
+    image: str = request.POST.get("image", "")
+    back: HttpResponse = _to("frame_editor", lang=request.POST.get("language", ""), frame_id=frame.id)
+    if image not in list_materials():
+        messages.error(request, "Choose an image that exists in /project/materials/.")
+        return back
+    width, height = image_size(image)
+    scale: float = min(1.0, project.frame_width / 2 / width, project.frame_height / 2 / height)  # at most half the frame
+    offset: float = frame.elements.count() % 5 * 40.0
+    Element.objects.create(
+        frame=frame, image=image, x=project.frame_width / 2 + offset, y=project.frame_height / 2 + offset,
+        width=width * scale, height=height * scale,
+    )
+    messages.success(request, f"Added {image}. Drag it into place; drag its corner to resize it.")
+    return back
 
 
 @require_POST
@@ -591,7 +622,7 @@ def element_position_api(request: HttpRequest, project: ProjectSettings, element
     element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
     try:
         data: dict[str, Any] = _json_body(request)
-        values: dict[str, float] = {"x": _number(data.get("x"), "X"), "y": _number(data.get("y"), "Y")}
+        values: dict[str, float] = {key: _number(data.get(key), label, low) for key, label, low in BOX_FIELDS}
         language: str = str(data.get("language") or project.base_language)
         if element.frame.is_language_picker:
             language = project.base_language
@@ -601,6 +632,21 @@ def element_position_api(request: HttpRequest, project: ProjectSettings, element
         return JsonResponse({"error": str(error)}, status=400)
     _save_geometry(element, language, project, values)
     element.save()
+    return JsonResponse({"ok": True})
+
+
+@require_POST
+@project_view
+def background_box_api(request: HttpRequest, project: ProjectSettings, frame_id: int) -> JsonResponse:
+    frame: Frame = get_object_or_404(Frame, pk=frame_id)
+    try:
+        data: dict[str, Any] = _json_body(request)
+        box: dict[str, float] = {key: _number(data.get(key), label, low) for key, label, low in BOX_FIELDS}
+    except ValueError as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    for key, value in box.items():
+        setattr(frame, f"background_{key}", value)
+    frame.save(update_fields=[f"background_{key}" for key in box])
     return JsonResponse({"ok": True})
 
 

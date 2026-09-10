@@ -15,13 +15,40 @@ Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project
 
 ## Daily workflow
 
-1. **Develop**: add frames (`+ Frame`), place components on them, pick texts from `content.xlsx`, and set what each button does. Adding or deleting a frame updates the preview automatically; after other changes, press **Regenerate**.
+1. **Develop**: add frames (`+ Frame`), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Adding or deleting a frame updates the preview automatically; after other changes, press **Regenerate**.
 2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
 4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.
 5. Upload `/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**.
 
 The status bar at the bottom shows whether everything is saved and in the preview. It is checked on every page load, and turns red as soon as a background save (dragging an element or frame) fails.
+
+## Shortcuts
+
+On a Mac, use `Cmd` wherever this says `Ctrl`.
+
+**Frame editor** (elements, images and the background image)
+
+| Do this | To |
+|---|---|
+| Drag | move it. Its edges stick to the edges of other elements, shown by a blue line. |
+| `Shift` + drag | move it only horizontally or only vertically, whichever way you drag furthest. |
+| Drag the corner dot (appears on hover) | resize it. Images and the background keep their proportions; components do not. |
+| Click an element or image, or `Tab` to it and press `Enter` | open its settings (text, exact size and position, colors, what a click does). |
+| `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` | undo / redo a move or resize. The history covers the current page: it starts over after anything that reloads it, such as adding an element or saving settings. Inside a text field these keys undo typing instead. |
+| Click a component or image in the side panel | preview it, then **Add to frame** (or, for images, **Use as background**). |
+| `Esc` | close a dialog. |
+
+**Flowchart**
+
+| Do this | To |
+|---|---|
+| Click a frame | zoom to it and show its preview and links. |
+| Drag a frame | move it; the position is saved. |
+| `Shift` + click | select several frames, then drag one to move them all. |
+| Drag the background | pan. |
+| Mouse wheel, or the `−` / `+` buttons | zoom. **Fit** shows every frame. |
+| Double-click a frame, or `Tab` to it and press `Enter` | open it in the frame editor. |
 
 ## Frame names
 

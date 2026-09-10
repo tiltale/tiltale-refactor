@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
+from PIL import Image
 
 from .forms import FrameForm, ProjectSettingsForm, normalize_language, parse_extra_languages
 from .models import Element, Frame, ProjectSettings, name_key
@@ -19,7 +20,7 @@ from .services.content import append_content_row, create_content_workbook, load_
 from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.generate import generate_dist, language_folder, reset_dist_directory
 from .services.llm import parse_elements
-from .services.project import safe_child
+from .services.project import image_size, safe_child
 from .services.study_logs import import_jsonl, log_file_name, safe_name, session_kind
 from .services.validate import validate_project
 
@@ -156,6 +157,17 @@ class FileBoundaryTests(SimpleTestCase):
         self.assertEqual(names, ["R_abc--v1.jsonl", "logs"])
 
 
+class ImageSizeTests(SimpleTestCase):
+    def test_exif_rotated_photos_report_their_upright_size(self) -> None:
+        with TemporaryDirectory() as directory:
+            (Path(directory) / "materials").mkdir()
+            exif = Image.Exif()
+            exif[0x0112] = 6  # Orientation: rotate 90° when shown
+            Image.new("RGB", (400, 300)).save(Path(directory) / "materials" / "photo.jpg", exif=exif)
+            with override_settings(PROJECT_DIR=Path(directory)):
+                self.assertEqual(image_size("photo.jpg"), (300, 400))
+
+
 class StudyLogTests(SimpleTestCase):
     def test_every_visit_gets_its_own_log_file(self) -> None:
         self.assertEqual(log_file_name(EVENT), "R_abc--20260910T101530Z-a1b2.jsonl")
@@ -227,6 +239,12 @@ class FrameNameTests(TestCase):
     def test_new_picker_frames_are_called_picker(self) -> None:
         frame = create_frame(is_picker=True)
         self.assertEqual(frame.name, f"Picker {frame.pk}")
+
+    def test_a_new_background_image_fills_the_frame_again(self) -> None:
+        frame = Frame.objects.create(name="frame-1", background_type="image", background_image="old.png", background_width=50)
+        data = {"name": "frame-1", "background_type": "image", "background_color": "#111111", "background_image": "new.png"}
+        FrameForm(data, instance=frame, materials=["new.png"]).save()
+        self.assertIsNone(Frame.objects.get(pk=frame.pk).background_box)
 
     def test_renaming_keeps_the_id(self) -> None:
         frame = create_frame()
@@ -317,6 +335,27 @@ class StudioViewTests(ProjectTestCase):
         self.client.post(reverse("studio:import_elements", kwargs={"frame_id": frame.id}), {"answer": answer})
         self.assertEqual(frame.elements.get().target_frame, target)
 
+    def test_added_image_keeps_its_aspect_ratio(self) -> None:
+        Image.new("RGB", (400, 200)).save(self.root / "project" / "materials" / "tree.png")
+        frame = Frame.objects.create(name="frame-1")
+        self.client.post(reverse("studio:add_image", kwargs={"frame_id": frame.id}), {"image": "tree.png"})
+        element = frame.elements.get()
+        self.assertEqual((element.image, element.width / element.height), ("tree.png", 2))
+
+    def test_resized_element_keeps_its_new_size(self) -> None:
+        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="speech-bubble")
+        body = {"x": 100, "y": 200, "width": 300, "height": 150, "language": "en-US"}
+        self.client.post(reverse("studio:element_position_api", kwargs={"element_id": element.id}), json.dumps(body), content_type="application/json")
+        element.refresh_from_db()
+        self.assertEqual((element.x, element.y, element.width, element.height), (100, 200, 300, 150))
+
+    def test_moved_background_is_in_the_story(self) -> None:
+        frame = Frame.objects.create(name="frame-1", background_type="image", background_image="sky.png")
+        body = {"x": 10, "y": 20, "width": 300, "height": 150}
+        self.client.post(reverse("studio:background_box_api", kwargs={"frame_id": frame.id}), json.dumps(body), content_type="application/json")
+        generate_dist(self.project)
+        self.assertIn('"box":{"x":10.0,"y":20.0,"width":300.0,"height":150.0}', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
+
     def test_preview_log_writes_one_file_per_visit(self) -> None:
         url = reverse("studio:preview_log")
         self.client.post(url, json.dumps(EVENT), content_type="application/json")
@@ -351,6 +390,12 @@ class MultiLanguageTests(ProjectTestCase):
         issues = validate_project(self.project, load_content_table(self.root / "project" / "content.xlsx"))
         self.assertIn("No language-picker button leads to en-US.", [issue.message for issue in issues])
 
+    def test_picker_frames_alone_do_not_count_as_story_frames(self) -> None:
+        Frame.objects.filter(is_language_picker=False).delete()
+        issues = validate_project(self.project, load_content_table(self.root / "project" / "content.xlsx"))
+        self.assertIn("Picker frames only make the start page", issues[-1].message)
+
     def test_tidy_up_puts_picker_frames_left_of_the_story(self) -> None:
         tidy_layout()
         self.assertLess(Frame.objects.get(name="picker-1").flow_x, Frame.objects.get(name="frame-1").flow_x)
+        

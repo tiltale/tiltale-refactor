@@ -21,6 +21,7 @@ urlpatterns = [
     path("develop/frames/<int:frame_id>/", views.frame_editor, name="frame_editor"),
     path("develop/frames/<int:frame_id>/delete/", views.delete_frame, name="delete_frame"),
     path("develop/frames/<int:frame_id>/elements/add/", views.add_element, name="add_element"),
+    path("develop/frames/<int:frame_id>/images/add/", views.add_image, name="add_image"),
     path("develop/frames/<int:frame_id>/elements/import/", views.import_elements, name="import_elements"),
     path("develop/elements/<int:element_id>/save/", views.save_element, name="save_element"),
     path("develop/elements/<int:element_id>/duplicate/", views.duplicate_element, name="duplicate_element"),
@@ -32,6 +33,7 @@ urlpatterns = [
     path("results/session/<str:file_name>/", views.session_detail, name="session_detail"),
 
     path("api/elements/<int:element_id>/position/", views.element_position_api, name="element_position_api"),
+    path("api/frames/<int:frame_id>/background/", views.background_box_api, name="background_box_api"),
     path("api/flow-positions/", views.flow_positions_api, name="flow_positions_api"),
     path("api/logs/<str:file_name>/", views.log_api, name="log_api"),
 

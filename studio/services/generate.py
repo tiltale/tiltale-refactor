@@ -136,9 +136,16 @@ def _frame_payload(
         background["color"] = frame.background_color
     elif frame.background_type == Frame.BackgroundType.IMAGE:
         background["sources"] = images.get(frame.background_image, [])
+        background["box"] = frame.background_box
 
     elements: list[dict[str, Any]] = []
     for element in frame.elements.all():
+        if element.image:
+            elements.append({
+                "id": element.id, "image": images.get(element.image, []),
+                **element.geometry(language), "delay_mode": element.delay_mode,
+            })
+            continue
         component = components.get(element.component)
         if component is None:
             continue
@@ -216,10 +223,9 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
 
     reset_dist_directory()
     _write_shared_files()
-    images: dict[str, list[dict[str, Any]]] = {
-        path: _image_variants(path)
-        for path in sorted({frame.background_image for frame in frames if frame.background_type == Frame.BackgroundType.IMAGE})
-    }
+    backgrounds: set[str] = {frame.background_image for frame in frames if frame.background_type == Frame.BackgroundType.IMAGE}
+    pictures: set[str] = {element.image for frame in frames for element in frame.elements.all() if element.image}
+    images: dict[str, list[dict[str, Any]]] = {path: _image_variants(path) for path in sorted(backgrounds | pictures)}
     content_by_id = content.by_id()
 
     def story(page_frames: list[Frame], language: str, root: str) -> dict[str, Any]:

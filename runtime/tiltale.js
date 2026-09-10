@@ -148,7 +148,7 @@
 
   function makeElement(frame, element) {
     var node = document.createElement(element.clickable ? "button" : "div");
-    node.className = "story-element component-" + element.component + (element.break_long_words ? " break-words" : "");
+    node.className = "story-element " + (element.image ? "story-image" : "component-" + element.component) + (element.break_long_words ? " break-words" : "");
     node.id = frame.name + "--" + element.id;
     node.style.left = element.x + "px";
     node.style.top = element.y + "px";
@@ -160,16 +160,7 @@
     if (element.text_color) node.style.setProperty("--element-text", element.text_color);
     if (params.get("element") === String(element.id)) node.className += " inspect-highlight";
 
-    var shape = document.createElement("div");
-    shape.className = "component-shape";
-    shape.innerHTML = STORY.components[element.component] || "";
-    if (element.text) {
-      var text = document.createElement("span");
-      text.className = "component-text";
-      text.textContent = element.text;
-      shape.appendChild(text);
-    }
-    node.appendChild(shape);
+    node.appendChild(element.image ? makeImage(element.image) : makeShape(element));
 
     var delay = STORY.default_delay_seconds;
     if ((element.delay_mode === "fade" || element.delay_mode === "both") && delay > 0) {
@@ -183,6 +174,27 @@
     if (element.clickable) node.addEventListener("click", function () { activate(frame, element); });
     return node;
   }
+  
+  function makeShape(element) {
+    var shape = document.createElement("div");
+    shape.className = "component-shape";
+    shape.innerHTML = STORY.components[element.component] || "";
+    if (element.text) {
+      var text = document.createElement("span");
+      text.className = "component-text";
+      text.textContent = element.text;
+      shape.appendChild(text);
+    }
+    return shape;
+  }
+
+  function makeImage(sources) {
+    var image = document.createElement("img");
+    var source = chooseSource(sources);
+    image.alt = "";
+    if (source) image.src = STORY.root + source.path;
+    return image;
+  }
 
   function showFrame(name, details) {
     var frame = frames[name];
@@ -193,6 +205,11 @@
     if (frame.background.type === "solid") panel.style.backgroundColor = frame.background.color;
     var source = frame.background.type === "image" ? chooseSource(frame.background.sources) : null;
     if (source) panel.style.backgroundImage = "url(\"" + STORY.root + source.path + "\")";
+    var box = frame.background.box;  // without one, style.css makes the image cover the frame
+    if (box) {
+      panel.style.backgroundSize = box.width + "px " + box.height + "px";
+      panel.style.backgroundPosition = (box.x - box.width / 2) + "px " + (box.y - box.height / 2) + "px";
+    }
     frame.elements.forEach(function (element) { panel.appendChild(makeElement(frame, element)); });
     storyNode.innerHTML = "";
     storyNode.appendChild(panel);
@@ -285,8 +302,12 @@
   function preloadImages() {
     var chosen = {};
     STORY.frames.forEach(function (frame) {
-      var source = frame.background.type === "image" ? chooseSource(frame.background.sources) : null;
-      if (source) chosen[source.path] = source;
+      var lists = frame.elements.map(function (element) { return element.image; });  // undefined for components
+      if (frame.background.type === "image") lists.push(frame.background.sources);
+      lists.forEach(function (sources) {
+        var source = chooseSource(sources);
+        if (source) chosen[source.path] = source;
+      });
     });
     var sources = Object.keys(chosen).map(function (path) { return chosen[path]; });
     return Promise.all(sources.map(function (source) {

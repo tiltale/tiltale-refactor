@@ -8,6 +8,8 @@ const TOAST_MS = 6000;
 const FOCUS_ZOOM = 1; // clicking a frame zooms in to at least this, so its neighbours stay visible
 const FOCUS_MS = 350; // same duration as .flow-world.is-animating in app.css
 const STAGE_MARGIN_PX = 32;
+const SNAP_PX = 6; // an edge this close (on screen) to another element's edge sticks to it
+const MIN_BOX_PX = 20; // same minimum width and height as BOX_FIELDS in views.py
 
 // Background saves (dragging elements or frames) report failures in the status bar, which stays visible.
 function reportError(message) {
@@ -150,9 +152,28 @@ function setupEditor() {
       (stage.clientHeight - STAGE_MARGIN_PX) / Number(canvas.dataset.height),
     );
     canvas.style.transform = `translate(-50%, -50%) scale(${view.scale})`;
+    canvas.style.setProperty("--canvas-scale", view.scale); // keeps handles and guides the same size on screen
   };
   new ResizeObserver(fitCanvas).observe(stage);
-  for (const node of canvas.querySelectorAll("[data-element]")) makeElementDraggable(node, page, view);
+  const boxes = [...canvas.querySelectorAll("[data-box-url]")];
+  const history = { undo: [], redo: [] }; // moves and resizes on this page; a reload starts a new history
+  const onDrop = (node, before) => {
+    history.undo.push({ node, before, after: readBox(node) });
+    history.redo = [];
+    saveBox(node, page);
+  };
+  for (const node of boxes) makeBoxEditable(node, boxes, canvas, view, onDrop);
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+    if (event.target.closest("input, textarea, select, dialog")) return; // text fields keep their own undo
+    event.preventDefault();
+    const [from, to] = event.shiftKey ? [history.redo, history.undo] : [history.undo, history.redo];
+    const step = from.pop();
+    if (!step) return;
+    to.push(step);
+    placeBox(step.node, event.shiftKey ? step.after : step.before);
+    saveBox(step.node, page);
+  });
 
   const backgroundType = page.querySelector("[name=background_type]");
   const showBackgroundFields = () => {
@@ -160,6 +181,13 @@ function setupEditor() {
   };
   backgroundType.addEventListener("change", showBackgroundFields);
   showBackgroundFields();
+  page.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-use-background]");
+    if (!button) return;
+    backgroundType.value = "image";
+    backgroundType.form.elements.background_image.value = button.dataset.useBackground;
+    backgroundType.form.requestSubmit(); // also saves unsaved edits in the frame form, like its own button
+  });
 
   for (const toggle of page.querySelectorAll("[data-color-toggle]")) {
     const inputs = toggle.closest("fieldset").querySelectorAll("[data-colors] input");
@@ -191,44 +219,98 @@ function setupEditor() {
   });
 }
 
-function makeElementDraggable(node, page, view) {
-  const dialog = document.getElementById(`element-${node.dataset.element}`);
+// Elements, images and the background: drag to move (snapping to other edges), drag the corner to resize.
+function makeBoxEditable(node, boxes, canvas, view, onDrop) {
+  const dialog = document.getElementById(node.dataset.dialog); // the background has none
+  const guides = [...canvas.querySelectorAll("[data-snap-guide]")];
+  placeBox(node, readBox(node));
   node.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") dialog.showModal();
+    if (event.key === "Enter") dialog?.showModal();
   });
   node.addEventListener("pointerdown", (event) => {
-    const start = { x: event.clientX, y: event.clientY, left: parseFloat(node.style.left), top: parseFloat(node.style.top) };
+    const start = { x: event.clientX, y: event.clientY, box: readBox(node) };
+    const resizing = Boolean(event.target.closest("[data-resize]"));
+    const others = boxes.filter((other) => other !== node).map(readBox);
     let moved = false;
-    node.setPointerCapture(event.pointerId);
-    const onMove = (move) => {
-      const dx = (move.clientX - start.x) / view.scale;
-      const dy = (move.clientY - start.y) / view.scale;
-      moved = moved || Math.hypot(dx, dy) * view.scale > DRAG_THRESHOLD_PX;
-      node.style.left = `${Math.round(start.left + dx)}px`;
-      node.style.top = `${Math.round(start.top + dy)}px`;
-    };
-    const onUp = () => {
-      node.removeEventListener("pointermove", onMove);
-      node.removeEventListener("pointerup", onUp);
-      if (!moved) {
-        dialog.showModal();
-        return;
-      }
-      saveElementPosition(node, page, dialog);
-    };
-    node.addEventListener("pointermove", onMove);
-    node.addEventListener("pointerup", onUp);
+    trackPointer(node, event, (move) => {
+      const delta = { x: (move.clientX - start.x) / view.scale, y: (move.clientY - start.y) / view.scale };
+      moved = moved || Math.hypot(delta.x, delta.y) * view.scale > DRAG_THRESHOLD_PX;
+      if (resizing) return placeBox(node, resizedBox(start.box, delta.x, delta.y, "keepRatio" in node.dataset));
+      // Shift keeps the drag horizontal or vertical, whichever way it has gone furthest (as in Illustrator).
+      const axes = move.shiftKey ? [Math.abs(delta.x) > Math.abs(delta.y) ? "x" : "y"] : ["x", "y"];
+      const box = { ...start.box };
+      for (const axis of axes) box[axis] += delta[axis];
+      const snap = snapBox(box, others, SNAP_PX / view.scale, axes);
+      showGuides(guides, snap.lines);
+      placeBox(node, snap.box);
+    }, () => {
+      showGuides(guides, {});
+      if (moved) onDrop(node, start.box);
+      else dialog?.showModal();
+    });
   });
 }
 
-async function saveElementPosition(node, page, dialog) {
-  const x = parseFloat(node.style.left);
-  const y = parseFloat(node.style.top);
-  // Keep the settings dialog in sync, or saving it later would move the element back.
-  dialog.querySelector("[name=x]").value = x;
-  dialog.querySelector("[name=y]").value = y;
+function readBox(node) {
+  return { x: parseFloat(node.style.left), y: parseFloat(node.style.top), width: parseFloat(node.style.width), height: parseFloat(node.style.height) };
+}
+
+function placeBox(node, box) {
+  const frame = node.parentElement.dataset; // the canvas
+  node.style.left = `${Math.round(box.x)}px`;
+  node.style.top = `${Math.round(box.y)}px`;
+  node.style.width = `${Math.round(box.width)}px`;
+  node.style.height = `${Math.round(box.height)}px`;
+  // The corner stays inside the frame, or a background larger than the frame could never be resized.
+  const handle = node.querySelector("[data-resize]");
+  handle.style.right = `${Math.max(0, box.x + box.width / 2 - Number(frame.width))}px`;
+  handle.style.bottom = `${Math.max(0, box.y + box.height / 2 - Number(frame.height))}px`;
+}
+
+// Resizing keeps the top-left corner in place. Images keep their aspect ratio.
+function resizedBox(start, dx, dy, keepRatio) {
+  const ratio = start.height / start.width;
+  const width = Math.max(MIN_BOX_PX, start.width + dx, keepRatio ? MIN_BOX_PX / ratio : 0);
+  const height = keepRatio ? width * ratio : Math.max(MIN_BOX_PX, start.height + dy);
+  return { x: start.x - start.width / 2 + width / 2, y: start.y - start.height / 2 + height / 2, width, height };
+}
+
+// Moves `box` along `axes` so its closest edge meets an edge of another box, if one is within `reach`.
+function snapBox(box, others, reach, axes) {
+  const snapped = { ...box };
+  const lines = {};
+  for (const axis of axes) {
+    const edge = closestEdge(box, others, reach, axis);
+    if (!edge) continue;
+    snapped[axis] += edge.shift;
+    lines[axis] = edge.line;
+  }
+  return { box: snapped, lines };
+}
+
+function closestEdge(box, others, reach, axis) {
+  const size = axis === "x" ? "width" : "height";
+  const edges = (item) => [item[axis] - item[size] / 2, item[axis] + item[size] / 2];
+  const targets = others.flatMap(edges);
+  const shifts = edges(box).flatMap((edge) => targets.map((line) => ({ shift: line - edge, line })));
+  return shifts.filter(({ shift }) => Math.abs(shift) <= reach).sort((a, b) => Math.abs(a.shift) - Math.abs(b.shift))[0];
+}
+
+function showGuides(guides, lines) {
+  for (const guide of guides) {
+    const axis = guide.dataset.snapGuide;
+    guide.hidden = lines[axis] === undefined;
+    guide.style[axis === "x" ? "left" : "top"] = `${lines[axis]}px`;
+  }
+}
+
+async function saveBox(node, page) {
+  const box = readBox(node);
+  const dialog = document.getElementById(node.dataset.dialog);
+  // Keep the settings dialog in sync, or saving it later would undo the drag.
+  if (dialog) for (const [name, value] of Object.entries(box)) dialog.querySelector(`[name=${name}]`).value = value;
   try {
-    await postJson(node.dataset.positionUrl, page.dataset.csrf, { x, y, language: page.dataset.language });
+    await postJson(node.dataset.boxUrl, page.dataset.csrf, { ...box, language: page.dataset.language });
   } catch (error) {
     reportError(`Position not saved: ${error.message}`);
   }

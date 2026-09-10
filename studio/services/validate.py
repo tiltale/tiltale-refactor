@@ -78,7 +78,8 @@ def validate_project(project: ProjectSettings, content: ContentTable) -> list[Va
     pickers: list[Frame] = [frame for frame in frames if frame.is_language_picker]
     issues: list[ValidationIssue] = list(_project_issues(project, content, pickers))
     if not story:
-        return [*issues, _issue("warning", "The story has no frames yet.")]
+        picker_note: str = " Picker frames only make the start page; add story frames with “+ Frame”." if pickers else ""
+        return [*issues, _issue("warning", "The story has no frames yet." + picker_note)]
     checks = _Checks(project, content.languages, content.by_id(), component_map(), smallest_scale(project))
     for frame in frames:
         issues += _background_issues(frame)
@@ -111,6 +112,10 @@ def _background_issues(frame: Frame) -> Iterator[ValidationIssue]:
 
 
 def _element_issues(element: Element, frame: Frame, checks: _Checks) -> Iterator[ValidationIssue]:
+    if element.image:
+        if not (settings.PROJECT_DIR / "materials" / element.image).is_file():
+            yield _issue("error", f"Image #{element.id} '{element.image}' cannot be found.", frame)
+        return
     component: ComponentDefinition | None = checks.components.get(element.component)
     if component is None:
         yield _issue("error", f"Element #{element.id} uses unknown component '{element.component}'.", frame)

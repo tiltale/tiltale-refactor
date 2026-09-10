@@ -133,3 +133,9 @@ class FrameForm(forms.ModelForm):
         if kind != Frame.BackgroundType.IMAGE:
             cleaned["background_image"] = ""
         return cleaned
+
+    def save(self, commit: bool = True) -> Frame:
+        if "background_image" in self.changed_data or self.data.get("fill_frame"):
+            self.instance.background_x = self.instance.background_y = None
+            self.instance.background_width = self.instance.background_height = None
+        return super().save(commit)

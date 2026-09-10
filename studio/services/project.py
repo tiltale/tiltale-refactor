@@ -12,6 +12,7 @@ from django.db import DatabaseError, connections
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils.text import slugify
+from PIL import ExifTags, Image
 
 from studio.models import ProjectSettings
 
@@ -23,6 +24,7 @@ PROJECT_FILES: tuple[str, ...] = (
 )
 BRANDING_FILES: tuple[str, ...] = ("logo-tiltale.png", "favicon.ico")  # in the repository root; /project/ may override
 IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+QUARTER_TURNS: frozenset[int] = frozenset({5, 6, 7, 8})  # EXIF orientations that ImageOps.exif_transpose turns 90°
 
 _schema_lock = threading.Lock()
 
@@ -121,6 +123,14 @@ def list_materials() -> list[str]:
         return []
     paths = (path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES)
     return sorted(paths, key=str.casefold)
+
+
+def image_size(relative_path: str) -> tuple[int, int]:
+    """Width and height of a material as browsers show it, i.e. after EXIF rotation. Reads only the header."""
+    with Image.open(safe_child(settings.PROJECT_DIR / "materials", relative_path)) as image:
+        width, height = image.size
+        turned: bool = image.getexif().get(ExifTags.Base.Orientation) in QUARTER_TURNS
+    return (height, width) if turned else (width, height)
 
 
 def newest_source_timestamp() -> float:

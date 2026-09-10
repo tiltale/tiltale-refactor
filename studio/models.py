@@ -69,6 +69,11 @@ class Frame(models.Model):
     )
     background_color = models.CharField(max_length=7, default="#111111")
     background_image = models.CharField(max_length=500, blank=True, default="")
+    # Center and size of a moved or resized background image, in frame pixels. Empty: it covers the frame.
+    background_x = models.FloatField(null=True, blank=True)
+    background_y = models.FloatField(null=True, blank=True)
+    background_width = models.FloatField(null=True, blank=True)
+    background_height = models.FloatField(null=True, blank=True)
     fade_in = models.BooleanField(default=False)
     flow_x = models.FloatField(default=0.0)
     flow_y = models.FloatField(default=0.0)
@@ -83,9 +88,16 @@ class Frame(models.Model):
     def key(self) -> str:
         return f"fnr-{self.pk}"
 
+    @property
+    def background_box(self) -> dict[str, float] | None:
+        """Where the background image was dragged to, or ``None`` while it covers the frame."""
+        if self.background_width is None:
+            return None
+        return {"x": self.background_x, "y": self.background_y, "width": self.background_width, "height": self.background_height}
+
 
 class Element(models.Model):
-    """One placed component instance on a frame."""
+    """One placed component instance, or one image from /project/materials/, on a frame."""
 
     class DelayMode(models.TextChoices):
         NONE = "none", "No delay behavior"
@@ -94,7 +106,8 @@ class Element(models.Model):
         BOTH = "both", "Fade + disable click"
 
     frame = models.ForeignKey(Frame, on_delete=models.CASCADE, related_name="elements")
-    component = models.CharField(max_length=100)
+    component = models.CharField(max_length=100)  # empty for image elements
+    image = models.CharField(max_length=500, blank=True, default="")  # path in /project/materials/
     # Story frames take text from content.xlsx. Language-picker frames are shown
     # before a language is known, so their text is typed directly into ``text``.
     content_id = models.PositiveIntegerField(null=True, blank=True)
