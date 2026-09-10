@@ -3,7 +3,6 @@
 __pycache__/
 *.py[cod]
 *.sqlite3
-.pytest_cache/
 
 # Editors / OS
 .vscode/
@@ -13,11 +12,8 @@ Thumbs.db
 # TilTale user data: NEVER commit study/project data.
 /project/
 
-# Generated output: rebuild it from project data.
+# Generated output: rebuild it with Regenerate.
 /dist/
 
-# Local diagnostics
-*.log
-
-# ZIP files
+# Archives shared outside Git
 *.zip

@@ -1,9 +1,15 @@
-"""Local JSONL study-log storage and result summaries.
+"""Study logs: one JSONL file per participant *visit*.
 
-The local preview uses one Django process, so a process-wide lock is sufficient
-to serialize appends. A deployed study should post to a real collector. Every
-event includes ``session_id`` and increasing ``seq`` so a remote collector can
-deduplicate retries safely.
+The story runtime posts every event to ``log.php`` on the web server, or to
+the studio's stand-in for it during local preview. Both name files the same way::
+
+    <participant_id>--<visit_id>.jsonl      (unsafe characters become "-")
+
+A visit is one page load, so a participant who opens the link twice (for
+example after a crash) gets a second file and nothing is overwritten.
+
+JSONL = one JSON object per line: every event is appended immediately and an
+interrupted write can only damage the last line, never the earlier ones.
 """
 
 from dataclasses import dataclass
@@ -16,62 +22,76 @@ from typing import Any
 
 from django.conf import settings
 
-LOG_LOCK = threading.Lock()
-SESSION_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_-]{8,120}$")
+FINISHED_EVENT: str = "Story finished"
+_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
+_lock = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
 class SessionSummary:
-    session_id: str
-    event_count: int
-    first_timestamp: str
-    last_timestamp: str
-    last_frame: str
     file_name: str
+    participant_id: str
+    visit_id: str
+    language: str
+    event_count: int
+    started: str
+    last_frame: str
+    finished: bool
+    kind: str  # "study", "preview" or "play-test"
 
 
-def _log_path(session_id: str) -> Path:
-    if not SESSION_PATTERN.fullmatch(session_id):
-        raise ValueError("Invalid session ID.")
-    return settings.PROJECT_DIR / "logs" / f"{session_id}.jsonl"
+def logs_dir() -> Path:
+    return settings.PROJECT_DIR / "logs"
+
+
+def safe_name(value: object) -> str:
+    """Same rule as runtime/log.php and runtime/tiltale.js."""
+    return _UNSAFE.sub("-", str(value)).strip("-")[:80]
+
+
+def log_file_name(event: dict[str, Any]) -> str:
+    participant, visit = safe_name(event.get("participant_id", "")), safe_name(event.get("visit_id", ""))
+    if not participant or not visit or not isinstance(event.get("event"), str):
+        raise ValueError("A log event needs participant_id, visit_id and event.")
+    return f"{participant}--{visit}.jsonl"
 
 
 def append_event(event: dict[str, Any]) -> None:
-    session_id: str = str(event.get("session_id", ""))
-    path: Path = _log_path(session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    normalized: dict[str, Any] = {
-        **event,
-        "received_at": datetime.now(timezone.utc).isoformat(),
-    }
-    line: str = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
-    with LOG_LOCK:
-        with path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(line + "\n")
+    path: Path = logs_dir() / log_file_name(event)
+    line: str = json.dumps({**event, "received_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
+    with _lock, path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(line + "\n")
 
 
-def read_events(path: Path) -> list[dict[str, Any]]:
+def parse_events(text: str, source: str) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                value: Any = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError(f"{path.name}, line {line_number}: invalid JSON.") from error
-            if not isinstance(value, dict):
-                raise ValueError(f"{path.name}, line {line_number}: event must be a JSON object.")
-            events.append(value)
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            value: Any = json.loads(line)
+        except json.JSONDecodeError:
+            raise ValueError(f"{source}, line {number}: not valid JSON.") from None
+        if not isinstance(value, dict):
+            raise ValueError(f"{source}, line {number}: each line must be a JSON object.")
+        events.append(value)
     return events
 
 
+def read_events(path: Path) -> list[dict[str, Any]]:
+    return parse_events(path.read_text(encoding="utf-8-sig"), path.name)
+
+
+def session_kind(participant_id: str) -> str:
+    for prefix, kind in (("playtest-", "play-test"), ("preview-", "preview")):
+        if participant_id.startswith(prefix):
+            return kind
+    return "study"
+
+
 def session_summaries() -> list[SessionSummary]:
-    root: Path = settings.PROJECT_DIR / "logs"
-    if not root.is_dir():
-        return []
     summaries: list[SessionSummary] = []
-    for path in root.glob("*.jsonl"):
+    for path in logs_dir().glob("*.jsonl"):
         try:
             events = read_events(path)
         except ValueError:
@@ -79,51 +99,35 @@ def session_summaries() -> list[SessionSummary]:
         if not events:
             continue
         first: dict[str, Any] = events[0]
-        last: dict[str, Any] = events[-1]
-        last_frame: str = ""
-        for event in reversed(events):
-            frame: object = event.get("frame")
-            if isinstance(frame, str) and frame:
-                last_frame = frame
-                break
-        summaries.append(
-            SessionSummary(
-                session_id=str(first.get("session_id", path.stem)),
-                event_count=len(events),
-                first_timestamp=str(first.get("timestamp", first.get("received_at", ""))),
-                last_timestamp=str(last.get("timestamp", last.get("received_at", ""))),
-                last_frame=last_frame,
-                file_name=path.name,
-            )
-        )
-    return sorted(summaries, key=lambda item: item.last_timestamp, reverse=True)
+        participant: str = str(first.get("participant_id", ""))
+        frames: list[str] = [str(event["frame"]) for event in events if event.get("frame")]
+        summaries.append(SessionSummary(
+            file_name=path.name,
+            participant_id=participant,
+            visit_id=str(first.get("visit_id", "")),
+            language=next((str(e["language"]) for e in reversed(events) if e.get("language")), ""),
+            event_count=len(events),
+            started=str(first.get("timestamp", "")),
+            last_frame=frames[-1] if frames else "",
+            finished=any(event.get("event") == FINISHED_EVENT for event in events),
+            kind=session_kind(participant),
+        ))
+    return sorted(summaries, key=lambda item: item.started, reverse=True)
 
 
-def import_jsonl(uploaded_name: str, data: bytes) -> Path:
-    """Validate imported JSONL before writing it into /project/logs."""
-    text: str = data.decode("utf-8-sig")
-    parsed: list[dict[str, Any]] = []
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            value: Any = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"Line {line_number} is not valid JSON.") from error
-        if not isinstance(value, dict) or not value.get("session_id"):
-            raise ValueError(f"Line {line_number} needs a session_id.")
-        parsed.append(value)
-    if not parsed:
-        raise ValueError("The uploaded log contains no events.")
-
-    first_session: str = str(parsed[0]["session_id"])
-    _log_path(first_session)  # validates the ID
-    if any(str(event["session_id"]) != first_session for event in parsed):
-        raise ValueError("One imported JSONL file must contain exactly one session_id.")
-    stem: str = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(uploaded_name).stem).strip("-")
-    destination: Path = settings.PROJECT_DIR / "logs" / f"{stem or first_session}.jsonl"
-    destination.write_text(
-        "\n".join(json.dumps(item, ensure_ascii=False, separators=(",", ":")) for item in parsed) + "\n",
-        encoding="utf-8",
-    )
+def import_jsonl(file_name: str, data: bytes) -> Path:
+    """Store one downloaded server log in /project/logs/ without overwriting anything."""
+    try:
+        events = parse_events(data.decode("utf-8-sig"), file_name)
+    except UnicodeDecodeError:
+        raise ValueError(f"{file_name} is not a UTF-8 text file.") from None
+    if not events:
+        raise ValueError(f"{file_name} contains no events.")
+    names: set[str] = {log_file_name(event) for event in events}
+    if len(names) != 1:
+        raise ValueError(f"{file_name} must contain exactly one participant visit.")
+    destination: Path = logs_dir() / names.pop()
+    if destination.exists():
+        raise ValueError(f"{destination.name} is already in /project/logs/.")
+    destination.write_text("".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events), encoding="utf-8")
     return destination

@@ -31,5 +31,14 @@ jobs:
       - name: Check Django configuration
         run: python manage.py check
 
+      - name: Check migrations are committed
+        run: python manage.py makemigrations --check --dry-run
+
       - name: Run tests
         run: python manage.py test
+
+      - name: Check runtime syntax
+        run: |
+          node --check runtime/tiltale.js
+          node --check studio/static/studio/app.js
+          php -l runtime/log.php

@@ -1,0 +1,32 @@
+{% extends 'studio/base.html' %}
+{% block title %}Play-test · TilTale{% endblock %}
+{% block body %}
+<main class="page">
+  <section class="card hero">
+    <p class="eyebrow">Automatic check</p>
+    <h1>Play-test every page in /dist/</h1>
+    <p>A robot plays each generated page like a reader: it waits for delays, clicks buttons (preferring frames it has not seen yet) and stops at <strong>End story</strong>. A test <strong>fails</strong> on a button that leads nowhere, a JavaScript error, a loop without an end, or no answer within 60 seconds. Every test writes a normal log (participant <code>playtest-…</code>) that you can read below and under Results.</p>
+    {% if dist_stale %}<div class="alert warning">/dist/ is older than your latest changes. Regenerate first to test what you see in the editor.</div>{% endif %}
+    {% if builds %}<button type="button" class="button primary" data-run-all>Run all play-tests</button>
+    {% else %}<p class="muted">Nothing has been generated yet. Press <strong>Regenerate</strong> on the Develop page first.</p>{% endif %}
+  </section>
+
+  <div class="playtest-grid" data-playtest data-participant-parameter="{{ project.participant_parameter }}" data-log-api="{{ log_api }}" data-session-url="{{ session_url }}">
+    {% for build in builds %}
+    <article class="card playtest-card" data-build-url="{{ build.url }}" data-build-label="{{ build.label }}">
+      <header class="row"><h2>{{ build.label }}</h2><span class="spacer"></span><span class="badge" data-state>Not run</span></header>
+      <div class="playtest-screen"><iframe title="Play-test of {{ build.label }}" tabindex="-1" data-frame></iframe></div>
+      <p class="muted" data-message>Press “Run all play-tests”.</p>
+      <details data-log hidden>
+        <summary>Test log · <span data-count>0</span> events</summary>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>#</th><th>Time</th><th>Event</th><th>Frame</th></tr></thead>
+          <tbody data-rows></tbody>
+        </table></div>
+        <a data-session-link>Open this log under Results</a>
+      </details>
+    </article>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}

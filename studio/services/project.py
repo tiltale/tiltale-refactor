@@ -1,45 +1,39 @@
-"""Project-folder lifecycle and filesystem helpers."""
+"""The ``/project/`` folder: creation, health, schema and file helpers."""
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 import shutil
-from typing import Iterable
+import threading
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.db import DatabaseError, connections
+from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.recorder import MigrationRecorder
 from django.utils.text import slugify
 
-from studio.models import Frame, ProjectSettings
+from studio.models import ProjectSettings
 
 from .components import default_color_css
 from .content import create_content_workbook
+
+PROJECT_FILES: tuple[str, ...] = (
+    "project.sqlite3", "content.xlsx", "materials", "logs", "default-colors.css", "style-overrides.css",
+)
+IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+
+_schema_lock = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectHealth:
     exists: bool
-    ready: bool
     problems: tuple[str, ...]
 
-
-@dataclass(frozen=True, slots=True)
-class MaterialFile:
-    relative_path: str
-    name: str
-    modified_timestamp: float
-
-
-PROJECT_REQUIRED_PATHS: tuple[str, ...] = (
-    "project.sqlite3",
-    "content.xlsx",
-    "materials",
-    "logs",
-    "default-colors.css",
-    "style-overrides.css",
-)
-IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+    @property
+    def ready(self) -> bool:
+        return self.exists and not self.problems
 
 
 def project_exists() -> bool:
@@ -48,76 +42,70 @@ def project_exists() -> bool:
 
 def project_health() -> ProjectHealth:
     if not project_exists():
-        return ProjectHealth(exists=False, ready=False, problems=())
-    problems: list[str] = [
-        f"Missing project/{name}"
-        for name in PROJECT_REQUIRED_PATHS
-        if not (settings.PROJECT_DIR / name).exists()
-    ]
-    return ProjectHealth(exists=True, ready=not problems, problems=tuple(problems))
+        return ProjectHealth(exists=False, problems=())
+    missing = tuple(f"Missing project/{name}" for name in PROJECT_FILES if not (settings.PROJECT_DIR / name).exists())
+    return ProjectHealth(exists=True, problems=missing)
+
+
+def _ensure_schema() -> None:
+    """Apply committed migrations whenever the project database lacks the newest one.
+
+    Checked on every call (one small query) rather than remembered per process,
+    so a deleted and re-created /project/ is migrated too. Django generates the
+    migration files; this only runs ``migrate`` for the project alias.
+    """
+    with _schema_lock:
+        newest: list[tuple[str, str]] = MigrationLoader(None).graph.leaf_nodes("studio")
+        if not newest:
+            raise ImproperlyConfigured("studio has no migrations yet. Run: python manage.py makemigrations studio")
+        applied = MigrationRecorder(connections["project"]).applied_migrations()
+        if all(key in applied for key in newest):
+            return
+        call_command("migrate", database="project", interactive=False, verbosity=0)
 
 
 def project_settings() -> ProjectSettings | None:
-    """Return the singleton only when a usable project database exists.
+    """Return the settings row, or ``None`` when there is no usable project.
 
-    The explicit file check prevents SQLite from silently creating a blank file
-    when someone manually creates an incomplete ``/project`` directory.
+    The file check stops SQLite from creating an empty database inside an
+    incomplete, hand-made ``/project/`` folder.
     """
     if not settings.PROJECT_DB.is_file():
         return None
     try:
-        return ProjectSettings.objects.using("project").first()
+        _ensure_schema()
+        return ProjectSettings.objects.first()
     except DatabaseError:
         return None
 
 
 def create_project(name: str, base_language: str, extra_languages: list[str]) -> ProjectSettings:
-    """Create the complete project folder atomically enough for a local tool."""
+    """Create the complete project folder, or nothing at all."""
     if project_exists():
-        raise FileExistsError("A /project directory already exists.")
-
+        raise FileExistsError("A /project/ folder already exists.")
     project_dir: Path = settings.PROJECT_DIR
     project_dir.mkdir()
     try:
         (project_dir / "materials").mkdir()
         (project_dir / "logs").mkdir()
-        languages: list[str] = [base_language, *extra_languages]
-        create_content_workbook(project_dir / "content.xlsx", languages)
+        create_content_workbook(project_dir / "content.xlsx", [base_language, *extra_languages])
         (project_dir / "default-colors.css").write_text(default_color_css(), encoding="utf-8")
         (project_dir / "style-overrides.css").write_text(
-            "/* Advanced project CSS overrides. Keep this file small and document unusual rules. */\n",
-            encoding="utf-8",
+            "/* Advanced project CSS. Loaded after all component and color CSS. */\n", encoding="utf-8"
         )
-
-        # The database alias already points here. Closing any stale connection is
-        # enough after the directory is created; no settings mutation is needed.
         connections["project"].close()
-        call_command("migrate", database="project", interactive=False, verbosity=0)
-        row: ProjectSettings = ProjectSettings.objects.using("project").create(
-            name=name.strip(),
-            slug=slugify(name) or "tiltale-project",
-            base_language=base_language,
+        _ensure_schema()
+        return ProjectSettings.objects.create(
+            name=name.strip(), slug=slugify(name) or "tiltale-project", base_language=base_language,
         )
-        return row
     except Exception:
         connections["project"].close()
         shutil.rmtree(project_dir, ignore_errors=True)
         raise
 
 
-def next_frame_name() -> str:
-    """Use the highest numeric frame suffix + 1; deleted names are not reused."""
-    highest: int = 0
-    pattern: re.Pattern[str] = re.compile(r"^frame-(\d+)$")
-    for name in Frame.objects.values_list("name", flat=True):
-        match: re.Match[str] | None = pattern.fullmatch(name)
-        if match:
-            highest = max(highest, int(match.group(1)))
-    return f"frame-{highest + 1}"
-
-
 def safe_child(root: Path, relative_path: str) -> Path:
-    """Resolve a user-derived path while preventing ``../`` traversal."""
+    """Resolve a user-supplied relative path, refusing ``../`` escapes."""
     candidate: Path = (root / relative_path).resolve()
     resolved_root: Path = root.resolve()
     if candidate != resolved_root and resolved_root not in candidate.parents:
@@ -125,37 +113,24 @@ def safe_child(root: Path, relative_path: str) -> Path:
     return candidate
 
 
-def list_materials() -> list[MaterialFile]:
+def list_materials() -> list[str]:
+    """Image paths relative to ``/project/materials/``, including subfolders."""
     root: Path = settings.PROJECT_DIR / "materials"
     if not root.is_dir():
         return []
-    files: list[MaterialFile] = []
-    for path in root.rglob("*"):
-        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
-            files.append(
-                MaterialFile(
-                    relative_path=path.relative_to(root).as_posix(),
-                    name=path.name,
-                    modified_timestamp=path.stat().st_mtime,
-                )
-            )
-    return sorted(files, key=lambda item: item.name.casefold())
+    paths = (path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES)
+    return sorted(paths, key=str.casefold)
 
 
-def newest_source_timestamp(extra_paths: Iterable[Path] = ()) -> float:
-    """Return the newest relevant source mtime for stale-build detection."""
-    candidates: list[Path] = [settings.PROJECT_DB, settings.PROJECT_DIR / "content.xlsx"]
-    candidates.extend(extra_paths)
+def newest_source_timestamp() -> float:
+    """Newest modification time of anything that ends up in ``/dist/``."""
+    files: list[Path] = [
+        settings.PROJECT_DB,
+        settings.PROJECT_DIR / "content.xlsx",
+        settings.PROJECT_DIR / "default-colors.css",
+        settings.PROJECT_DIR / "style-overrides.css",
+    ]
     for folder in (settings.PROJECT_DIR / "materials", settings.COMPONENTS_DIR, settings.RUNTIME_DIR):
-        if folder.exists():
-            candidates.extend(path for path in folder.rglob("*") if path.is_file())
-    candidates.extend(
-        path
-        for path in (
-            settings.PROJECT_DIR / "default-colors.css",
-            settings.PROJECT_DIR / "style-overrides.css",
-        )
-        if path.exists()
-    )
-    mtimes: list[float] = [path.stat().st_mtime for path in candidates if path.exists()]
-    return max(mtimes, default=0.0)
+        if folder.is_dir():
+            files.extend(path for path in folder.rglob("*") if path.is_file())
+    return max((path.stat().st_mtime for path in files if path.exists()), default=0.0)

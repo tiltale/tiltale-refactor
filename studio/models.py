@@ -1,11 +1,16 @@
 """Project-scoped authoring models.
 
-The model set is intentionally small. A reusable *component* lives in source
-control under ``/components``. An *element* is one placed instance of a
-component on a frame and therefore belongs in the project database.
+A reusable *component* lives in source control under ``/components``. An
+*element* is one placed instance of a component on a frame, so it lives here.
+
+After changing this file run ``python manage.py makemigrations`` and commit the
+generated file. Never write migrations by hand; TilTale applies them to
+``/project/project.sqlite3`` automatically on the next request.
 """
 
-from django.core.validators import MinValueValidator
+from decimal import Decimal
+
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 
@@ -15,25 +20,28 @@ class ProjectSettings(models.Model):
     name = models.CharField(max_length=120)
     slug = models.SlugField(max_length=120)
     base_language = models.CharField(max_length=40)
-    frame_width = models.PositiveIntegerField(default=1920)
-    frame_height = models.PositiveIntegerField(default=1080)
+    frame_width = models.FloatField(default=1920.0, validators=[MinValueValidator(1)])
+    frame_height = models.FloatField(default=1080.0, validators=[MinValueValidator(1)])
     default_delay_seconds = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=0.75,
-        validators=[MinValueValidator(0)],
+        default=Decimal("0.75"),
+        validators=[MinValueValidator(0), MaxValueValidator(30)],
     )
     letterbox_color = models.CharField(max_length=7, default="#000000")
-    log_endpoint = models.URLField(blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    participant_parameter = models.CharField(
+        max_length=40,
+        default="ppn",
+        validators=[RegexValidator(r"^[A-Za-z0-9_.-]+$", "Use letters, digits, '.', '_' or '-'.")],
+    )
+    finish_redirect_url = models.URLField(max_length=1000, blank=True, default="")
 
     def __str__(self) -> str:
         return self.name
 
 
 class Frame(models.Model):
-    """A unique story panel and its language-independent presentation."""
+    """One story panel. Language-picker frames only exist in multi-language projects."""
 
     class BackgroundType(models.TextChoices):
         NONE = "none", "None"
@@ -41,6 +49,7 @@ class Frame(models.Model):
         IMAGE = "image", "Image"
 
     name = models.CharField(max_length=80, unique=True)
+    is_language_picker = models.BooleanField(default=False)
     background_type = models.CharField(
         max_length=10,
         choices=BackgroundType.choices,
@@ -49,10 +58,8 @@ class Frame(models.Model):
     background_color = models.CharField(max_length=7, default="#111111")
     background_image = models.CharField(max_length=500, blank=True, default="")
     fade_in = models.BooleanField(default=False)
-    flow_x = models.FloatField(null=True, blank=True)
-    flow_y = models.FloatField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    flow_x = models.FloatField(default=0.0)
+    flow_y = models.FloatField(default=0.0)
 
     class Meta:
         ordering: list[str] = ["id"]
@@ -72,25 +79,25 @@ class Element(models.Model):
 
     frame = models.ForeignKey(Frame, on_delete=models.CASCADE, related_name="elements")
     component = models.CharField(max_length=100)
+    # Story frames take text from content.xlsx. Language-picker frames are shown
+    # before a language is known, so their text is typed directly into ``text``.
     content_id = models.PositiveIntegerField(null=True, blank=True)
+    text = models.TextField(blank=True, default="")
     x = models.FloatField(default=960.0)
     y = models.FloatField(default=540.0)
     width = models.FloatField(default=420.0)
     height = models.FloatField(default=160.0)
 
-    # Blank means: inherit the component/project CSS variable. This is important:
-    # changing /project/default-colors.css must update every non-overridden element.
+    # Blank means "inherit the project/component color" from default-colors.css.
     fill_color = models.CharField(max_length=7, blank=True, default="")
     border_color = models.CharField(max_length=7, blank=True, default="")
     text_color = models.CharField(max_length=7, blank=True, default="")
 
-    font_size = models.FloatField(default=42.0)
+    font_size = models.FloatField(default=44.0)
     break_long_words = models.BooleanField(default=True)
-    delay_mode = models.CharField(
-        max_length=10,
-        choices=DelayMode.choices,
-        default=DelayMode.NONE,
-    )
+    delay_mode = models.CharField(max_length=10, choices=DelayMode.choices, default=DelayMode.NONE)
+
+    # What a click does. At most one of these is set (the editor enforces it).
     target_frame = models.ForeignKey(
         Frame,
         on_delete=models.SET_NULL,
@@ -98,8 +105,8 @@ class Element(models.Model):
         blank=True,
         related_name="incoming_elements",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    target_language = models.CharField(max_length=40, blank=True, default="")
+    ends_story = models.BooleanField(default=False)
 
     class Meta:
         ordering: list[str] = ["id"]
@@ -107,19 +114,29 @@ class Element(models.Model):
     def __str__(self) -> str:
         return f"{self.frame.name}: {self.component} #{self.pk}"
 
+    def geometry(self, language: str) -> dict[str, float]:
+        """Position, size and font size for ``language``, including overrides.
+
+        Uses ``language_overrides.all()`` so callers can prefetch it.
+        """
+        values: dict[str, float] = {
+            "x": self.x, "y": self.y, "width": self.width,
+            "height": self.height, "font_size": self.font_size,
+        }
+        for override in self.language_overrides.all():
+            if override.language != language:
+                continue
+            for key in values:
+                value: float | None = getattr(override, key)
+                if value is not None:
+                    values[key] = value
+        return values
+
 
 class ElementLanguageOverride(models.Model):
-    """Optional presentation tweaks for one language only.
+    """Geometry/font tweaks for one translation. Text itself stays in content.xlsx."""
 
-    Content itself stays in ``content.xlsx``. These overrides are limited to the
-    values translators/designers may reasonably need to adjust when text grows.
-    """
-
-    element = models.ForeignKey(
-        Element,
-        on_delete=models.CASCADE,
-        related_name="language_overrides",
-    )
+    element = models.ForeignKey(Element, on_delete=models.CASCADE, related_name="language_overrides")
     language = models.CharField(max_length=40)
     x = models.FloatField(null=True, blank=True)
     y = models.FloatField(null=True, blank=True)
@@ -129,10 +146,7 @@ class ElementLanguageOverride(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["element", "language"],
-                name="unique_element_language_override",
-            )
+            models.UniqueConstraint(fields=["element", "language"], name="unique_element_language_override"),
         ]
 
     def __str__(self) -> str:

@@ -1,11 +1,9 @@
 {
-  "slug": "choice-button",
   "name": "Choice button",
   "description": "Clickable answer or decision that can branch to another frame.",
   "accepts_content": true,
   "clickable": true,
   "default_size": {"width": 560, "height": 150},
-  "default_font_size": 40,
-  "colors": {"fill": "#FFFFFF", "border": "#0D0E0E", "text": "#0D0E0E"},
-  "variants": ["default"]
+  "default_font_size": 44,
+  "colors": {"fill": "#FFFFFF", "border": "#0D0E0E", "text": "#0D0E0E"}
 }

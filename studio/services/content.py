@@ -1,9 +1,9 @@
-"""Create and read the project's content workbook.
+"""Create, read and append to the project's ``content.xlsx``.
 
-``content_id`` is a machine-managed integer. It is intentionally different from
-Excel's physical row number: users may sort or insert rows without breaking the
-story database. If a user adds a non-empty row without an ID, TilTale assigns
-the next ID and writes it back to the workbook. Existing IDs never change.
+Layout: column A ``content_id``, column B ``note``, then one column per language.
+``content_id`` is a stable integer, deliberately not the Excel row number, so
+authors can sort or insert rows freely. A typed row without an ID gets the
+next free ID, which is written back to the workbook. Existing IDs never change.
 """
 
 from dataclasses import dataclass
@@ -12,6 +12,11 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
+
+LOCKED_MESSAGE: str = (
+    "content.xlsx is locked. Close it in Excel (or any other program), then reload "
+    "this browser page. Restarting TilTale is not needed."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +37,7 @@ class ContentTable:
 
 
 def create_content_workbook(path: Path, languages: list[str]) -> None:
-    """Create the smallest useful content.xlsx template."""
+    """Create the empty workbook for a new project."""
     workbook: Workbook = Workbook()
     sheet: Worksheet = workbook.active
     sheet.title = "content"
@@ -46,109 +51,102 @@ def create_content_workbook(path: Path, languages: list[str]) -> None:
 
 
 def _text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return "" if value is None else str(value).strip()
 
 
 def _content_id(value: Any, excel_row: int) -> int:
-    """Parse a workbook ID without silently truncating values such as 3.5."""
-    if isinstance(value, bool):
-        raise ValueError(f"Excel row {excel_row}: content_id must be an integer.")
-    if isinstance(value, float):
-        if not value.is_integer():
-            raise ValueError(f"Excel row {excel_row}: content_id must be an integer.")
-        parsed: int = int(value)
-    else:
-        try:
-            parsed = int(str(value).strip())
-        except (TypeError, ValueError) as error:
-            raise ValueError(f"Excel row {excel_row}: content_id must be an integer.") from error
+    """Parse an ID without silently truncating values such as 3.5."""
+    error = ValueError(f"Excel row {excel_row}: content_id must be a whole number above zero.")
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        raise error
+    try:
+        parsed: int = int(str(value).strip()) if not isinstance(value, float) else int(value)
+    except ValueError:
+        raise error from None
     if parsed <= 0:
-        raise ValueError(f"Excel row {excel_row}: content_id must be greater than zero.")
+        raise error
     return parsed
 
 
-def load_content_table(path: Path, assign_missing_ids: bool = True) -> ContentTable:
-    """Read content and optionally assign stable IDs to newly typed rows."""
-    if not path.is_file():
-        raise FileNotFoundError(f"Content workbook not found: {path}")
-
-    try:
-        workbook = load_workbook(path)
-    except PermissionError as error:
-        raise ValueError(
-            "content.xlsx cannot be read. Close it in Excel or another program, then reload TilTale."
-        ) from error
-    sheet: Worksheet = workbook.active
+def _languages(sheet: Worksheet) -> tuple[str, ...]:
     headers: list[str] = [_text(cell.value) for cell in sheet[1]]
     while headers and not headers[-1]:
         headers.pop()
-    if not headers or headers[0] != "content_id":
-        raise ValueError("content.xlsx must start with a 'content_id' column.")
-    if len(headers) < 2 or headers[1] != "note":
-        raise ValueError("The second column in content.xlsx must be 'note'. Language columns go after it.")
-
+    if headers[:2] != ["content_id", "note"]:
+        raise ValueError("content.xlsx must start with the columns 'content_id' and 'note'. Language columns go after them.")
     languages: tuple[str, ...] = tuple(headers[2:])
     if not languages:
         raise ValueError("content.xlsx needs at least one language column after 'note'.")
-    if any(not language for language in languages):
-        raise ValueError("Language columns in content.xlsx must be named; do not leave blank columns between languages.")
+    if not all(languages):
+        raise ValueError("Language columns in content.xlsx must be named; do not leave empty columns between them.")
     if len({language.casefold() for language in languages}) != len(languages):
         raise ValueError("Language column names in content.xlsx must be unique.")
+    return languages
 
-    # First establish the highest existing ID and reject duplicates. This avoids
-    # an ID depending on where a blank-ID row happens to appear in the sheet.
-    highest_id: int = 0
-    seen_ids: set[int] = set()
+
+def load_content_table(path: Path) -> ContentTable:
+    """Read the workbook and assign IDs to newly typed rows."""
+    if not path.is_file():
+        raise FileNotFoundError(f"Content workbook not found: {path}")
+    try:
+        workbook = load_workbook(path)
+    except PermissionError:
+        raise ValueError(LOCKED_MESSAGE) from None
+    sheet: Worksheet = workbook.active
+    languages: tuple[str, ...] = _languages(sheet)
+
+    # Find the highest existing ID first so a new ID never depends on where
+    # an ID-less row happens to sit in the sheet.
+    seen: set[int] = set()
     for excel_row in range(2, sheet.max_row + 1):
-        raw_id: Any = sheet.cell(excel_row, 1).value
-        if raw_id in (None, ""):
+        raw = sheet.cell(excel_row, 1).value
+        if raw in (None, ""):
             continue
-        content_id: int = _content_id(raw_id, excel_row)
-        if content_id in seen_ids:
+        content_id: int = _content_id(raw, excel_row)
+        if content_id in seen:
             raise ValueError(f"Duplicate content_id {content_id} in content.xlsx.")
-        seen_ids.add(content_id)
-        highest_id = max(highest_id, content_id)
+        seen.add(content_id)
+    next_id: int = max(seen, default=0) + 1
 
     rows: list[ContentRow] = []
-    workbook_changed: bool = False
+    changed: bool = False
     for excel_row in range(2, sheet.max_row + 1):
-        language_values: dict[str, str] = {
-            language: _text(sheet.cell(excel_row, 3 + index).value)
-            for index, language in enumerate(languages)
+        values: dict[str, str] = {
+            language: _text(sheet.cell(excel_row, 3 + index).value) for index, language in enumerate(languages)
         }
         note: str = _text(sheet.cell(excel_row, 2).value)
-        raw_id = sheet.cell(excel_row, 1).value
-        row_has_content: bool = bool(note or any(language_values.values()))
-        if not row_has_content and raw_id in (None, ""):
-            continue
-
-        if raw_id in (None, ""):
-            if not assign_missing_ids:
-                raise ValueError(f"Excel row {excel_row} has content but no content_id.")
-            highest_id += 1
-            content_id = highest_id
-            sheet.cell(excel_row, 1).value = content_id
-            workbook_changed = True
+        raw = sheet.cell(excel_row, 1).value
+        if raw in (None, ""):
+            if not note and not any(values.values()):
+                continue
+            sheet.cell(excel_row, 1).value = content_id = next_id
+            next_id += 1
+            changed = True
         else:
-            content_id = _content_id(raw_id, excel_row)
+            content_id = _content_id(raw, excel_row)
+        rows.append(ContentRow(content_id=content_id, excel_row=excel_row, values=values, note=note))
 
-        rows.append(
-            ContentRow(
-                content_id=content_id,
-                excel_row=excel_row,
-                values=language_values,
-                note=note,
-            )
-        )
-
-    if workbook_changed:
+    if changed:
         try:
             workbook.save(path)
-        except PermissionError as error:
-            raise ValueError(
-                "content.xlsx could not be updated. Close it in Excel or another program, then reload TilTale."
-            ) from error
-
+        except PermissionError:
+            raise ValueError(LOCKED_MESSAGE) from None
     return ContentTable(languages=languages, rows=tuple(rows))
+
+
+def append_content_row(path: Path, note: str, values: dict[str, str]) -> ContentRow:
+    """Append one author-created row and return it with its new stable ID."""
+    table: ContentTable = load_content_table(path)
+    cleaned: dict[str, str] = {language: values.get(language, "").strip() for language in table.languages}
+    note = note.strip()
+    if not note and not any(cleaned.values()):
+        raise ValueError("Add a note or text in at least one language.")
+    next_id: int = max((row.content_id for row in table.rows), default=0) + 1
+    try:
+        workbook = load_workbook(path)
+        sheet: Worksheet = workbook.active
+        sheet.append([next_id, note, *cleaned.values()])
+        workbook.save(path)
+    except PermissionError:
+        raise ValueError(LOCKED_MESSAGE) from None
+    return ContentRow(content_id=next_id, excel_row=sheet.max_row, values=cleaned, note=note)

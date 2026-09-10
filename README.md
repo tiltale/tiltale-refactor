@@ -1,490 +1,130 @@
 # TilTale
 
-**TilTale** is a platform for building and running **interactive digital narratives (IDNs)**.
+TilTale is a local studio for building interactive, branching stories (for example for research studies). You build the story in your browser; **Regenerate** turns it into a plain website in `/dist/` made of HTML, CSS, JavaScript and one small `log.php`, which you upload to any web host with PHP.
 
-You do **not** need previous Django experience to start working on TilTale. The repository is intentionally small, conventional and documented for student developers.
-
----
-
-## Contents
-
-| Section | What you will find |
-|---|---|
-| [Before you begin](#before-you-begin) | Required software and recommended environment. |
-| [Get TilTale](#get-tiltale) | Download the project as a ZIP or clone it with Git, then create a virtual environment. |
-| [Run TilTale](#run-tiltale) | Install dependencies and start Django. |
-| [First project](#first-project) | How `/project/` is created. |
-| [Useful commands](#useful-commands) | Commands you will use most often. |
-| [Tech stack](#tech-stack) | Why each dependency exists. |
-| [Project structure](#project-structure) | Where authoring, components and runtime code live. |
-| [Content and languages](#content-and-languages) | How `content.xlsx` and stable `content_id` values work. |
-| [Development conventions](#development-conventions) | The rules that keep TilTale simple. |
-| [Quick fixes](#quick-fixes) | Common Windows/PowerShell problems. |
-
----
-
-## Before you begin
-
-### Visual Studio Code
-
-VS Code is the recommended editor. No project-specific VS Code extensions are required.
-
-Useful extensions, if you already use them:
-
-- Python
-- Pylance
-
-### Python
-
-TilTale targets **Python 3.14**; the pinned/recommended maintenance release for this base is **Python 3.14.7**.
-
-Check:
-
-```powershell
-python --version
-where.exe python
-```
-
-### Recommended development environment
-
-| Software | Version / environment |
-|---|---|
-| Operating system | Windows 11 |
-| Python | 3.14.7 |
-| Django | 6.1.1 |
-| openpyxl | 3.1.5 |
-| Pillow | 12.3.0 |
-| Editor | Visual Studio Code |
-| Shell | PowerShell |
-
-Compatible dependency ranges are recorded in `requirements.txt`; patch updates within the current minor release are allowed.
-
-> TilTale is a **local authoring tool**. Django's development server is deliberately configured for localhost use; do not expose it as a production web service.
-
----
-
-## Get TilTale
-
-You first need a local copy of the TilTale repository on your computer.
-
-There are two ways to get it.
-
-### Recommended: Download ZIP
-
-This is the easiest option if you are new to Git.
-
-1. Open the repository:
-   https://github.com/tiltale/tiltale-refactor
-2. Select **Code → Download ZIP**.
-3. Unpack the ZIP.
-4. Open VS Code.
-5. Select **File → Open Folder...**.
-6. Open the unpacked `tiltale-refactor` folder.
-7. Select **Terminal → New Terminal**.
-
-### More experienced? Use Git
-
-If Git is installed, you can clone the repository instead:
+## Quick start
 
 ```bash
-git clone https://github.com/tiltale/tiltale-refactor.git
-cd tiltale-refactor
-```
-
-Then open the folder in VS Code.
-
-### Check that you opened the repository root
-
-The terminal must be inside the folder containing `manage.py`.
-
-#### Windows
-
-```powershell
-Test-Path manage.py
-```
-
-Expected:
-
-```text
-True
-```
-
-#### macOS
-
-```bash
-test -f manage.py && echo "True"
-```
-
-Expected:
-
-```text
-True
-```
-
-#### Linux
-
-```bash
-test -f manage.py && echo "True"
-```
-
-Expected:
-
-```text
-True
-```
-
-If you do not see `True`, open the correct repository folder before continuing.
-
-### Create the local virtual environment
-
-The virtual environment keeps TilTale's Python packages separate from other Python projects on your computer.
-
-#### Windows
-
-```powershell
-py -3.14 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-#### macOS
-
-```bash
-python3.14 -m venv .venv
-source .venv/bin/activate
-```
-
-#### Linux
-
-```bash
-python3.14 -m venv .venv
-source .venv/bin/activate
-```
-
-The terminal prompt should now start with:
-
-```text
-(.venv)
-```
-
----
-
-## Run TilTale
-
-Install the project dependencies:
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Check Django's configuration:
-
-```powershell
-python manage.py check
-```
-
-Start TilTale:
-
-```powershell
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 python manage.py runserver
 ```
 
-Open:
+Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project/` folder next to `manage.py`.
 
-```text
-http://127.0.0.1:8000/
+## Daily workflow
+
+1. **Develop**: add frames (`+ Frame`), place components on them, pick texts from `content.xlsx`, and set what each button does.
+2. **Flowchart**: see how frames connect. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
+3. **Regenerate**, then check the preview on different phone sizes.
+4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.
+5. Upload `/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**.
+
+## Participant IDs (Qualtrics, Prolific, …)
+
+Give each participant a link with their ID in the URL. The parameter name is set under **Settings → Participant ID parameter** (default `ppn`):
+
+```
+https://www.example.org/our-story/index.html?ppn=R_1abcDEF
 ```
 
-Stop the server with:
+In Qualtrics, put this link in a *Text/Graphic* question or an *End of Survey* redirect and insert the piped text `${e://Field/ResponseID}` where the ID goes, e.g. `…/index.html?ppn=${e://Field/ResponseID}`.
 
-```text
-Ctrl + C
+- The ID is used for logging. Links without it get a random ID that stays the same in that browser.
+- **Every page load is a new visit with its own log file**: `logs/<participant>--<visit>.jsonl`. Opening the link again never overwrites an earlier log. Readers who reload continue on the frame where they were; the visit files show exactly what happened.
+- **Finish redirect**: under Settings, enter a URL to open when a reader clicks an element set to *End story*. Write `{ID}` where the participant ID belongs. It is URL-encoded automatically. Example: `https://example.qualtrics.com/jfe/form/SV_abc?ppn={ID}` sends participant `R_1abcDEF` back to `…?ppn=R_1abcDEF`. `{ID}` was chosen because curly braces never appear in normal URLs, while `%` and `@` already mean something there.
+
+## Several languages
+
+Languages are the columns after `content_id` and `note` in `/project/content.xlsx`. With **one** language, the story is `/dist/index.html` and none of the options below exist. With **two or more**:
+
+```
+dist/index.html               start page built from language-picker frames (optional)
+dist/<slug>---en-US/index.html  the English story
+dist/<slug>---nl-NL/index.html  the Dutch story
+dist/tiltale.js, style.css, assets/, log.php, logs/   shared by all pages
 ```
 
-### Database migrations
+**Language-picker frames** (`+ Picker frame`) are the frames of the start page. They are shown before a language is chosen, so their texts are typed directly instead of coming from `content.xlsx`, and their buttons open a language. They have an amber dashed border and a *Picker* badge everywhere in the studio. Without picker frames, no `dist/index.html` is generated and you link participants to a language folder directly. The participant ID and the visit carry over from the start page into the chosen language.
 
-You do **not** need to run a migration command during normal setup. TilTale's authoring models belong to the active project's own SQLite file, and a newly created project is migrated automatically.
+## Publishing
 
-That is intentional: **no `/project/` folder means “no active project.”** Merely starting Django must not create one.
+Upload the **contents** of `/dist/` to a folder on a web server with PHP 7.4 or newer. `log.php` writes to `dist/logs/`, so that folder must be writable by the web server. `logs/.htaccess` blocks public access on Apache; on nginx add `location ~ /logs/ { deny all; }`. Regenerate never deletes `dist/logs/`.
 
-Do not run the normal default-database command:
+## Where to find what
 
-```powershell
-python manage.py migrate
-```
+Most changes start in one of these places:
 
-If a future TilTale update requires an older copied project to update its database schema, use the project database explicitly:
-
-```powershell
-python manage.py migrate --database=project
-```
-
----
-
-## First project
-
-If `/project/` does not exist, the home page gives you two paths:
-
-1. **Existing project:** copy its complete `project` folder into the TilTale repository root, then reload.
-2. **New project:** press **Create a new project** and enter its name, base language and optional extra languages.
-
-A new project looks like this:
-
-```text
-project/
-├── project.sqlite3
-├── content.xlsx
-├── default-colors.css
-├── style-overrides.css
-├── materials/
-└── logs/
-```
-
-`/project/` is ignored by Git because it may contain study data, project assets and local authoring state.
-
-Generated websites go to `/dist/`. That folder is also ignored because it is disposable: press **Regenerate** to rebuild it from source project data.
-
----
-
-## Useful commands
-
-| Command | What it does |
+| I want to change… | Open |
 |---|---|
-| `.\.venv\Scripts\Activate.ps1` | Activates the local Python environment. |
-| `python -m pip install -r requirements.txt` | Installs TilTale's project dependencies. |
-| `python manage.py check` | Checks Django configuration without creating a project. |
-| `python manage.py test` | Runs the small source-level test suite. |
-| `python manage.py runserver` | Starts the local authoring application. |
-| `git status` | Shows source changes before you commit. |
+| a studio page's behavior | `studio/views.py` (the function named in `studio/urls.py`) |
+| a studio page's layout | `studio/templates/studio/<page>.html` |
+| how the studio looks / reacts | `studio/static/studio/app.css`, `app.js` |
+| how the published story behaves | `runtime/tiltale.js` |
+| how story elements look | `components/<name>/` and `runtime/elements.css` |
+| what is stored in the database | `studio/models.py` (then see *Changing models*) |
+| what Regenerate produces | `studio/services/generate.py` |
 
-Before committing source work:
+### `config/`: Django project settings
 
-```powershell
-python manage.py check
-python manage.py test
-git status
-```
-
-Verify that `project/` and `dist/` are **not** listed by Git.
-
----
-
-## Tech stack
-
-The dependency budget is deliberately small.
-
-| Technology | Why TilTale needs it |
+| File | Purpose |
 |---|---|
-| **Python 3.14** | Main programming language. Type annotations are used on function inputs/returns and non-obvious local values. |
-| **Django 6.1** | Local routing, templates, validation, CSRF protection and SQLite ORM. |
-| **openpyxl** | Reads/writes `content.xlsx` without adding a dataframe dependency. |
-| **Pillow** | Creates responsive WebP variants of large project images during generation. |
-| **SQLite** | Project-local authoring database. No database server is required. |
-| **Vanilla JavaScript** | Dragging, flowchart interaction, device preview and the generated story runtime. |
-| **HTML/CSS/SVG** | Developer interface and framework-free generated stories/components. |
+| `settings.py` | Paths (`PROJECT_DIR`, `DIST_DIR`, …), databases, installed apps. |
+| `urls.py` | Sends every URL to the studio app. |
+| `wsgi.py` | Entry point for a WSGI server (not needed for `runserver`). |
 
-### Why there is no frontend framework
+### `studio/`: the studio app
 
-The authoring UI needs some rich interactions, but not enough to justify a second application framework and build tool today. Small browser behaviors live in one documented `studio/static/studio/app.js` file. If this becomes the wrong trade-off later, the requirement—not fashion—should trigger that change.
+| File | Purpose |
+|---|---|
+| `models.py` | Database tables: project settings, frames, elements, per-language layout overrides. |
+| `views.py` | One function per page or API call. Validates input, then calls a service. |
+| `urls.py` | Maps each URL to a view. |
+| `forms.py` | Forms for new project, settings and frame settings, including their help texts. |
+| `db.py` | Routes all studio tables to `/project/project.sqlite3`. |
+| `tests.py` | Behavior tests (`python manage.py test`). |
+| `migrations/` | Generated by Django. Never edit by hand. |
+| `services/project.py` | Creating, opening and checking the `/project/` folder; applies migrations automatically. |
+| `services/content.py` | Reading and appending `content.xlsx`. |
+| `services/components.py` | Loading `components/*`. |
+| `services/flow.py` | Frame links, reachability, placing new frames, *Tidy up*. |
+| `services/validate.py` | Preflight checks and phone presets. |
+| `services/generate.py` | Regenerate: builds `/dist/`. |
+| `services/study_logs.py` | Writing, importing and summarizing visit logs. |
+| `templates/studio/` | One HTML template per page; `base.html` is the shared frame and `_field.html` renders a form field. |
+| `static/studio/app.css`, `app.js` | All studio styling and interactivity (no libraries). |
 
----
+### `runtime/`: files copied into every generated story
 
-## Project structure
+See `runtime/README.md` for the full table. `tiltale.js` is the story player, `log.php` the server-side logger, `logo-tiltale.png` the startup logo (add your own; the preflight list reports it when missing).
 
-```text
-tiltale/
-├── README.md
-├── requirements.txt
-├── manage.py
-│
-├── config/                   Minimal Django project plumbing
-│   ├── settings.py
-│   ├── urls.py
-│   └── wsgi.py
-│
-├── studio/                   The one Django authoring app
-│   ├── models.py             Project-scoped authoring data
-│   ├── forms.py              Server-side durable-input validation
-│   ├── views.py              HTTP layer; delegates non-HTTP work
-│   ├── urls.py               All authoring routes
-│   ├── tests.py              Small behavior tests for durable rules
-│   ├── services/             Workbook/files/generation/log operations
-│   ├── templates/studio/     Django UI templates
-│   ├── static/studio/        One CSS + one authoring JS file
-│   └── migrations/           Project database schema
-│
-├── components/               Reusable story component definitions
-│   ├── speech-bubble/
-│   ├── choice-button/
-│   └── next-button/
-│
-└── runtime/                  Generic plain HTML/CSS/JS story runtime
+### `components/`: reusable story elements
 
-# Created locally and never committed:
-/project/
-/dist/
-/.venv/
+One folder per component with `component.json` (name, defaults, colors), `component.svg` (shape) and `component.css` (styling). See `components/README.md`.
+
+### `docs/llm-prompts/`: default prompts for language models
+
+Placeholders for (1) extracting texts from storyboard images into `content-template.xlsx` and (2) building a frame from its image. See `docs/llm-prompts/README.md`.
+
+### Generated folders (ignored by Git)
+
+| Folder | Contents |
+|---|---|
+| `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css`. Back this up. |
+| `dist/` | The website produced by Regenerate. Safe to delete except `dist/logs/` on the server. |
+
+## Changing models
+
+After editing `studio/models.py`:
+
+```bash
+python manage.py makemigrations studio
+git add studio/migrations
 ```
 
-### Component vs. element
+Django writes the migration; never write one by hand. TilTale applies pending migrations to `/project/project.sqlite3` automatically on the next request. CI fails if a model change has no committed migration.
 
-Use these terms consistently:
+## Tests and CI
 
-- **Component** = reusable source definition in `/components/`.
-- **Element** = one placed instance of a component on a specific frame.
-
-This avoids phrases such as “component instance component” and keeps the database/source-code distinction clear.
-
----
-
-## Content and languages
-
-`/project/content.xlsx` starts with:
-
-| content_id | note | en-US | nl-NL |
-|---:|---|---|---|
-| 1 | opening bubble | Hello. | Hallo. |
-| 2 | next choice | Continue | Verder |
- 
-
-TilTale uses a **machine-managed positive integer `content_id`**:
-
-- If you type content on a new row and leave the ID empty, TilTale assigns the next unused ID when it reads the workbook.
-- Existing IDs never get renumbered.
-- Duplicate IDs are reported as an error.
-- The content picker still displays the physical Excel row to help humans find it.
-- `note` is optional and does not need to be unique.
-
-### Adding a language
-
-Column A is `content_id` and column B is `note`. Every named column after that is a language. To add a language, enter its code (for example `de-DE`) in the next empty column and reload TilTale. The language automatically becomes available in the developer-side language selector and the next regeneration creates a new language-specific build.
-
-Element position, size and font size can be overridden for a selected translation without changing the shared frame/background/flow.
-
----
-
-## Main workflows
-
-### `/`
-
-Project gate. It intentionally starts without a database/project if `/project/` is absent.
-
-### `/develop/`
-
-Developer dashboard with:
-
-- searchable frame list;
-- current generated story preview plus rendered frame thumbnails;
-- draggable/hideable frame-panel divider;
-- device viewport presets including older phones;
-- language selector;
-- Restart and Regenerate;
-- stale-build notice;
-- validation warnings linking back to frames.
-
-### `/develop/edit/frame-x/`
-
-Frame editor with:
-
-- image/solid/no background;
-- frame fade-in setting;
-- source components from `/components/`;
-- direct element dragging;
-- workbook content picker;
-- target-frame choice;
-- project/per-element colors;
-- delay behavior;
-- per-language geometry/font overrides.
-
-### `/develop/flowchart/`
-
-Dependency-free flowchart with persisted draggable positions, zoom-to-selection, edges and selected-frame connection details.
-
-### `/results/`
-
-Reads JSONL session logs from `/project/logs/` and can import downloaded JSONL logs.
-
-### Regeneration
-
-Regeneration deletes/recreates `/dist/`, runs practical project checks, creates responsive image variants and emits one plain website per workbook language:
-
-```text
-dist/
-└── project-slug---en-US/
-    ├── index.html
-    ├── script.js
-    ├── style.css
-    └── assets/
-```
-
-Warnings do not block generation; they are there to make problems visible while the story remains testable.
-
----
-
-## Quick fixes
-
-### PowerShell says `Activate.ps1` cannot be loaded
-
-For your user account:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-Open a new VS Code terminal, then:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### `python` is not recognized
-
-```powershell
-where.exe python
-py -0p
-```
-
-Check that the directory containing `python.exe` is in your user `PATH`.
-
-### Django is not installed
-
-Make sure the virtual environment is active, then:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-### Port 8000 is already in use
-
-Use another local port:
-
-```powershell
-python manage.py runserver 8001
-```
-
-### The preview did not update
-
-Look for the amber bottom status line / stale notice, then press **Regenerate**. `/dist/` is intentionally not updated on every database write.
-
-### A language is missing
-
-Open `/project/content.xlsx`. Column A must be `content_id`, column B must be `note`, and language columns come after them. Add new languages in the next empty column, save the workbook and reload TilTale.
-
-### `content.xlsx` cannot be read or updated
-
-Close `content.xlsx` in Excel or any other program that may be locking the file, then reload TilTale or press **Regenerate** again.
-
----
-
-### Asking for help
-
-Include:
-
-```powershell
-python --version
-python -m django --version
-python manage.py check
-git status
-```
-
-Also include the **first error message**, not only the final stack-trace line.
+`python manage.py test` runs the behavior tests against an in-memory database. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, and a syntax check of `tiltale.js`, `app.js` and `log.php`.

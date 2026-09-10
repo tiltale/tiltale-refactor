@@ -1,13 +1,15 @@
 """Small, local-only Django settings for TilTale.
 
-TilTale deliberately has two database aliases:
-- ``default`` is intentionally unconfigured. Django requires the alias to exist,
-  but TilTale does not store application data there.
-- ``project`` points to ``/project/project.sqlite3``. Studio models are routed
-  there and are migrated only when a project is created or imported.
+TilTale has two database aliases:
 
-This keeps the root ``/project/`` directory meaningful: its absence means that
-TilTale should show the create/import project gate.
+- ``default`` is deliberately empty. Django requires the alias, but TilTale keeps
+  no data there. Because it is empty, ``runserver`` has nothing to report as
+  "unapplied migrations", even when no project exists yet.
+- ``project`` is ``/project/project.sqlite3``. ``studio.db.ProjectDatabaseRouter``
+  sends every studio model there, and TilTale applies pending migrations to it
+  automatically when a project is created or opened (``services/project.py``).
+
+So the absence of ``/project/`` simply means "no active project".
 """
 
 from pathlib import Path
@@ -28,6 +30,7 @@ DEBUG: bool = True
 ALLOWED_HOSTS: list[str] = ["127.0.0.1", "localhost"]
 
 INSTALLED_APPS: list[str] = [
+    "django.contrib.messages",
     "django.contrib.staticfiles",
     "studio",
 ]
@@ -36,6 +39,7 @@ MIDDLEWARE: list[str] = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -49,6 +53,7 @@ TEMPLATES: list[dict[str, object]] = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     }
@@ -57,27 +62,29 @@ TEMPLATES: list[dict[str, object]] = [
 WSGI_APPLICATION: str = "config.wsgi.application"
 
 DATABASES: dict[str, dict[str, object]] = {
-    # Django requires a ``default`` alias even when an application routes all
-    # model access elsewhere. Leaving it empty prevents Django's development
-    # server from reporting studio migrations against a disposable database.
     "default": {},
     "project": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": str(PROJECT_DB),
-        # Tests must never create /project/. Django uses an in-memory project
-        # database when running the source test suite.
-        "TEST": {"NAME": ":memory:"},
+        # The test suite never touches /project/: it uses an in-memory database.
+        # DEPENDENCIES defaults to ["default"], which is never created here, so
+        # the test runner would report a "circular dependency".
+        "TEST": {"NAME": ":memory:", "DEPENDENCIES": []},
     },
 }
 DATABASE_ROUTERS: list[str] = ["studio.db.ProjectDatabaseRouter"]
 
+# Flash messages ("Saved.", "Regenerated.") live in a signed cookie, so no
+# session table or extra database is needed.
+MESSAGE_STORAGE: str = "django.contrib.messages.storage.cookie.CookieStorage"
+
 LANGUAGE_CODE: str = "en-us"
 TIME_ZONE: str = "UTC"
-USE_I18N: bool = True
+USE_I18N: bool = False
 USE_TZ: bool = True
 
 STATIC_URL: str = "static/"
 DEFAULT_AUTO_FIELD: str = "django.db.models.BigAutoField"
 
-# The generated story is shown inside the developer dashboard's same-origin iframe.
+# The generated story is shown inside same-origin iframes in the studio.
 X_FRAME_OPTIONS: str = "SAMEORIGIN"

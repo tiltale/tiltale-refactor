@@ -1,482 +1,533 @@
-"""HTTP views for TilTale's local authoring interface.
+"""HTTP views for the TilTale studio. Non-HTTP work lives in ``services/``."""
 
-Views validate HTTP input and delegate file/workbook/generation work to services.
-That keeps the browser layer conventional and the non-HTTP logic testable.
-"""
-
-from __future__ import annotations
-
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import wraps
 import json
 import mimetypes
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.http import FileResponse, HttpRequest, HttpResponse, HttpResponseNotFound, JsonResponse
+from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.safestring import mark_safe
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from .forms import FrameBackgroundForm, NewProjectForm, ProjectSettingsForm, validate_hex
+from .forms import FrameForm, NewProjectForm, ProjectSettingsForm, validate_hex
 from .models import Element, ElementLanguageOverride, Frame, ProjectSettings
-from .services.components import ComponentDefinition, component_css, component_map, load_components
-from .services.content import ContentRow, ContentTable, load_content_table
-from .services.generate import dist_is_stale, generate_dist, language_directory, load_build_report
-from .services.project import (
-    create_project,
-    list_materials,
-    next_frame_name,
-    project_exists,
-    project_health,
-    project_settings,
-    safe_child,
+from .services.components import component_map, load_components
+from .services.content import ContentTable, append_content_row, load_content_table
+from .services.flow import create_frame, tidy_layout
+from .services.generate import dist_is_stale, generate_dist, language_folder, load_build_report, page_path, story_css
+from .services.project import create_project, list_materials, project_health, project_settings, safe_child
+from .services.study_logs import append_event, import_jsonl, logs_dir, read_events, session_summaries
+from .services.validate import DEVICE_PRESETS, validate_project
+
+GEOMETRY_FIELDS: tuple[tuple[str, str, float | None], ...] = (
+    ("x", "X", None), ("y", "Y", None), ("width", "Width", 20), ("height", "Height", 20), ("font_size", "Font size", 6),
 )
-from .services.study_logs import append_event, import_jsonl, read_events, session_summaries
-from .services.validate import DEVICE_PRESETS, ValidationIssue, validate_project
+STANDARD_LOG_KEYS: frozenset[str] = frozenset({
+    "participant_id", "visit_id", "seq", "timestamp", "received_at", "project", "language", "event", "frame",
+})
 
 
-def _notice_redirect(name: str, notice: str, **kwargs: object) -> HttpResponse:
-    url: str = reverse(name, kwargs=kwargs or None)
-    return redirect(f"{url}?notice={quote(notice)}")
+def project_view(view: Callable[..., HttpResponse]) -> Callable[..., HttpResponse]:
+    """Pass the active project to ``view``; without one, go home (or 409 for APIs)."""
+    @wraps(view)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        project: ProjectSettings | None = project_settings()
+        if project is None:
+            if request.path.startswith("/api/"):
+                return JsonResponse({"error": "No active project."}, status=409)
+            return redirect("studio:home")
+        return view(request, project, *args, **kwargs)
+    return wrapper
 
 
-def _active_project() -> ProjectSettings | None:
-    return project_settings()
+@dataclass(frozen=True, slots=True)
+class Content:
+    """content.xlsx plus the language currently selected in the studio."""
+
+    table: ContentTable
+    language: str
+    error: str = ""
+
+    @property
+    def languages(self) -> tuple[str, ...]:
+        return self.table.languages
+
+    @property
+    def multilingual(self) -> bool:
+        return len(self.table.languages) > 1
 
 
-def _content_table() -> ContentTable:
-    return load_content_table(settings.PROJECT_DIR / "content.xlsx", assign_missing_ids=True)
+def _content(request: HttpRequest, project: ProjectSettings) -> Content:
+    try:
+        table: ContentTable = load_content_table(settings.PROJECT_DIR / "content.xlsx")
+    except (OSError, ValueError) as error:
+        return Content(ContentTable((project.base_language,), ()), project.base_language, str(error))
+    requested: str = request.GET.get("lang") or request.POST.get("language") or ""
+    language: str = next(item for item in (requested, project.base_language, table.languages[0]) if item in table.languages)
+    return Content(table, language)
 
 
-def _language(content: ContentTable, project: ProjectSettings, requested: str | None) -> str:
-    if requested and requested in content.languages:
-        return requested
-    if project.base_language in content.languages:
-        return project.base_language
-    return content.languages[0]
+def _to(name: str, lang: str = "", **kwargs: Any) -> HttpResponse:
+    url: str = reverse(f"studio:{name}", kwargs=kwargs or None)
+    return redirect(f"{url}?{urlencode({'lang': lang})}" if lang else url)
 
 
-def _float(value: object, label: str, minimum: float | None = None) -> float:
+def _preview_url(folder: str) -> str:
+    return reverse("studio:preview_file", kwargs={"path": page_path(folder)})
+
+
+def _number(value: object, label: str, minimum: float | None = None) -> float:
     try:
         parsed: float = float(str(value))
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{label} must be a number.") from error
+    except ValueError:
+        raise ValueError(f"{label} must be a number.") from None
     if minimum is not None and parsed < minimum:
         raise ValueError(f"{label} must be at least {minimum:g}.")
     return parsed
 
 
-def _optional_int(value: object, label: str) -> int | None:
-    text: str = str(value or "").strip()
-    if not text:
-        return None
+def _json_body(request: HttpRequest) -> dict[str, Any]:
     try:
-        parsed: int = int(text)
-    except ValueError as error:
-        raise ValueError(f"{label} must be an integer.") from error
-    if parsed <= 0:
-        raise ValueError(f"{label} must be greater than zero.")
-    return parsed
+        value: Any = json.loads(request.body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError("Request body must be JSON.") from None
+    if not isinstance(value, dict):
+        raise ValueError("Request body must be a JSON object.")
+    return value
 
 
-def _effective_geometry(element: Element, language: str) -> dict[str, float]:
-    values: dict[str, float] = {
-        "x": float(element.x), "y": float(element.y),
-        "width": float(element.width), "height": float(element.height),
-        "font_size": float(element.font_size),
-    }
-    override: ElementLanguageOverride | None = next(
-        (item for item in element.language_overrides.all() if item.language == language), None
-    )
-    if override:
-        for field in tuple(values):
-            value: float | None = getattr(override, field)
-            if value is not None:
-                values[field] = float(value)
-    return values
+def _error_text(error: Exception) -> str:
+    return "; ".join(error.messages) if isinstance(error, ValidationError) else str(error)
 
 
-def _element_view(
-    element: Element,
-    component: ComponentDefinition,
-    row: ContentRow | None,
-    language: str,
-    base_language: str,
-) -> dict[str, object]:
-    geometry: dict[str, float] = _effective_geometry(element, language)
-    return {
-        "id": element.id,
-        "component": component,
-        "svg": mark_safe(component.svg),
-        "text": row.values.get(language, "") if row else "",
-        "content_id": element.content_id,
-        "content_note": row.note if row else "",
-        "target_frame_id": element.target_frame_id,
-        "delay_mode": element.delay_mode,
-        "break_long_words": element.break_long_words,
-        "fill_color": element.fill_color,
-        "border_color": element.border_color,
-        "text_color": element.text_color,
-        "default_fill": component.fill,
-        "default_border": component.border,
-        "default_text": component.text,
-        "has_color_override": bool(element.fill_color or element.border_color or element.text_color),
-        "has_language_override": language != base_language and any(
-            item.language == language for item in element.language_overrides.all()
-        ),
-        **geometry,
-    }
+def _save_geometry(element: Element, language: str, project: ProjectSettings, values: dict[str, float]) -> None:
+    """Base-language edits change the element; other languages store only what differs.
+
+    The caller still saves ``element`` itself.
+    """
+    if language == project.base_language:
+        for key, value in values.items():
+            setattr(element, key, value)
+        return
+    override, _ = ElementLanguageOverride.objects.get_or_create(element=element, language=language)
+    for key, value in values.items():
+        setattr(override, key, None if value == getattr(element, key) else value)
+    if all(getattr(override, key) is None for key, _label, _minimum in GEOMETRY_FIELDS):
+        override.delete()
+    else:
+        override.save()
 
 
-def help_page(request: HttpRequest) -> HttpResponse:
-    """Show concise in-app explanations without depending on separate guide files."""
-    return render(request, "studio/help.html", {
-        "page": "help", "project": _active_project(),
-    })
+def _target_value(element: Element) -> str:
+    if element.ends_story:
+        return "end"
+    if element.target_language:
+        return f"language:{element.target_language}"
+    return f"frame:{element.target_frame_id}" if element.target_frame_id else ""
+
+
+def _apply_target(element: Element, value: str, languages: tuple[str, ...]) -> Frame | None:
+    """Set what a click does. Returns the frame when ``value == "new"`` created one."""
+    picker: bool = element.frame.is_language_picker
+    element.target_frame, element.target_language, element.ends_story = None, "", False
+    kind, _, key = value.partition(":")
+    if not value:
+        return None
+    if kind == "new":
+        element.target_frame = create_frame(is_picker=picker, linked_from=element.frame)
+        return element.target_frame
+    if kind == "frame":
+        element.target_frame = Frame.objects.filter(pk=int(key), is_language_picker=picker).first()
+        if element.target_frame is None:
+            raise ValueError("That target frame does not exist (or is of the other kind).")
+        return None
+    if kind == "language" and picker and key in languages:
+        element.target_language = key
+        return None
+    if kind == "end" and not picker:
+        element.ends_story = True
+        return None
+    raise ValueError("Unknown target.")
 
 
 def home(request: HttpRequest) -> HttpResponse:
     health = project_health()
-    project: ProjectSettings | None = _active_project() if health.ready else None
-    database_problem: str = ""
-    if health.ready and project is None:
-        database_problem = "The project folder exists, but its project settings could not be read."
-    return render(request, "studio/home.html", {
-        "page": "home", "health": health, "project": project,
-        "database_problem": database_problem, "notice": request.GET.get("notice", ""),
-    })
+    project: ProjectSettings | None = project_settings() if health.ready else None
+    return render(request, "studio/home.html", {"health": health, "project": project})
+
+
+def help_page(request: HttpRequest) -> HttpResponse:
+    return render(request, "studio/help.html", {"project": project_settings()})
 
 
 def new_project(request: HttpRequest) -> HttpResponse:
-    if project_exists():
-        return _notice_redirect("studio:home", "A project already exists in /project/.")
+    if project_health().exists:
+        messages.info(request, "A project already exists in /project/.")
+        return redirect("studio:home")
     form = NewProjectForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         try:
             project: ProjectSettings = create_project(
-                name=str(form.cleaned_data["name"]),
-                base_language=str(form.cleaned_data["base_language"]),
-                extra_languages=list(form.cleaned_data.get("parsed_extra_languages", [])),
+                name=form.cleaned_data["name"],
+                base_language=form.cleaned_data["base_language"],
+                extra_languages=form.cleaned_data["extra_languages"],
             )
-        except (OSError, ValueError) as error:
-            form.add_error(None, str(error))
+        except Exception as error:  # the folder was rolled back; show the reason
+            form.add_error(None, f"Could not create the project: {error}")
         else:
-            return _notice_redirect("studio:develop", f"Created {project.name}. Add the first frame when you are ready.")
-    return render(request, "studio/new_project.html", {"page": "new-project", "form": form, "project": None})
+            messages.success(request, f"Created {project.name}. Add the first frame with “+ Frame”.")
+            return redirect("studio:develop")
+    return render(request, "studio/new_project.html", {"form": form})
 
 
-def develop(request: HttpRequest) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
-    content_error: str = ""
-    issues: list[ValidationIssue] = []
-    try:
-        content: ContentTable = _content_table()
-        selected_language: str = _language(content, project, request.GET.get("lang"))
-        languages: tuple[str, ...] = content.languages
-        issues = validate_project(project, content)
-    except (OSError, ValueError) as error:
-        content_error = str(error)
-        selected_language = project.base_language
-        languages = (project.base_language,)
+@project_view
+def develop(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    content: Content = _content(request, project)
     frames: list[Frame] = list(Frame.objects.all())
-    build_folder: str = language_directory(project.slug, selected_language)
-    preview_path: str = f"{build_folder}/index.html"
+    has_pickers: bool = content.multilingual and any(frame.is_language_picker for frame in frames)
+    picker_selected: bool = has_pickers and request.GET.get("lang") == "picker"
+    story_folder: str = language_folder(project, content.language, content.languages)
+    shown_folder: str = "" if picker_selected else story_folder
+    for frame in frames:
+        frame.preview_url = _preview_url("" if frame.is_language_picker else story_folder)  # type: ignore[attr-defined]
     return render(request, "studio/develop.html", {
-        "page": "develop", "project": project, "frames": frames,
-        "languages": languages, "selected_language": selected_language,
-        "devices": DEVICE_PRESETS, "issues": issues,
-        "report": load_build_report(),
-        "dist_ready": (settings.DIST_DIR / preview_path).is_file(),
+        "project": project, "content": content, "frames": frames,
+        "has_pickers": has_pickers, "picker_selected": picker_selected,
+        "devices": DEVICE_PRESETS,
+        "issues": [] if content.error else validate_project(project, content.table),
+        "preview_url": _preview_url(shown_folder),
+        "dist_ready": (settings.DIST_DIR / page_path(shown_folder)).is_file(),
         "dist_stale": dist_is_stale(),
-        "preview_url": reverse("studio:preview_file", kwargs={"path": preview_path}),
-        "content_error": content_error, "notice": request.GET.get("notice", ""),
     })
 
 
 @require_POST
-def regenerate(request: HttpRequest) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
+@project_view
+def regenerate(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     try:
         report = generate_dist(project)
     except (OSError, ValueError) as error:
-        return _notice_redirect("studio:develop", f"Generation failed: {error}")
-    warnings: int = sum(issue.severity == "warning" for issue in report.issues)
-    errors: int = sum(issue.severity == "error" for issue in report.issues)
-    return _notice_redirect("studio:develop", f"Generated {len(report.languages)} language build(s): {errors} error(s), {warnings} warning(s).")
+        messages.error(request, f"Regenerate failed: {error}")
+    else:
+        errors: int = sum(issue.severity == "error" for issue in report.issues)
+        warnings: int = len(report.issues) - errors
+        messages.success(request, f"Regenerated {len(report.builds)} page(s): {errors} error(s), {warnings} warning(s).")
+    return _to("develop", lang=request.POST.get("language", ""))
 
 
-def project_config(request: HttpRequest) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
+@project_view
+def playtest(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    report: dict[str, Any] | None = load_build_report()
+    builds: list[dict[str, str]] = [
+        {"label": build["label"], "url": _preview_url(build["folder"])} for build in (report or {}).get("builds", [])
+    ]
+    return render(request, "studio/playtest.html", {
+        "project": project, "builds": builds, "dist_stale": dist_is_stale(),
+        "log_api": reverse("studio:log_api", kwargs={"file_name": "FILE"}),
+        "session_url": reverse("studio:session_detail", kwargs={"file_name": "FILE"}),
+    })
+
+
+@project_view
+def project_config(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     form = ProjectSettingsForm(request.POST or None, instance=project)
     if request.method == "POST" and form.is_valid():
         form.save()
-        return _notice_redirect("studio:config", "Project settings saved.")
-    content_error: str = ""
-    try:
-        languages: tuple[str, ...] = _content_table().languages
-    except (OSError, ValueError) as error:
-        content_error = str(error)
-        languages = (project.base_language,)
+        messages.success(request, "Project settings saved. Press Regenerate to apply them to the preview.")
+        return redirect("studio:config")
     return render(request, "studio/config.html", {
-        "page": "config", "project": project, "form": form,
-        "languages": languages, "content_error": content_error,
-        "notice": request.GET.get("notice", ""),
+        "project": project, "form": form, "content": _content(request, project),
     })
 
 
 @require_POST
-def new_frame(request: HttpRequest) -> HttpResponse:
-    if _active_project() is None:
-        return redirect("studio:home")
-    frame: Frame = Frame.objects.create(name=next_frame_name())
-    return _notice_redirect("studio:frame_editor", f"Created {frame.name}.", frame_name=frame.name)
+@project_view
+def new_frame(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    content: Content = _content(request, project)
+    picker: bool = request.POST.get("picker") == "1"
+    if picker and not content.multilingual:
+        messages.error(request, "Language-picker frames need at least two language columns in content.xlsx.")
+        return _to("develop", lang=content.language)
+    frame: Frame = create_frame(is_picker=picker)
+    messages.success(request, f"Created {frame.name}.")
+    return _to("frame_editor", lang=content.language, frame_name=frame.name)
 
 
-def flowchart(request: HttpRequest) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
-    content_error: str = ""
-    try:
-        content: ContentTable = _content_table()
-        language: str = _language(content, project, request.GET.get("lang"))
-        content_by_id: dict[int, ContentRow] = content.by_id()
-        languages: tuple[str, ...] = content.languages
-    except (OSError, ValueError) as error:
-        content_error = str(error)
-        language = project.base_language
-        languages = (project.base_language,)
-        content_by_id = {}
-    frames: list[Frame] = list(Frame.objects.prefetch_related("elements__target_frame").all())
-    nodes: list[dict[str, object]] = []
-    edges: list[dict[str, object]] = []
-    for index, frame in enumerate(frames):
-        nodes.append({
-            "name": frame.name,
-            "x": frame.flow_x if frame.flow_x is not None else 130 + (index % 4) * 260,
-            "y": frame.flow_y if frame.flow_y is not None else 110 + (index // 4) * 175,
-            "fade_in": frame.fade_in,
-            "edit_url": reverse("studio:frame_editor", kwargs={"frame_name": frame.name}),
-        })
+@project_view
+def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    content: Content = _content(request, project)
+    frames: list[Frame] = list(Frame.objects.prefetch_related("elements"))
+    components = component_map()
+    rows = content.table.by_id()
+    names: dict[int, str] = {frame.id: frame.name for frame in frames}
+    story_start: str = next((frame.name for frame in frames if not frame.is_language_picker), "")
+    picker_start: str = next((frame.name for frame in frames if frame.is_language_picker), "")
+    story_url: str = _preview_url(language_folder(project, content.language, content.languages))
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    for frame in frames:
         for element in frame.elements.all():
-            if element.target_frame_id is None:
+            if not (element.target_frame_id or element.target_language or element.ends_story):
                 continue
-            row: ContentRow | None = content_by_id.get(element.content_id) if element.content_id else None
-            label: str = row.values.get(language, "") if row else element.component
+            row = rows.get(element.content_id) if element.content_id else None
+            text: str = element.text if frame.is_language_picker else (row.values.get(content.language, "") if row else "")
+            component = components.get(element.component)
             edges.append({
-                "source": frame.name, "target": element.target_frame.name if element.target_frame else "",
-                "element_id": element.id, "label": label[:90],
+                "source": frame.name,
+                "target": names.get(element.target_frame_id) or (story_start if element.target_language else ""),
+                "element_id": element.id,
+                "label": (text or (component.name if component else element.component))[:80],
+                "language": element.target_language,
+                "end": element.ends_story,
             })
+        nodes.append({
+            "name": frame.name, "x": frame.flow_x, "y": frame.flow_y,
+            "fade_in": frame.fade_in, "picker": frame.is_language_picker,
+            "start": frame.name in (story_start, picker_start),
+            "ends": sum(edge["end"] for edge in edges if edge["source"] == frame.name),
+            "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_name': frame.name})}?{urlencode({'lang': content.language})}",
+            "preview_url": _preview_url("") if frame.is_language_picker else story_url,
+        })
     return render(request, "studio/flowchart.html", {
-        "page": "flowchart", "project": project, "nodes": nodes, "edges": edges,
-        "languages": languages, "selected_language": language,
-        "content_error": content_error, "notice": request.GET.get("notice", ""),
+        "project": project, "content": content, "nodes": nodes, "edges": edges,
+        "selected_frame": request.GET.get("selected", ""),
+        "dist_ready": (settings.DIST_DIR / page_path(language_folder(project, content.language, content.languages))).is_file(),
+        "dist_stale": dist_is_stale(),
     })
 
 
-def frame_editor(request: HttpRequest, frame_name: str) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
+@require_POST
+@project_view
+def tidy_flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    tidy_layout()
+    messages.success(request, "Flowchart rearranged by distance from the first frame.")
+    return _to("flowchart", lang=request.POST.get("language", ""))
+
+
+@project_view
+def frame_editor(request: HttpRequest, project: ProjectSettings, frame_name: str) -> HttpResponse:
     frame: Frame = get_object_or_404(Frame, name=frame_name)
-    materials = list_materials()
-    background_form = FrameBackgroundForm(request.POST or None, instance=frame)
-    if request.method == "POST" and background_form.is_valid():
-        updated: Frame = background_form.save(commit=False)
-        valid_materials: set[str] = {item.relative_path for item in materials}
-        if updated.background_type == Frame.BackgroundType.IMAGE and updated.background_image not in valid_materials:
-            background_form.add_error("background_image", "Choose an image that exists in /project/materials/.")
-        else:
-            if updated.background_type != Frame.BackgroundType.IMAGE:
-                updated.background_image = ""
-            updated.save()
-            return _notice_redirect("studio:frame_editor", f"Saved {frame.name} background settings.", frame_name=frame.name)
+    content: Content = _content(request, project)
+    materials: list[str] = list_materials()
+    form = FrameForm(request.POST or None, instance=frame, materials=materials)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, f"Saved the settings of {frame.name}.")
+        return _to("frame_editor", lang=content.language, frame_name=frame.name)
 
-    content_error: str = ""
-    try:
-        content: ContentTable = _content_table()
-        language: str = _language(content, project, request.GET.get("lang"))
-        languages: tuple[str, ...] = content.languages
-        rows: tuple[ContentRow, ...] = content.rows
-        by_id: dict[int, ContentRow] = content.by_id()
-    except (OSError, ValueError) as error:
-        content_error = str(error)
-        language = project.base_language
-        languages = (project.base_language,)
-        rows, by_id = (), {}
-
-    components: list[ComponentDefinition] = load_components()
-    component_lookup: dict[str, ComponentDefinition] = {item.slug: item for item in components}
-    element_views: list[dict[str, object]] = []
-    for element in frame.elements.prefetch_related("language_overrides", "target_frame").all():
-        component: ComponentDefinition | None = component_lookup.get(element.component)
+    language: str = project.base_language if frame.is_language_picker else content.language
+    component_list = load_components()
+    components = {component.slug: component for component in component_list}
+    rows = content.table.by_id()
+    elements: list[dict[str, Any]] = []
+    for element in frame.elements.prefetch_related("language_overrides"):
+        component = components.get(element.component)
         if component is None:
-            continue
-        row: ContentRow | None = by_id.get(element.content_id) if element.content_id else None
-        element_views.append(_element_view(element, component, row, language, project.base_language))
+            continue  # the dashboard's preflight list reports unknown components
+        row = rows.get(element.content_id) if element.content_id else None
+        elements.append({
+            "element": element,
+            "component": component,
+            "text": element.text if frame.is_language_picker else (row.values.get(language, "") if row else ""),
+            "note": row.note if row else "",
+            "geometry": element.geometry(language),
+            "has_override": language != project.base_language
+            and any(item.language == language for item in element.language_overrides.all()),
+            "target": _target_value(element),
+        })
+
+    same_kind = Frame.objects.filter(is_language_picker=frame.is_language_picker)
+    target_options: list[tuple[str, str]] = [("", "Nothing yet")]
+    target_options += [(f"frame:{item.id}", f"Go to {item.name}") for item in same_kind]
+    if frame.is_language_picker:
+        target_options += [(f"language:{item}", f"Open the {item} story") for item in content.languages]
+    else:
+        target_options.append(("end", "End story (go to the finish redirect URL)"))
+    target_options.append(("new", "+ Create a new frame and go there"))
 
     background_url: str = ""
     if frame.background_type == Frame.BackgroundType.IMAGE and frame.background_image:
         background_url = reverse("studio:material_file", kwargs={"path": frame.background_image})
-    color_file: Path = settings.PROJECT_DIR / "default-colors.css"
     return render(request, "studio/edit_frame.html", {
-        "page": "frame-editor", "project": project, "frame": frame,
-        "background_form": background_form, "background_url": background_url,
-        "components": components, "component_css": mark_safe(component_css()),
-        "project_colors_css": mark_safe(color_file.read_text(encoding="utf-8") if color_file.is_file() else ""),
-        "elements": element_views, "content_rows": rows,
-        "languages": languages, "selected_language": language,
-        "frames": Frame.objects.all(), "materials": materials,
-        "delay_choices": Element.DelayMode.choices, "content_error": content_error,
-        "notice": request.GET.get("notice", ""),
+        "project": project, "frame": frame, "form": form, "content": content, "language": language,
+        "materials": materials, "components": component_list, "project_css": story_css(),
+        "background_url": background_url, "elements": elements, "target_options": target_options,
+        "content_rows": [
+            {"id": row.content_id, "excel_row": row.excel_row, "text": row.values.get(language, ""), "note": row.note}
+            for row in content.table.rows
+        ],
+        "delay_choices": Element.DelayMode.choices,
+        "incoming": frame.incoming_elements.count(),
     })
 
 
 @require_POST
-def delete_frame(request: HttpRequest, frame_name: str) -> HttpResponse:
-    if _active_project() is None:
-        return redirect("studio:home")
-    frame: Frame = get_object_or_404(Frame, name=frame_name)
-    frame.delete()
-    return _notice_redirect("studio:develop", f"Deleted {frame_name}.")
+@project_view
+def delete_frame(request: HttpRequest, project: ProjectSettings, frame_name: str) -> HttpResponse:
+    get_object_or_404(Frame, name=frame_name).delete()
+    messages.success(request, f"Deleted {frame_name}.")
+    return _to("flowchart", lang=request.POST.get("language", ""))
 
 
 @require_POST
-def add_element(request: HttpRequest, frame_name: str) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
+@project_view
+def add_element(request: HttpRequest, project: ProjectSettings, frame_name: str) -> HttpResponse:
     frame: Frame = get_object_or_404(Frame, name=frame_name)
-    component: ComponentDefinition | None = component_map().get(request.POST.get("component", "").strip())
+    component = component_map().get(request.POST.get("component", ""))
+    lang: str = request.POST.get("language", "")
     if component is None:
-        return _notice_redirect("studio:frame_editor", "Unknown component.", frame_name=frame.name)
+        messages.error(request, "Unknown component.")
+        return _to("frame_editor", lang=lang, frame_name=frame.name)
+    offset: float = frame.elements.count() % 5 * 40.0  # new elements do not stack exactly
     Element.objects.create(
         frame=frame, component=component.slug,
-        x=project.frame_width / 2, y=project.frame_height / 2,
-        width=component.default_width, height=component.default_height,
-        font_size=component.default_font_size,
+        x=project.frame_width / 2 + offset, y=project.frame_height / 2 + offset,
+        width=component.default_width, height=component.default_height, font_size=component.default_font_size,
     )
-    return _notice_redirect("studio:frame_editor", f"Added {component.name}.", frame_name=frame.name)
+    messages.success(request, f"Added a {component.name}. Drag it into place; right-click it for settings.")
+    return _to("frame_editor", lang=lang, frame_name=frame.name)
 
 
 @require_POST
-def save_element(request: HttpRequest, element_id: int) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
-    element: Element = get_object_or_404(Element, pk=element_id)
-    language: str = request.POST.get("language", project.base_language)
+@project_view
+def save_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
+    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
+    content: Content = _content(request, project)
+    language: str = project.base_language if element.frame.is_language_picker else content.language
+    back: HttpResponse = _to("frame_editor", lang=content.language, frame_name=element.frame.name)
+    data = request.POST
+
+    if "reset_language" in data:
+        ElementLanguageOverride.objects.filter(element=element, language=language).delete()
+        messages.success(request, f"Element #{element.id} now uses the {project.base_language} layout in {language}.")
+        return back
     try:
-        content_table: ContentTable = _content_table()
-        if language not in content_table.languages:
-            raise ValueError("Unknown language selected.")
-        content_id: int | None = _optional_int(request.POST.get("content_id"), "Content ID")
-        target_id: int | None = _optional_int(request.POST.get("target_frame_id"), "Target frame")
-        x: float = _float(request.POST.get("x"), "X")
-        y: float = _float(request.POST.get("y"), "Y")
-        width: float = _float(request.POST.get("width"), "Width", 20)
-        height: float = _float(request.POST.get("height"), "Height", 20)
-        font_size: float = _float(request.POST.get("font_size"), "Font size", 6)
-        if content_id is not None and content_id not in content_table.by_id():
-            raise ValueError(f"content_id {content_id} does not exist in content.xlsx.")
-        if target_id is not None and not Frame.objects.filter(pk=target_id).exists():
-            raise ValueError("Target frame does not exist.")
-        delay_mode: str = request.POST.get("delay_mode", Element.DelayMode.NONE)
-        if delay_mode not in Element.DelayMode.values:
+        geometry: dict[str, float] = {key: _number(data.get(key), label, low) for key, label, low in GEOMETRY_FIELDS}
+        if data.get("delay_mode") not in Element.DelayMode.values:
             raise ValueError("Unknown delay behavior.")
-
-        element.content_id = content_id
-        element.target_frame_id = target_id
-        element.delay_mode = delay_mode
-        element.break_long_words = request.POST.get("break_long_words") == "on"
-        if request.POST.get("override_colors") == "on":
-            element.fill_color = validate_hex(request.POST.get("fill_color", ""))
-            element.border_color = validate_hex(request.POST.get("border_color", ""))
-            element.text_color = validate_hex(request.POST.get("text_color", ""))
+        override_colors: bool = data.get("override_colors") == "on"
+        colors = {name: validate_hex(data.get(name, "")) if override_colors else "" for name in ("fill_color", "border_color", "text_color")}
+        if element.frame.is_language_picker:
+            element.text = data.get("text", "").strip()
         else:
-            element.fill_color = element.border_color = element.text_color = ""
-
-        use_override: bool = language != project.base_language and request.POST.get("use_language_override") == "on"
-        if use_override:
-            override, _ = ElementLanguageOverride.objects.get_or_create(element=element, language=language)
-            override.x, override.y = x, y
-            override.width, override.height, override.font_size = width, height, font_size
-            override.save()
-        elif language != project.base_language:
-            ElementLanguageOverride.objects.filter(element=element, language=language).delete()
-        else:
-            element.x, element.y = x, y
-            element.width, element.height, element.font_size = width, height, font_size
-        element.save()
+            raw_id: str = data.get("content_id", "").strip()
+            if raw_id and not raw_id.isdigit():
+                raise ValueError("content_id must be a whole number.")
+            element.content_id = int(raw_id) if raw_id else None
+            if element.content_id is not None and element.content_id not in content.table.by_id():
+                raise ValueError(f"content_id {element.content_id} is not in content.xlsx.")
+        created: Frame | None = _apply_target(element, data.get("target", ""), content.languages)
     except (ValidationError, ValueError) as error:
-        message: str = "; ".join(error.messages) if isinstance(error, ValidationError) else str(error)
-        return _notice_redirect("studio:frame_editor", f"Could not save element: {message}", frame_name=element.frame.name)
-    url: str = reverse("studio:frame_editor", kwargs={"frame_name": element.frame.name})
-    return redirect(f"{url}?lang={quote(language)}&notice={quote('Element saved.')}")
+        messages.error(request, f"Element not saved: {_error_text(error)}")
+        return back
+
+    element.delay_mode = data["delay_mode"]
+    element.break_long_words = data.get("break_long_words") == "on"
+    for name, value in colors.items():
+        setattr(element, name, value)
+    _save_geometry(element, language, project, geometry)
+    element.save()
+    messages.success(request, f"Saved element #{element.id}." + (f" Created {created.name} as its target." if created else ""))
+    return back
 
 
 @require_POST
-def delete_element(request: HttpRequest, element_id: int) -> HttpResponse:
-    if _active_project() is None:
-        return redirect("studio:home")
-    element: Element = get_object_or_404(Element, pk=element_id)
+@project_view
+def duplicate_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
+    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
+    overrides: list[ElementLanguageOverride] = list(element.language_overrides.all())
+    element.pk, element._state.adding = None, True
+    element.x, element.y = element.x + 40, element.y + 40
+    element.save()
+    for override in overrides:
+        override.pk, override._state.adding, override.element = None, True, element
+        override.save()
+    messages.success(request, f"Duplicated as element #{element.id}.")
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_name=element.frame.name)
+
+
+@require_POST
+@project_view
+def add_content_for_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
+    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
+    values: dict[str, str] = {
+        key.removeprefix("text."): value for key, value in request.POST.items() if key.startswith("text.")
+    }
+    try:
+        row = append_content_row(settings.PROJECT_DIR / "content.xlsx", request.POST.get("note", ""), values)
+    except (OSError, ValueError) as error:
+        messages.error(request, f"Content not added: {error}")
+    else:
+        element.content_id = row.content_id
+        element.save(update_fields=["content_id"])
+        messages.success(request, f"Added content #{row.content_id} to content.xlsx and selected it.")
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_name=element.frame.name)
+
+
+@require_POST
+@project_view
+def delete_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
+    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
     frame_name: str = element.frame.name
     element.delete()
-    return _notice_redirect("studio:frame_editor", "Element deleted.", frame_name=frame_name)
+    messages.success(request, "Element deleted.")
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_name=frame_name)
 
 
-def results(request: HttpRequest) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
-    return render(request, "studio/results.html", {
-        "page": "results", "project": project, "sessions": session_summaries(),
-        "notice": request.GET.get("notice", ""),
-    })
+@project_view
+def results(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    return render(request, "studio/results.html", {"project": project, "sessions": session_summaries()})
 
 
 @require_POST
-def import_logs(request: HttpRequest) -> HttpResponse:
-    if _active_project() is None:
-        return redirect("studio:home")
-    uploaded = request.FILES.get("log_file")
-    if uploaded is None:
-        return _notice_redirect("studio:results", "Choose a .jsonl log file first.")
-    try:
-        destination: Path = import_jsonl(uploaded.name, uploaded.read())
-    except (UnicodeDecodeError, ValueError, OSError) as error:
-        return _notice_redirect("studio:results", f"Import failed: {error}")
-    return _notice_redirect("studio:results", f"Imported {destination.name}.")
+@project_view
+def import_logs(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    files = request.FILES.getlist("log_files")
+    if not files:
+        messages.error(request, "Choose one or more .jsonl files first.")
+    for uploaded in files:
+        try:
+            destination: Path = import_jsonl(uploaded.name, uploaded.read())
+        except (OSError, ValueError) as error:
+            messages.error(request, f"Not imported: {error}")
+        else:
+            messages.success(request, f"Imported {destination.name}.")
+    return redirect("studio:results")
 
 
-def session_detail(request: HttpRequest, file_name: str) -> HttpResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return redirect("studio:home")
+def _log_path(file_name: str) -> Path:
     try:
-        path: Path = safe_child(settings.PROJECT_DIR / "logs", file_name)
+        path: Path = safe_child(logs_dir(), file_name)
     except ValueError:
-        return HttpResponseNotFound("Log not found.")
-    if path.suffix.lower() != ".jsonl" or not path.is_file():
-        return HttpResponseNotFound("Log not found.")
+        raise Http404("Log not found.") from None
+    if path.suffix != ".jsonl" or not path.is_file():
+        raise Http404("Log not found.")
+    return path
+
+
+@project_view
+def session_detail(request: HttpRequest, project: ProjectSettings, file_name: str) -> HttpResponse:
     try:
-        events: list[dict[str, Any]] = read_events(path)
-        parse_error: str = ""
-    except ValueError as error:
-        events, parse_error = [], str(error)
+        events, error = read_events(_log_path(file_name)), ""
+    except ValueError as problem:
+        events, error = [], str(problem)
+    rows: list[dict[str, Any]] = [{
+        **{key: event.get(key, "") for key in ("seq", "timestamp", "event", "frame")},
+        "details": json.dumps({k: v for k, v in event.items() if k not in STANDARD_LOG_KEYS}, ensure_ascii=False),
+    } for event in events]
+    first: dict[str, Any] = events[0] if events else {}
     return render(request, "studio/session.html", {
-        "page": "results", "project": project, "file_name": file_name,
-        "events": events, "parse_error": parse_error,
+        "project": project, "file_name": file_name, "rows": rows, "error": error,
+        "participant_id": first.get("participant_id", ""), "visit_id": first.get("visit_id", ""),
     })
 
 
@@ -485,106 +536,90 @@ def status_api(request: HttpRequest) -> JsonResponse:
     health = project_health()
     if not health.exists:
         return JsonResponse({"state": "idle", "label": "No project", "detail": "Waiting for /project/."})
-    if not health.ready:
-        return JsonResponse({"state": "error", "label": "Project incomplete", "detail": "; ".join(health.problems)}, status=500)
-    try:
-        project: ProjectSettings | None = _active_project()
-        if project is None:
-            raise ValueError("Project settings row is missing.")
-        ProjectSettings.objects.only("id").get(pk=project.pk)
-        stale: bool = dist_is_stale()
-    except Exception as error:
-        return JsonResponse({"state": "error", "label": "Database error", "detail": str(error)}, status=500)
-    return JsonResponse({
-        "state": "stale" if stale else "ready",
-        "label": "Changes need regeneration" if stale else "Database ready",
-        "detail": str(settings.PROJECT_DB),
-    })
-
-
-def _json_body(request: HttpRequest) -> dict[str, Any]:
-    try:
-        value: Any = json.loads(request.body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("Request body must be valid JSON.") from error
-    if not isinstance(value, dict):
-        raise ValueError("Request body must be a JSON object.")
-    return value
+    if health.problems:
+        return JsonResponse({"state": "error", "label": "Project incomplete", "detail": "; ".join(health.problems)})
+    if project_settings() is None:
+        return JsonResponse({"state": "error", "label": "Database error", "detail": "Could not read project/project.sqlite3."})
+    if dist_is_stale():
+        return JsonResponse({"state": "stale", "label": "Changes are not in the preview yet", "detail": "Press Regenerate."})
+    return JsonResponse({"state": "ready", "label": "Project saved", "detail": str(settings.PROJECT_DB)})
 
 
 @require_POST
-def element_position_api(request: HttpRequest, element_id: int) -> JsonResponse:
-    project: ProjectSettings | None = _active_project()
-    if project is None:
-        return JsonResponse({"error": "No active project."}, status=409)
-    element: Element = get_object_or_404(Element, pk=element_id)
+@project_view
+def element_position_api(request: HttpRequest, project: ProjectSettings, element_id: int) -> JsonResponse:
+    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
     try:
         data: dict[str, Any] = _json_body(request)
-        x: float = _float(data.get("x"), "X")
-        y: float = _float(data.get("y"), "Y")
+        values: dict[str, float] = {"x": _number(data.get("x"), "X"), "y": _number(data.get("y"), "Y")}
         language: str = str(data.get("language") or project.base_language)
-        if language not in _content_table().languages:
-            raise ValueError("Unknown language selected.")
-        if language == project.base_language:
-            element.x, element.y = x, y
-            element.save(update_fields=["x", "y", "updated_at"])
-        else:
-            override, _ = ElementLanguageOverride.objects.get_or_create(element=element, language=language)
-            override.x, override.y = x, y
-            override.save(update_fields=["x", "y"])
-    except ValueError as error:
-        return JsonResponse({"error": str(error)}, status=400)
-    return JsonResponse({"ok": True, "x": x, "y": y})
-
-
-@require_POST
-def flow_position_api(request: HttpRequest, frame_name: str) -> JsonResponse:
-    if _active_project() is None:
-        return JsonResponse({"error": "No active project."}, status=409)
-    frame: Frame = get_object_or_404(Frame, name=frame_name)
-    try:
-        data: dict[str, Any] = _json_body(request)
-        x: float = _float(data.get("x"), "X")
-        y: float = _float(data.get("y"), "Y")
-    except ValueError as error:
-        return JsonResponse({"error": str(error)}, status=400)
-    frame.flow_x, frame.flow_y = x, y
-    frame.save(update_fields=["flow_x", "flow_y", "updated_at"])
-    return JsonResponse({"ok": True, "x": x, "y": y})
-
-
-@require_POST
-def study_log_api(request: HttpRequest) -> JsonResponse:
-    if _active_project() is None:
-        return JsonResponse({"error": "No active project."}, status=409)
-    try:
-        event: dict[str, Any] = _json_body(request)
-        if not isinstance(event.get("event"), str) or not event["event"]:
-            raise ValueError("Log event needs an event name.")
-        append_event(event)
+        if element.frame.is_language_picker:
+            language = project.base_language
+        elif language not in load_content_table(settings.PROJECT_DIR / "content.xlsx").languages:
+            raise ValueError("Unknown language.")
     except (OSError, ValueError) as error:
         return JsonResponse({"error": str(error)}, status=400)
+    _save_geometry(element, language, project, values)
+    element.save()
     return JsonResponse({"ok": True})
 
 
-@ensure_csrf_cookie
-def preview_file(request: HttpRequest, path: str) -> HttpResponse:
+@require_POST
+@project_view
+def flow_positions_api(request: HttpRequest, project: ProjectSettings) -> JsonResponse:
+    """Save flowchart positions for one or more frames: ``{"positions": [{name, x, y}, ...]}``."""
     try:
-        file_path: Path = safe_child(settings.DIST_DIR, path)
+        positions: dict[str, tuple[float, float]] = {
+            str(item["name"]): (_number(item["x"], "X"), _number(item["y"], "Y"))
+            for item in _json_body(request).get("positions", [])
+        }
+    except (KeyError, TypeError, ValueError) as error:
+        return JsonResponse({"error": f"Invalid positions: {error}"}, status=400)
+    frames: list[Frame] = list(Frame.objects.filter(name__in=positions))
+    for frame in frames:
+        frame.flow_x, frame.flow_y = positions[frame.name]
+    Frame.objects.bulk_update(frames, ["flow_x", "flow_y"])
+    return JsonResponse({"ok": True, "saved": len(frames)})
+
+
+@require_GET
+@project_view
+def log_api(request: HttpRequest, project: ProjectSettings, file_name: str) -> JsonResponse:
+    try:
+        return JsonResponse({"events": read_events(_log_path(file_name))})
+    except (Http404, ValueError) as error:
+        return JsonResponse({"events": [], "error": str(error)}, status=404)
+
+
+@csrf_exempt
+@require_POST
+def preview_log(request: HttpRequest) -> HttpResponse:
+    """Local stand-in for dist/log.php: preview events go to /project/logs/."""
+    if project_settings() is None:
+        return JsonResponse({"error": "No active project."}, status=409)
+    try:
+        append_event(_json_body(request))
+    except (OSError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    return HttpResponse(status=204)
+
+
+def _file_response(root: Path, path: str) -> FileResponse:
+    try:
+        file_path: Path = safe_child(root, path)
     except ValueError:
-        return HttpResponseNotFound("Preview file not found.")
+        raise Http404("File not found.") from None
     if not file_path.is_file() or file_path.name.startswith("."):
-        return HttpResponseNotFound("Preview file not found.")
-    response = FileResponse(file_path.open("rb"), content_type=mimetypes.guess_type(file_path.name)[0] or "application/octet-stream")
+        raise Http404("File not found.")
+    content_type: str = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    response = FileResponse(file_path.open("rb"), content_type=content_type)
     response["Cache-Control"] = "no-store"
     return response
 
 
-def material_file(request: HttpRequest, path: str) -> HttpResponse:
-    try:
-        file_path: Path = safe_child(settings.PROJECT_DIR / "materials", path)
-    except ValueError:
-        return HttpResponseNotFound("Material not found.")
-    if not file_path.is_file():
-        return HttpResponseNotFound("Material not found.")
-    return FileResponse(file_path.open("rb"), content_type=mimetypes.guess_type(file_path.name)[0] or "application/octet-stream")
+def preview_file(request: HttpRequest, path: str) -> FileResponse:
+    return _file_response(settings.DIST_DIR, path)
+
+
+def material_file(request: HttpRequest, path: str) -> FileResponse:
+    return _file_response(settings.PROJECT_DIR / "materials", path)

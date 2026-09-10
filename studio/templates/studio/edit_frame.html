@@ -1,97 +1,179 @@
 {% extends 'studio/base.html' %}
-{% load studio_extras %}
 {% block title %}{{ frame.name }} · TilTale{% endblock %}
-{% block head %}<style>{{ component_css }}\n{{ project_colors_css }}</style>{% endblock %}
+{% block head %}<style>{{ project_css|safe }}</style>{% endblock %}
 {% block body %}
-<main class="editor-shell" data-frame-editor data-frame-width="{{ project.frame_width }}" data-frame-height="{{ project.frame_height }}" data-language="{{ selected_language }}">
-  <aside class="editor-controls">
-    <div class="split-heading"><div><p class="eyebrow">Frame editor</p><h1>{{ frame.name }}</h1></div><a class="button small" href="{% url 'studio:develop' %}?lang={{ selected_language|urlencode }}">Done</a></div>
-    <p class="muted">Drag elements directly on the frame. Right-click or press <strong>Edit</strong> for content, colors, delay and language-specific geometry.</p>
+<main class="workspace" data-editor data-language="{{ language }}" data-csrf="{{ csrf_token }}">
+  <aside class="panel editor-panel">
+    <div class="panel-head">
+      <a class="back" href="{% url 'studio:flowchart' %}?lang={{ content.language }}&amp;selected={{ frame.name }}">← Flowchart</a>
+      <h1>{{ frame.name }} {% if frame.is_language_picker %}<span class="badge picker">Picker</span>{% endif %}</h1>
+    </div>
 
-    <details open><summary>Background</summary>
-      <form method="post" class="stack-form" data-background-form>{% csrf_token %}
-        <label>Type {{ background_form.background_type }}</label>
-        <label>Solid color {{ background_form.background_color }}</label>
-        <label>Image
-          <div class="inline-controls material-tools">
-            <input type="search" placeholder="Filter materials" data-material-search>
-            <select data-material-sort aria-label="Sort materials"><option value="name">Name A–Z</option><option value="newest">Last added</option></select>
-          </div>
-          <select name="background_image" data-material-select>
+    {% if frame.is_language_picker %}
+    <div class="alert picker-note">This frame belongs to the start page <code>/dist/index.html</code>, shown before a language is chosen. Type its texts directly (they are not in <code>content.xlsx</code>) and point at least one button to a language.</div>
+    {% elif content.multilingual %}
+    <form method="get" class="field">
+      <span class="field-label">Language</span>
+      <select name="lang" data-autosubmit>{% for item in content.languages %}<option value="{{ item }}"{% if item == language %} selected{% endif %}>{{ item }}{% if item == project.base_language %} (base){% endif %}</option>{% endfor %}</select>
+      {% if language != project.base_language %}<small class="field-help">Moving or resizing here changes only {{ language }}. Elements marked ◆ differ from {{ project.base_language }}.</small>{% endif %}
+    </form>
+    {% endif %}
+
+    <form method="post" class="form" data-unsaved-guard>
+      {% csrf_token %}
+      <h2>Frame</h2>
+      {% for error in form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      {% include 'studio/_field.html' with field=form.fade_in %}
+      {% include 'studio/_field.html' with field=form.background_type %}
+      <div data-show-when="solid">{% include 'studio/_field.html' with field=form.background_color %}</div>
+      <div data-show-when="image">
+        <label class="field"><span class="field-label">Image from /project/materials/</span>
+          <select name="background_image">
             <option value="">Choose an image…</option>
-            {% for material in materials %}<option value="{{ material.relative_path }}" data-name="{{ material.name|lower }}" data-modified="{{ material.modified_timestamp }}" {% if material.relative_path == frame.background_image %}selected{% endif %}>{{ material.relative_path }}</option>{% endfor %}
+            {% for name in materials %}<option value="{{ name }}"{% if name == form.background_image.value %} selected{% endif %}>{{ name }}</option>{% endfor %}
           </select>
         </label>
-        <label class="check">{{ background_form.fade_in }} Fade this frame in</label>
-        {{ background_form.errors }}
-        <button class="button" type="submit">Save background</button>
-      </form>
-      <p class="hint">Add images to <code>/project/materials/</code>, then reload this page. Subfolders are supported.</p>
-    </details>
+        {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        {% if not materials %}<p class="field-help">Put images in <code>/project/materials/</code> and reload.</p>{% endif %}
+      </div>
+      <button class="button primary">Save frame</button>
+    </form>
 
-    <details open><summary>Add component</summary>
+    <section>
+      <h2>Elements <span class="count">{{ elements|length }}</span></h2>
+      {% if not elements %}<p class="muted">Add a component below.</p>{% endif %}
+      <ul class="element-list">
+        {% for item in elements %}
+        <li><button type="button" class="link" data-open-dialog="element-{{ item.element.id }}">#{{ item.element.id }} {{ item.component.name }}{% if item.has_override %} ◆{% endif %}</button>
+          <span class="muted">{{ item.text|truncatechars:40|default:"(no text)" }}</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section>
+      <h2>Add a component</h2>
       <div class="component-list">
         {% for component in components %}
-        <form method="post" action="{% url 'studio:add_element' frame.name %}" class="component-choice">{% csrf_token %}<input type="hidden" name="component" value="{{ component.slug }}"><div class="component-icon">{{ component.svg|safe }}</div><div><strong>{{ component.name }}</strong><small>{{ component.description }}</small></div><button class="button small" type="submit">Add</button></form>
-        {% empty %}<p>No components were found in <code>/components/</code>.</p>{% endfor %}
+        <form method="post" action="{% url 'studio:add_element' frame.name %}">
+          {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="component" value="{{ component.slug }}">
+          <button class="component-card" title="{{ component.description }}"><strong>+ {{ component.name }}</strong><span>{{ component.description }}</span></button>
+        </form>
+        {% endfor %}
       </div>
-    </details>
+    </section>
 
-    <details><summary>Language & frame</summary>
-      <label>Editing language<select data-editor-language>{% for language in languages %}<option value="{{ language }}" {% if language == selected_language %}selected{% endif %}>{{ language }}</option>{% endfor %}</select></label>
-      <p class="hint">The background and flow are shared. Element position, size and font size can be overridden per translation.</p>
-      <form method="post" action="{% url 'studio:delete_frame' frame.name %}" onsubmit="return confirm('Delete {{ frame.name }} and all of its elements?')">{% csrf_token %}<button class="button danger" type="submit">Delete frame</button></form>
-    </details>
-    {% if content_error %}<div class="inline-alert error">{{ content_error }}</div>{% endif %}
+    <form method="post" action="{% url 'studio:delete_frame' frame.name %}" class="danger-zone" data-confirm="Delete {{ frame.name }} and its {{ elements|length }} element(s)?{% if incoming %} {{ incoming }} button(s) that lead here will lead nowhere.{% endif %}">
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+      <button class="button danger">Delete frame</button>
+    </form>
   </aside>
 
-  <section class="editor-workspace">
-    <div class="editor-frame-wrap" data-editor-wrap>
-      <div class="story-frame editor-frame" data-story-frame style="--frame-ratio:{{ project.frame_width }}/{{ project.frame_height }}; {% if frame.background_type == 'solid' %}background:{{ frame.background_color }};{% elif frame.background_type == 'image' %}background-image:url('{{ background_url }}');{% endif %}">
-        {% if frame.background_type == 'none' %}<div class="background-empty"><span>+</span><strong>Add a background from the left panel</strong></div>{% endif %}
-        {% for element in elements %}
-          <article class="placed-element component-{{ element.component.slug }}" data-element-id="{{ element.id }}" data-x="{{ element.x }}" data-y="{{ element.y }}" data-width="{{ element.width }}" data-height="{{ element.height }}" style="--x:{{ element.x }};--y:{{ element.y }};--w:{{ element.width }};--h:{{ element.height }};--font:{{ element.font_size }};{% if element.fill_color %}--element-fill:{{ element.fill_color }};{% endif %}{% if element.border_color %}--element-border:{{ element.border_color }};{% endif %}{% if element.text_color %}--element-text:{{ element.text_color }};{% endif %}">
-            <div class="component-shape">{{ element.svg|safe }}<span class="component-text {% if element.break_long_words %}break-words{% endif %}">{{ element.text|default:'+' }}</span></div>
-            <button type="button" class="element-edit" data-edit-element="{{ element.id }}">Edit</button>
-          </article>
+  <section class="stage-area">
+    <p class="hint">Drag elements to move them. Click an element for its text, size, colors and what a click does.</p>
+    <div class="stage" data-canvas-stage>
+      <div class="canvas" data-canvas data-width="{{ project.frame_width|stringformat:'g' }}" data-height="{{ project.frame_height|stringformat:'g' }}"
+           style="width: {{ project.frame_width|stringformat:'g' }}px; height: {{ project.frame_height|stringformat:'g' }}px;{% if frame.background_type == 'solid' %} background: {{ frame.background_color }};{% elif background_url %} background: center / cover no-repeat url('{{ background_url }}');{% endif %}">
+        {% for item in elements %}
+        {% with g=item.geometry element=item.element %}
+        <div class="story-element component-{{ element.component }}{% if element.break_long_words %} break-words{% endif %}" tabindex="0"
+             data-element="{{ element.id }}" data-position-url="{% url 'studio:element_position_api' element.id %}"
+             style="left: {{ g.x|stringformat:'g' }}px; top: {{ g.y|stringformat:'g' }}px; width: {{ g.width|stringformat:'g' }}px; height: {{ g.height|stringformat:'g' }}px; font-size: {{ g.font_size|stringformat:'g' }}px;{% if element.fill_color %} --element-fill: {{ element.fill_color }};{% endif %}{% if element.border_color %} --element-border: {{ element.border_color }};{% endif %}{% if element.text_color %} --element-text: {{ element.text_color }};{% endif %}">
+          <div class="component-shape">{{ item.component.svg|safe }}{% if item.component.accepts_content %}<div class="component-text">{{ item.text }}</div>{% endif %}</div>
+        </div>
+        {% endwith %}
         {% endfor %}
       </div>
     </div>
   </section>
 
-  {% for element in elements %}
-  <dialog class="element-dialog" id="element-dialog-{{ element.id }}">
-    <form method="post" action="{% url 'studio:save_element' element.id %}" class="inspector-form">{% csrf_token %}
-      <div class="dialog-heading"><div><p class="eyebrow">Element #{{ element.id }}</p><h2>{{ element.component.name }}</h2></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
-      <input type="hidden" name="language" value="{{ selected_language }}">
-      {% if element.component.accepts_content %}
-      <label>Content
-        <div class="inline-controls"><input name="content_id" type="number" min="1" value="{{ element.content_id|default:'' }}" placeholder="content_id"><button class="button small" type="button" data-open-content="{{ element.id }}">Browse content…</button></div>
-        <small>{% if element.content_id %}Current: #{{ element.content_id }}{% if element.content_note %} · {{ element.content_note }}{% endif %}{% else %}No content selected.{% endif %}</small>
+  {% for item in elements %}
+  {% with element=item.element g=item.geometry %}
+  <dialog class="dialog" id="element-{{ element.id }}">
+    <form method="post" action="{% url 'studio:save_element' element.id %}" class="form">
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+      <header class="dialog-head"><h2>#{{ element.id }} {{ item.component.name }}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
+
+      {% if item.component.accepts_content %}
+        {% if frame.is_language_picker %}
+        <label class="field"><span class="field-label">Text</span><textarea name="text" rows="2">{{ element.text }}</textarea></label>
+        {% else %}
+        <div class="field">
+          <span class="field-label">Text from content.xlsx</span>
+          <div class="row"><input name="content_id" value="{{ element.content_id|default_if_none:'' }}" inputmode="numeric" placeholder="content_id" class="short" data-content-input>
+            <button type="button" class="button" data-pick-content>Choose…</button></div>
+          <small class="field-help">{{ item.text|default:"No text selected." }}{% if item.note %} · {{ item.note }}{% endif %}</small>
+        </div>
+        {% endif %}
+      {% endif %}
+
+      {% if item.component.clickable %}
+      <label class="field"><span class="field-label">When clicked</span>
+        <select name="target">{% for value, label in target_options %}<option value="{{ value }}"{% if value == item.target %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
-      {% else %}<input type="hidden" name="content_id" value="">{% endif %}
-      {% if element.component.clickable %}<label>Go to frame<select name="target_frame_id"><option value="">No target yet</option>{% for target in frames %}<option value="{{ target.id }}" {% if target.id == element.target_frame_id %}selected{% endif %}>{{ target.name }}</option>{% endfor %}</select></label>{% else %}<input type="hidden" name="target_frame_id" value="">{% endif %}
-      <div class="field-grid">
-        <label>X center<input name="x" type="number" step="0.1" value="{{ element.x }}"></label><label>Y center<input name="y" type="number" step="0.1" value="{{ element.y }}"></label>
-        <label>Width<input name="width" type="number" step="0.1" min="20" value="{{ element.width }}"></label><label>Height<input name="height" type="number" step="0.1" min="20" value="{{ element.height }}"></label>
-        <label>Font size<input name="font_size" type="number" step="0.1" min="6" value="{{ element.font_size }}"></label>
-      </div>
-      {% if selected_language != project.base_language %}<label class="check"><input type="checkbox" name="use_language_override" {% if element.has_language_override %}checked{% endif %}> Save geometry/font only for {{ selected_language }}</label>{% endif %}
-      <label>Delay behavior<select name="delay_mode">{% for value,label in delay_choices %}<option value="{{ value }}" {% if value == element.delay_mode %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-      <label class="check"><input type="checkbox" name="break_long_words" {% if element.break_long_words %}checked{% endif %}> Allow long words to wrap</label>
-      <fieldset><legend>Colors</legend><label class="check"><input type="checkbox" name="override_colors" data-color-toggle {% if element.has_color_override %}checked{% endif %}> Override project/component colors for this element</label><div class="field-grid color-fields"><label>Fill<input type="color" name="fill_color" value="{{ element.fill_color|default:element.default_fill }}"></label><label>Border<input type="color" name="border_color" value="{{ element.border_color|default:element.default_border }}"></label><label>Text<input type="color" name="text_color" value="{{ element.text_color|default:element.default_text }}"></label></div></fieldset>
-      <div class="actions"><button class="button primary" type="submit">Save element</button></div>
+      {% endif %}
+
+      <fieldset><legend>Size and position{% if language != project.base_language %} in {{ language }}{% endif %}</legend>
+        <div class="grid-3">
+          <label class="field"><span class="field-label">Width</span><input type="number" step="any" name="width" value="{{ g.width|stringformat:'g' }}"></label>
+          <label class="field"><span class="field-label">Height</span><input type="number" step="any" name="height" value="{{ g.height|stringformat:'g' }}"></label>
+          <label class="field"><span class="field-label">Font size</span><input type="number" step="any" name="font_size" value="{{ g.font_size|stringformat:'g' }}"></label>
+          <label class="field"><span class="field-label">X (center)</span><input type="number" step="any" name="x" value="{{ g.x|stringformat:'g' }}"></label>
+          <label class="field"><span class="field-label">Y (center)</span><input type="number" step="any" name="y" value="{{ g.y|stringformat:'g' }}"></label>
+        </div>
+        {% if item.has_override %}<button class="button" form="reset-{{ element.id }}">Use the {{ project.base_language }} layout again</button>{% endif %}
+      </fieldset>
+
+      <fieldset><legend>Behavior</legend>
+        <label class="field"><span class="field-label">Delay ({{ project.default_delay_seconds }} s, see Settings)</span>
+          <select name="delay_mode">{% for value, label in delay_choices %}<option value="{{ value }}"{% if value == element.delay_mode %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        </label>
+        <label class="check"><input type="checkbox" name="break_long_words"{% if element.break_long_words %} checked{% endif %}> <span>Break long words that do not fit</span></label>
+      </fieldset>
+
+      <fieldset><legend>Colors</legend>
+        <label class="check"><input type="checkbox" name="override_colors" data-color-toggle{% if element.fill_color or element.border_color or element.text_color %} checked{% endif %}> <span>Use colors for this element only (otherwise the project colors in <code>default-colors.css</code>)</span></label>
+        <div class="grid-3" data-colors>
+          <label class="field"><span class="field-label">Fill</span><input type="color" name="fill_color" value="{{ element.fill_color|default:item.component.fill }}"></label>
+          <label class="field"><span class="field-label">Border</span><input type="color" name="border_color" value="{{ element.border_color|default:item.component.border }}"></label>
+          <label class="field"><span class="field-label">Text</span><input type="color" name="text_color" value="{{ element.text_color|default:item.component.text }}"></label>
+        </div>
+      </fieldset>
+
+      <footer class="dialog-foot">
+        <button class="button danger" form="delete-{{ element.id }}">Delete</button>
+        <button class="button" form="duplicate-{{ element.id }}">Duplicate</button>
+        <span class="spacer"></span>
+        <button class="button primary">Save</button>
+      </footer>
     </form>
-    <form method="post" action="{% url 'studio:delete_element' element.id %}" class="dialog-delete" onsubmit="return confirm('Delete this element?')">{% csrf_token %}<button class="button danger" type="submit">Delete element</button></form>
+
+    {% if item.component.accepts_content and not frame.is_language_picker %}
+    <details class="add-content">
+      <summary>Add a new text to content.xlsx</summary>
+      <form method="post" action="{% url 'studio:add_content_for_element' element.id %}" class="form">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+        {% for item_language in content.languages %}
+        <label class="field"><span class="field-label">{{ item_language }}</span><textarea name="text.{{ item_language }}" rows="2"></textarea></label>
+        {% endfor %}
+        <label class="field"><span class="field-label">Note (for translators)</span><input name="note"></label>
+        <button class="button">Add row and use it</button>
+      </form>
+    </details>
+    {% endif %}
+    {% if item.has_override %}<form method="post" id="reset-{{ element.id }}" action="{% url 'studio:save_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="reset_language" value="1"></form>{% endif %}
+    <form method="post" id="duplicate-{{ element.id }}" action="{% url 'studio:duplicate_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
+    <form method="post" id="delete-{{ element.id }}" action="{% url 'studio:delete_element' element.id %}" data-confirm="Delete element #{{ element.id }}?">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
   </dialog>
+  {% endwith %}
   {% endfor %}
 
-  <dialog class="content-dialog" data-content-dialog>
-    <div class="dialog-heading"><div><p class="eyebrow">content.xlsx</p><h2>Select content</h2></div><button type="button" class="icon-button" data-close-content>×</button></div>
-    <input class="search" type="search" placeholder="Search ID, note or text" data-content-search>
-    <div class="table-scroll"><table><thead><tr><th>ID</th><th>Excel row</th><th>{{ selected_language }}</th><th>Note</th><th></th></tr></thead><tbody>
-      {% for row in content_rows %}<tr data-content-row data-search="{{ row.content_id }} {{ row.note }} {{ row.values|get_item:selected_language }}"><td>{{ row.content_id }}</td><td>{{ row.excel_row }}</td><td>{{ row.values|get_item:selected_language }}</td><td>{{ row.note }}</td><td><button class="button small" type="button" data-pick-content="{{ row.content_id }}">Use</button></td></tr>{% empty %}<tr><td colspan="5">No content rows yet. Add text to <code>/project/content.xlsx</code> and reload.</td></tr>{% endfor %}
-    </tbody></table></div>
+  <dialog class="dialog wide" id="content-picker">
+    <header class="dialog-head"><h2>Choose a text ({{ language }})</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
+    <input type="search" placeholder="Search text, note or id" aria-label="Search content" data-content-filter>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>id</th><th>Text</th><th>Note</th></tr></thead>
+      <tbody>{% for row in content_rows %}<tr data-content-id="{{ row.id }}" tabindex="0"><td>{{ row.id }}</td><td>{{ row.text|default:"—" }}</td><td class="muted">{{ row.note }}</td></tr>{% endfor %}</tbody>
+    </table></div>
   </dialog>
 </main>
 {% endblock %}

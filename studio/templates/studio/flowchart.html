@@ -1,33 +1,66 @@
 {% extends 'studio/base.html' %}
 {% block title %}Flowchart · TilTale{% endblock %}
 {% block body %}
-<main class="page flow-page" data-flowchart>
-  {% if content_error %}<div class="inline-alert error">{{ content_error }}</div>{% endif %}
-  <div class="page-heading split-heading">
-    <div><p class="eyebrow">Story structure</p><h1>Flowchart</h1><p>Dots show frames. Arrows show clickable elements that lead elsewhere. Drag a frame to keep a layout you prefer.</p></div>
-    <div class="actions">
-      <label class="compact-field">Language <select data-flow-language>{% for language in languages %}<option {% if language == selected_language %}selected{% endif %}>{{ language }}</option>{% endfor %}</select></label>
-      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<button class="button" type="submit">+ Frame</button></form>
+<main class="workspace flow-workspace" data-flowchart data-save-url="{% url 'studio:flow_positions_api' %}" data-csrf="{{ csrf_token }}" data-selected="{{ selected_frame }}">
+  <section class="stage-area">
+    <div class="toolbar">
+      {% if content.multilingual %}
+      <form method="get"><label class="compact">Texts in
+        <select name="lang" data-autosubmit>{% for language in content.languages %}<option value="{{ language }}"{% if language == content.language %} selected{% endif %}>{{ language }}</option>{% endfor %}</select>
+      </label></form>
+      {% endif %}
+      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><button class="button">+ Frame</button></form>
+      {% if content.multilingual %}
+      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="picker" value="1"><button class="button picker-button">+ Picker frame</button></form>
+      {% endif %}
+      <span class="divider"></span>
+      <button type="button" class="icon" title="Zoom out" data-zoom-step="-1">−</button>
+      <span class="muted zoom" data-zoom></span>
+      <button type="button" class="icon" title="Zoom in" data-zoom-step="1">+</button>
+      <button type="button" class="button" title="Show all frames" data-fit>Fit</button>
+      <form method="post" action="{% url 'studio:tidy_flowchart' %}" data-confirm="Rearrange every frame by its distance from the start? Your manual layout will be replaced.">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><button class="button">Tidy up</button>
+      </form>
+      <span class="spacer"></span>
+      <span class="muted hint">Drag to move · <kbd>Shift</kbd>+click to select several · drag the background to pan · double-click to edit</span>
     </div>
-  </div>
-  <div class="flow-toolbar"><button class="button small" type="button" data-flow-zoom="out">−</button><output data-flow-zoom-label>100%</output><button class="button small" type="button" data-flow-zoom="in">+</button><span class="muted">Click a frame to inspect its outgoing choices.</span></div>
-  <div class="flow-viewport" data-flow-viewport>
-    <div class="flow-world" data-flow-world>
-      <svg class="flow-lines" data-flow-lines aria-hidden="true"></svg>
-      {% for node in nodes %}
-        <button class="flow-node {% if node.fade_in %}has-fade{% endif %}" type="button" data-flow-node="{{ node.name }}" data-x="{{ node.x }}" data-y="{{ node.y }}" style="left:{{ node.x }}px;top:{{ node.y }}px">
-          <span class="flow-dot"></span><strong>{{ node.name }}</strong>{% if node.fade_in %}<span title="Frame fades in">◐</span>{% endif %}
-        </button>
-      {% empty %}<div class="empty-state">No frames yet.</div>{% endfor %}
+    <div class="flow-viewport" data-flow-viewport>
+      <div class="flow-world" data-flow-world>
+        <svg class="flow-edges" aria-hidden="true">
+          <defs><marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker></defs>
+          <g data-flow-paths></g>
+        </svg>
+        {% for node in nodes %}
+        <div class="flow-node{% if node.picker %} is-picker{% endif %}{% if node.start %} is-start{% endif %}" tabindex="0"
+             data-node="{{ node.name }}" data-x="{{ node.x|stringformat:'g' }}" data-y="{{ node.y|stringformat:'g' }}"
+             data-edit-url="{{ node.edit_url }}" data-preview-url="{{ node.preview_url }}">
+          <strong>{{ node.name }}</strong>
+          <span class="node-badges">
+            {% if node.start %}<span class="badge start">{% if node.picker %}Start page{% else %}Story start{% endif %}</span>{% endif %}
+            {% if node.picker %}<span class="badge picker">Picker</span>{% endif %}
+            {% if node.fade_in %}<span class="badge">Fade</span>{% endif %}
+            {% if node.ends %}<span class="badge end">End ×{{ node.ends }}</span>{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% if not nodes %}<div class="empty-state"><p>No frames yet.</p><p class="muted">Create the first one with <strong>+ Frame</strong>.</p></div>{% endif %}
     </div>
-  </div>
-  <aside class="flow-inspector" data-flow-inspector hidden>
-    <button class="icon-button" type="button" data-flow-close>×</button>
-    <p class="eyebrow">Selected frame</p><h2 data-flow-title></h2>
-    <div data-flow-connections></div>
-    <a class="button primary" href="#" data-flow-edit>Edit frame</a>
+    <div class="legend">
+      <span><i class="swatch story"></i> Story frame</span>
+      {% if content.multilingual %}<span><i class="swatch picker"></i> Language-picker frame (start page, not in content.xlsx)</span><span><i class="line dashed"></i> Opens a language</span>{% endif %}
+      <span><i class="line"></i> Goes to frame</span>
+    </div>
+  </section>
+
+  <aside class="panel inspector" data-inspector hidden>
+    <div class="panel-head"><h2 data-inspector-title></h2></div>
+    <div class="inspector-screen">{% if dist_ready %}<iframe title="Frame preview" tabindex="-1" data-inspector-frame></iframe>{% else %}<p class="muted">Regenerate to see a preview.</p>{% endif %}</div>
+    {% if dist_stale and dist_ready %}<p class="muted">The preview may be older than your latest changes.</p>{% endif %}
+    <h3>Buttons on this frame</h3>
+    <ul class="link-list" data-inspector-links></ul>
+    <a class="button primary" data-inspector-edit>Edit frame</a>
   </aside>
-  {{ nodes|json_script:"flow-nodes-data" }}
-  {{ edges|json_script:"flow-edges-data" }}
+  {{ edges|json_script:"flow-edges" }}
 </main>
 {% endblock %}

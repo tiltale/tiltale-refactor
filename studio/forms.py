@@ -1,11 +1,5 @@
-"""Small Django forms for server-side validation.
+"""Server-side validation for input that changes durable project state."""
 
-Forms are used where user input changes durable state. The visual element
-inspector is intentionally handled by a focused view because its fields are
-partly language-dependent; that view still validates every value server-side.
-"""
-
-from decimal import Decimal
 import re
 
 from django import forms
@@ -17,33 +11,27 @@ HEX_PATTERN: re.Pattern[str] = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def normalize_language(value: str) -> str:
-    """Return a predictable language code such as ``en-US`` or ``nl``."""
+    """``" pt_br "`` → ``"pt-BR"``; ``"NL"`` → ``"nl"``."""
     cleaned: str = value.strip().replace("_", "-")
     if not LANGUAGE_PATTERN.fullmatch(cleaned):
-        raise forms.ValidationError("Use a language code such as en-US, nl, or pt-BR.")
-    parts: list[str] = cleaned.split("-")
-    if len(parts) == 1:
-        return parts[0].lower()
-    return "-".join([parts[0].lower(), *[part.upper() for part in parts[1:]]])
+        raise forms.ValidationError("Use a language code such as en-US, nl or pt-BR.")
+    first, *rest = cleaned.split("-")
+    return "-".join([first.lower(), *(part.upper() for part in rest)])
 
 
 def parse_extra_languages(value: str, base_language: str) -> list[str]:
-    """Parse comma-separated language codes, preserving order and uniqueness."""
+    """Comma-separated codes, in order, without duplicates or the base language."""
     result: list[str] = []
     seen: set[str] = {base_language.casefold()}
-    for raw in value.split(","):
-        if not raw.strip():
-            continue
+    for raw in filter(str.strip, value.split(",")):
         language: str = normalize_language(raw)
-        key: str = language.casefold()
-        if key not in seen:
-            seen.add(key)
+        if language.casefold() not in seen:
+            seen.add(language.casefold())
             result.append(language)
     return result
 
 
 def validate_hex(value: str) -> str:
-    """Validate and normalize a six-digit CSS hexadecimal color."""
     cleaned: str = value.strip()
     if not HEX_PATTERN.fullmatch(cleaned):
         raise forms.ValidationError("Use a color such as #003366.")
@@ -53,51 +41,83 @@ def validate_hex(value: str) -> str:
 class NewProjectForm(forms.Form):
     name = forms.CharField(max_length=120, label="Project name")
     base_language = forms.CharField(max_length=40, initial="en-US")
-    extra_languages = forms.CharField(
-        required=False,
-        help_text="Optional, comma-separated. Example: nl-NL, de-DE",
-    )
+    extra_languages = forms.CharField(required=False)
 
     def clean_base_language(self) -> str:
         return normalize_language(self.cleaned_data["base_language"])
 
-    def clean(self) -> dict[str, object]:
-        cleaned: dict[str, object] = super().clean()
-        base: str | None = cleaned.get("base_language")  # type: ignore[assignment]
-        extras: str = str(cleaned.get("extra_languages") or "")
-        if base:
-            cleaned["parsed_extra_languages"] = parse_extra_languages(extras, base)
-        return cleaned
+    def clean_extra_languages(self) -> list[str]:
+        base: str = str(self.cleaned_data.get("base_language", ""))  # cleaned first: fields clean in order
+        return parse_extra_languages(self.cleaned_data["extra_languages"], base)
 
 
 class ProjectSettingsForm(forms.ModelForm):
     class Meta:
         model = ProjectSettings
         fields = [
-            "name",
-            "frame_width",
-            "frame_height",
-            "default_delay_seconds",
-            "letterbox_color",
-            "log_endpoint",
+            "name", "frame_width", "frame_height", "letterbox_color",
+            "default_delay_seconds", "participant_parameter", "finish_redirect_url",
         ]
-        widgets = {"letterbox_color": forms.TextInput(attrs={"type": "color"})}
+        labels = {
+            "name": "Project name",
+            "frame_width": "Frame width (px)",
+            "frame_height": "Frame height (px)",
+            "letterbox_color": "Color around the story",
+            "default_delay_seconds": "Element delay (seconds)",
+            "participant_parameter": "Participant ID parameter",
+            "finish_redirect_url": "Finish redirect URL",
+        }
+        help_texts = {
+            "name": "Shown as the browser tab title of the generated story. The /dist/ folder names keep the "
+                    "slug chosen when the project was created.",
+            "frame_width": "Width of the design canvas in pixels; decimals are allowed. Element positions are "
+                           "stored in pixels, so changing this later does not move or rescale placed elements.",
+            "frame_height": "Height of the design canvas in pixels. Same rule as the width.",
+            "letterbox_color": "Fills the screen area that the story frame does not cover, e.g. the bars on a "
+                               "phone held upright while the story is landscape.",
+            "default_delay_seconds": "Used by elements whose delay behavior is “Fade in”, “Disable click” or both: "
+                                     "they fade in, or ignore clicks, for this long so readers cannot skip a frame "
+                                     "by clicking too fast.",
+            "participant_parameter": "URL parameter that carries an external participant ID. With the default "
+                                     "“ppn”, a link such as …/index.html?ppn=R_abc123 (e.g. from Qualtrics) logs as "
+                                     "participant R_abc123. Without it, the story generates a random ID.",
+            "finish_redirect_url": "Where participants go after clicking an element set to “End story”. Write {ID} "
+                                   "where their participant ID belongs, e.g. "
+                                   "https://yourschool.qualtrics.com/jfe/form/SV_abc?ppn={ID}. Leave empty to "
+                                   "show a simple end screen instead.",
+        }
+        widgets = {
+            "frame_width": forms.NumberInput(attrs={"step": "any", "min": "1"}),
+            "frame_height": forms.NumberInput(attrs={"step": "any", "min": "1"}),
+            "letterbox_color": forms.TextInput(attrs={"type": "color"}),
+            "finish_redirect_url": forms.TextInput(attrs={"placeholder": "https://…?ppn={ID}", "spellcheck": "false"}),
+        }
 
     def clean_letterbox_color(self) -> str:
         return validate_hex(self.cleaned_data["letterbox_color"])
 
-    def clean_default_delay_seconds(self) -> Decimal:
-        value: Decimal = self.cleaned_data["default_delay_seconds"]
-        if value > Decimal("30"):
-            raise forms.ValidationError("Keep the default delay at 30 seconds or less.")
-        return value
 
+class FrameForm(forms.ModelForm):
+    """Frame-level settings: background and fade-in."""
 
-class FrameBackgroundForm(forms.ModelForm):
     class Meta:
         model = Frame
-        fields = ["background_type", "background_color", "background_image", "fade_in"]
+        fields = ["fade_in", "background_type", "background_color", "background_image"]
+        labels = {"fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image"}
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
+
+    def __init__(self, *args: object, materials: list[str], **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.materials: list[str] = materials
 
     def clean_background_color(self) -> str:
         return validate_hex(self.cleaned_data["background_color"])
+
+    def clean(self) -> dict[str, object]:
+        cleaned: dict[str, object] = super().clean()
+        kind = cleaned.get("background_type")
+        if kind == Frame.BackgroundType.IMAGE and cleaned.get("background_image") not in self.materials:
+            self.add_error("background_image", "Choose an image that exists in /project/materials/.")
+        if kind != Frame.BackgroundType.IMAGE:
+            cleaned["background_image"] = ""
+        return cleaned

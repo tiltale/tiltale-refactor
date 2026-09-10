@@ -1,32 +1,35 @@
 {% extends 'studio/base.html' %}
-{% block title %}TilTale{% endblock %}
 {% block body %}
-<main class="page page-narrow">
-  <section class="hero">
-    <p class="eyebrow">Interactive story authoring</p>
-    <h1>{% if project %}Project found: {{ project.name }}{% else %}Build an interactive story without writing its runtime by hand.{% endif %}</h1>
+<main class="page narrow">
+  <section class="card hero">
+    <p class="eyebrow">Interactive story studio</p>
     {% if not health.exists %}
-      <p>TilTale could not find <code>/project/</code>. To use an existing project, copy its entire <code>project</code> folder into this repository root and reload this page.</p>
-      <div class="actions"><a class="button primary" href="{% url 'studio:new_project' %}">Create a new project</a></div>
-    {% elif not health.ready %}
-      <div class="callout error">
-        <strong>The project folder is incomplete.</strong>
-        <p>TilTale will not silently replace missing project files.</p>
-        <ul>{% for problem in health.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
-      </div>
-    {% elif database_problem %}
-      <div class="callout error"><strong>Database problem</strong><p>{{ database_problem }}</p></div>
+      <h1>Build an interactive story, then publish it as a plain website.</h1>
+      <p>No project was found in <code>/project/</code>.</p>
+      <ol class="steps">
+        <li><strong>Have a project already?</strong> Copy its whole <code>project</code> folder into this repository (next to <code>manage.py</code>) and reload this page.</li>
+        <li><strong>Starting fresh?</strong> Create one below. You choose a name and languages; TilTale creates every file.</li>
+      </ol>
+      <a class="button primary" href="{% url 'studio:new_project' %}">Create a new project</a>
+    {% elif health.problems %}
+      <h1>The project folder is incomplete</h1>
+      <div class="alert error"><p>TilTale never recreates missing project files by itself, so nothing gets overwritten. Restore these from a backup:</p>
+        <ul>{% for problem in health.problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>
+    {% elif not project %}
+      <h1>The project database cannot be read</h1>
+      <div class="alert error"><p><code>/project/project.sqlite3</code> exists but could not be opened. Check the terminal running <code>python manage.py runserver</code> for the error.</p></div>
     {% else %}
-      <p>Choose the side of the project you want to work on. The developer side changes the story; Results only reads study logs.</p>
+      <h1>{{ project.name }}</h1>
+      <p>What would you like to do?</p>
       <div class="choice-grid">
-        <a class="choice-card" href="{% url 'studio:develop' %}"><span>Develop</span><small>Edit frames, flow and regenerate the story.</small></a>
-        <a class="choice-card" href="{% url 'studio:results' %}"><span>Results</span><small>Inspect local session logs or import JSONL logs.</small></a>
+        <a class="choice" href="{% url 'studio:develop' %}"><strong>Develop</strong><span>Edit frames and flow, preview on phones, regenerate the website.</span></a>
+        <a class="choice" href="{% url 'studio:results' %}"><strong>Results</strong><span>Read preview and study logs, import logs from the web server.</span></a>
       </div>
     {% endif %}
   </section>
-  <section class="plain-section">
-    <h2>Where data lives</h2>
-    <p><code>/project/</code> is the only durable study/project workspace and is intentionally ignored by Git. Generated websites go to <code>/dist/</code> and can always be rebuilt.</p>
+  <section class="card">
+    <h2>Where things live</h2>
+    <p><code>/project/</code> holds everything you make (database, <code>content.xlsx</code>, images, logs). <code>/dist/</code> is the generated website; it is rebuilt by <strong>Regenerate</strong>. Git ignores both, so study data never ends up on GitHub.</p>
   </section>
 </main>
 {% endblock %}

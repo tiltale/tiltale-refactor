@@ -1,13 +1,17 @@
 {% extends 'studio/base.html' %}
-{% load studio_extras %}
-{% block title %}Session · TilTale{% endblock %}
+{% block title %}{{ participant_id|default:file_name }} · TilTale{% endblock %}
 {% block body %}
 <main class="page">
-  <a class="back-link" href="{% url 'studio:results' %}">← All sessions</a>
-  <p class="eyebrow">Session log</p><h1>{{ file_name }}</h1>
-  {% if parse_error %}<div class="inline-alert error">{{ parse_error }}</div>{% endif %}
-  <div class="table-scroll"><table><thead><tr><th>#</th><th>Time</th><th>Event</th><th>Frame</th><th>Details</th></tr></thead><tbody>
-    {% for event in events %}<tr><td>{{ event.seq|default:forloop.counter }}</td><td>{{ event.timestamp|default:event.received_at }}</td><td><strong>{{ event.event }}</strong></td><td>{{ event.frame|default:'—' }}</td><td><code class="json-cell">{{ event }}</code></td></tr>{% empty %}<tr><td colspan="5">No valid events in this log.</td></tr>{% endfor %}
-  </tbody></table></div>
+  <a class="back" href="{% url 'studio:results' %}">← Results</a>
+  <section class="card">
+    <p class="eyebrow">Visit</p>
+    <h1>{{ participant_id|default:"Unknown participant" }}</h1>
+    <p class="muted">Visit <code>{{ visit_id|default:"—" }}</code> · file <code>{{ file_name }}</code></p>
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>#</th><th>Time (UTC)</th><th>Event</th><th>Frame</th><th>Details</th></tr></thead>
+      <tbody>{% for row in rows %}<tr><td>{{ row.seq }}</td><td>{{ row.timestamp }}</td><td>{{ row.event }}</td><td>{{ row.frame }}</td><td><code>{{ row.details }}</code></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
 </main>
 {% endblock %}

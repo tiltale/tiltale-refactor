@@ -1,72 +1,86 @@
 {% extends 'studio/base.html' %}
 {% block title %}Develop · TilTale{% endblock %}
 {% block body %}
-<main class="develop-shell" data-develop data-preview="{{ preview_url }}" data-language="{{ selected_language }}">
-  <aside class="frame-panel" data-frame-panel>
-    <div class="panel-heading">
-      <div><p class="eyebrow">Frames</p><strong>{{ frames|length }} total</strong></div>
-      <button class="icon-button" type="button" data-collapse-panel title="Hide frame panel">←</button>
+<main class="workspace" data-develop>
+  <aside class="panel frame-panel" data-frame-panel>
+    <div class="panel-head">
+      <h2>Frames <span class="count">{{ frames|length }}</span></h2>
+      <input type="search" placeholder="Filter frames" aria-label="Filter frames" data-frame-filter>
     </div>
-    <input class="search" type="search" placeholder="Search unique frame name" aria-label="Search frames" data-frame-search>
-    <div class="frame-list" data-frame-list>
+    {% if not frames %}<p class="muted">No frames yet. Create the first one with <strong>+ Frame</strong>.</p>{% endif %}
+    <div class="thumb-grid">
       {% for frame in frames %}
-      <article class="frame-thumb" data-frame-name="{{ frame.name }}">
-        <div class="thumb-canvas" data-thumb-canvas aria-hidden="true">
-          {% if dist_ready %}<iframe loading="lazy" tabindex="-1" src="{{ preview_url }}?preview=1&inspect=1&frame={{ frame.name|urlencode }}" title=""></iframe>{% else %}<span>{{ frame.name }}</span>{% endif %}
+      <article class="thumb{% if frame.is_language_picker %} is-picker{% endif %}" data-frame-name="{{ frame.name }}">
+        <div class="thumb-screen">
+          {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ frame.name }}" src="{{ frame.preview_url }}?inspect=1&amp;frame={{ frame.name }}"></iframe>{% endif %}
         </div>
-        <strong>{{ frame.name }}</strong>
-        <div class="thumb-actions">
-          {% if dist_ready %}<button type="button" class="button small" data-view-frame="{{ frame.name }}">View</button>{% endif %}
-          <a class="button small secondary" href="{% url 'studio:frame_editor' frame.name %}?lang={{ selected_language|urlencode }}">Edit</a>
+        <div class="thumb-foot">
+          <strong>{{ frame.name }}</strong>
+          {% if frame.is_language_picker %}<span class="badge picker" title="Language-picker frame: part of the start page /dist/index.html">Picker</span>{% endif %}
+          <span class="thumb-actions">
+            <button type="button" class="link" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.name }}">View</button>
+            <a href="{% url 'studio:frame_editor' frame.name %}?lang={{ content.language }}">Edit</a>
+          </span>
         </div>
       </article>
-      {% empty %}<p class="empty">No frames yet. Create the first frame from the toolbar.</p>{% endfor %}
+      {% endfor %}
     </div>
   </aside>
 
-  <div class="panel-resizer" data-panel-resizer role="separator" aria-label="Resize frame panel" aria-orientation="vertical" tabindex="0"></div>
-
-  <section class="preview-panel">
-    <div class="develop-toolbar">
-      <button class="icon-button panel-opener" type="button" data-open-panel title="Show frame panel">→</button>
-      <form method="post" action="{% url 'studio:regenerate' %}">{% csrf_token %}<button class="button primary" type="submit">Regenerate</button></form>
-      <button class="button" type="button" data-restart-preview>Restart</button>
-      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<button class="button" type="submit">+ Frame</button></form>
-      <label class="compact-field">View
-        <select data-device-select>
-          {% for device in devices %}<option value="{{ device.width }}x{{ device.height }}" {% if device.key == 'iphone-15' %}selected{% endif %}>{{ device.label }} · {{ device.width }}×{{ device.height }}</option>{% endfor %}
+  <section class="stage-area">
+    <div class="toolbar">
+      <button type="button" class="icon" title="Show or hide the frame list" data-toggle-panel>☰</button>
+      <form method="post" action="{% url 'studio:regenerate' %}">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+        <button class="button primary{% if dist_stale %} attention{% endif %}" title="Rebuild /dist/ from the project">Regenerate</button>
+      </form>
+      <a class="button" href="{% url 'studio:playtest' %}">Play-test</a>
+      <span class="divider"></span>
+      {% if content.multilingual %}
+      <form method="get">
+        <label class="compact">Page
+          <select name="lang" data-autosubmit>
+            {% if has_pickers %}<option value="picker"{% if picker_selected %} selected{% endif %}>Language picker (start page)</option>{% endif %}
+            {% for language in content.languages %}<option value="{{ language }}"{% if language == content.language and not picker_selected %} selected{% endif %}>{{ language }}</option>{% endfor %}
+          </select>
+        </label>
+      </form>
+      {% endif %}
+      <label class="compact">Device
+        <select data-device>
+          {% for device in devices %}<option value="{{ device.width }}x{{ device.height }}"{% if forloop.counter == 3 %} selected{% endif %}>{{ device.label }} · {{ device.width }}×{{ device.height }}</option>{% endfor %}
         </select>
       </label>
-      <label class="compact-field">Language
-        <select data-language-select>
-          {% for language in languages %}<option value="{{ language }}" {% if language == selected_language %}selected{% endif %}>{{ language }}</option>{% endfor %}
-        </select>
-      </label>
-      <a class="button" href="{% url 'studio:flowchart' %}?lang={{ selected_language|urlencode }}">Flowchart</a>
+      <button type="button" class="icon" title="Rotate the device" data-rotate>⟲</button>
+      <button type="button" class="button" title="Start again as a new visit" data-restart>Restart</button>
+      <span class="muted zoom" data-zoom></span>
+      <span class="spacer"></span>
+      <form method="post" action="{% url 'studio:new_frame' %}">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+        <button class="button">+ Frame</button>
+      </form>
+      {% if content.multilingual %}
+      <form method="post" action="{% url 'studio:new_frame' %}">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="picker" value="1">
+        <button class="button picker-button" title="A start-page frame shown before a language is chosen">+ Picker frame</button>
+      </form>
+      {% endif %}
     </div>
 
-    {% if content_error %}<div class="inline-alert error"><strong>Content file:</strong> {{ content_error }}</div>{% endif %}
-    {% if dist_stale %}<div class="inline-alert warning"><strong>Preview is stale.</strong> Changes were found after the last build. Regenerate to see them in the demo.</div>{% endif %}
+    {% if content.error %}<div class="alert error">{{ content.error }}</div>{% endif %}
+    {% if dist_stale and dist_ready %}<div class="alert warning">The preview is older than your latest changes. Press <strong>Regenerate</strong>.</div>{% endif %}
     {% if issues %}
-      <details class="validation" {% if not dist_ready %}open{% endif %}>
-        <summary>{{ issues|length }} preflight check{{ issues|length|pluralize }}</summary>
-        <ul>
-          {% for issue in issues %}
-            <li class="{{ issue.severity }}"><strong>{{ issue.severity|title }}:</strong> {{ issue.message }}
-              {% if issue.frame_name %}<a href="{% url 'studio:frame_editor' issue.frame_name %}?lang={{ selected_language|urlencode }}">Edit {{ issue.frame_name }}</a>{% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      </details>
+    <details class="alert issues">
+      <summary>{{ issues|length }} thing{{ issues|length|pluralize }} to check before publishing</summary>
+      <ul>{% for issue in issues %}<li class="{{ issue.severity }}">{% if issue.frame_name %}<a href="{% url 'studio:frame_editor' issue.frame_name %}?lang={{ content.language }}">{{ issue.frame_name }}</a>: {% endif %}{{ issue.message }}</li>{% endfor %}</ul>
+    </details>
     {% endif %}
 
-    <div class="preview-stage" data-preview-stage>
+    <div class="stage" data-stage>
       {% if dist_ready %}
-        <div class="device-shell" data-device-shell>
-          <iframe title="Generated TilTale story preview" src="{{ preview_url }}?preview=1" data-preview-iframe></iframe>
-        </div>
+        <div class="device" data-device-shell><iframe title="Story preview" data-preview src="{{ preview_url }}?preview=1"></iframe></div>
       {% else %}
-        <div class="empty-state"><h2>No generated preview yet</h2><p>Create/edit frames, then press <strong>Regenerate</strong>. Validation warnings do not block generation.</p></div>
+        <div class="empty-state"><p>No preview yet.</p><p class="muted">Press <strong>Regenerate</strong> to build the website into <code>/dist/</code>.</p></div>
       {% endif %}
     </div>
   </section>

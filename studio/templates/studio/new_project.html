@@ -1,16 +1,18 @@
 {% extends 'studio/base.html' %}
 {% block title %}New project · TilTale{% endblock %}
 {% block body %}
-<main class="page page-narrow">
-  <a class="back-link" href="{% url 'studio:home' %}">← Back</a>
-  <h1>Create a project</h1>
-  <p>This creates <code>/project/</code>, its SQLite authoring database, <code>content.xlsx</code>, materials/log folders, and editable project color files.</p>
-  <form method="post" class="form-card">
+<main class="page narrow">
+  <a class="back" href="{% url 'studio:home' %}">← Back</a>
+  <form method="post" class="card form">
     {% csrf_token %}
-    {{ form.non_field_errors }}
-    <label>Project name {{ form.name }} {{ form.name.errors }}</label>
-    <label>Base language {{ form.base_language }} <small>Use a code such as <code>en-US</code>.</small>{{ form.base_language.errors }}</label>
-    <label>Extra languages {{ form.extra_languages }} <small>Optional, comma-separated. You can also add language columns to <code>content.xlsx</code> later.</small>{{ form.extra_languages.errors }}</label>
+    <h1>Create a project</h1>
+    <p class="muted">Creates <code>/project/</code> with its database, <code>content.xlsx</code> (one column per language), <code>materials/</code>, <code>logs/</code> and two CSS files for project colors.</p>
+    {% for error in form.non_field_errors %}<div class="alert error">{{ error }}</div>{% endfor %}
+    {% include 'studio/_field.html' with field=form.name %}
+    <label class="field"><span class="field-label">Base language</span>{{ form.base_language }}<small class="field-help">The language you write first, as a code such as <code>en-US</code> or <code>nl</code>.</small></label>
+    {% for error in form.base_language.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    <label class="field"><span class="field-label">Extra languages <em>(optional)</em></span>{{ form.extra_languages }}<small class="field-help">Comma-separated, e.g. <code>nl-NL, de-DE</code>. You can add more later as extra columns in <code>content.xlsx</code>. With two or more languages, the website gets one folder per language and an optional language-picker start page.</small></label>
+    {% for error in form.extra_languages.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
     <button class="button primary" type="submit">Create project</button>
   </form>
 </main>

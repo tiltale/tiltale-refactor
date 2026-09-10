@@ -2,16 +2,41 @@
 {% block title %}Results · TilTale{% endblock %}
 {% block body %}
 <main class="page">
-  <div class="page-heading split-heading"><div><p class="eyebrow">Study data</p><h1>Results</h1><p>Local preview sessions are written to <code>/project/logs/*.jsonl</code>. A deployed story can later point at a proper remote collector.</p></div></div>
-  <section class="form-card compact-card">
-    <h2>Import a log</h2><p>Use this when logs were collected elsewhere and downloaded as JSONL.</p>
-    <form method="post" enctype="multipart/form-data" action="{% url 'studio:import_logs' %}" class="inline-controls">{% csrf_token %}<input type="file" name="log_file" accept=".jsonl,application/json"><button class="button" type="submit">Import</button></form>
+  <section class="card">
+    <p class="eyebrow">Logs</p>
+    <h1>Results</h1>
+    <p class="muted">One file per visit in <code>/project/logs/</code>. Preview and play-test visits are written here directly; study logs are downloaded from <code>dist/logs/</code> on your web server and imported below. Existing files are never overwritten.</p>
+    <form method="post" action="{% url 'studio:import_logs' %}" enctype="multipart/form-data" class="row">
+      {% csrf_token %}
+      <input type="file" name="log_files" accept=".jsonl" multiple aria-label="Log files">
+      <button class="button primary">Import</button>
+    </form>
   </section>
-  <section class="plain-section">
-    <h2>Sessions</h2>
-    <div class="table-scroll"><table><thead><tr><th>Session</th><th>Events</th><th>Last frame</th><th>Started</th><th>Last event</th></tr></thead><tbody>
-      {% for session in sessions %}<tr><td><a href="{% url 'studio:session_detail' session.file_name %}"><code>{{ session.session_id }}</code></a></td><td>{{ session.event_count }}</td><td>{{ session.last_frame|default:'—' }}</td><td>{{ session.first_timestamp }}</td><td>{{ session.last_timestamp }}</td></tr>{% empty %}<tr><td colspan="5">No logs yet. Restart/play a generated story from the developer preview to create a local session.</td></tr>{% endfor %}
-    </tbody></table></div>
+
+  <section class="card">
+    <div class="row">
+      <h2>Visits <span class="count">{{ sessions|length }}</span></h2>
+      <span class="spacer"></span>
+      <label class="check"><input type="checkbox" data-hide-test-sessions> <span>Only study visits</span></label>
+    </div>
+    {% if sessions %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Participant</th><th>Type</th><th>Language</th><th>Started</th><th>Events</th><th>Last frame</th><th>Finished</th></tr></thead>
+      <tbody>
+        {% for session in sessions %}
+        <tr data-kind="{{ session.kind }}">
+          <td><a href="{% url 'studio:session_detail' session.file_name %}">{{ session.participant_id }}</a></td>
+          <td><span class="badge {{ session.kind }}">{{ session.kind }}</span></td>
+          <td>{{ session.language|default:"—" }}</td>
+          <td>{{ session.started }}</td>
+          <td>{{ session.event_count }}</td>
+          <td>{{ session.last_frame|default:"—" }}</td>
+          <td>{% if session.finished %}✓{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted">No logs yet. Open the preview or run a play-test to create one.</p>{% endif %}
   </section>
 </main>
 {% endblock %}

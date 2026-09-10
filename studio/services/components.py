@@ -1,8 +1,8 @@
-"""Read source-controlled reusable component definitions.
+"""Read the reusable component definitions in ``/components/``.
 
-A component folder contains only a manifest, SVG, and CSS. The loader validates
-that small contract once and returns a typed immutable object. No plugin
-framework is needed until components genuinely need executable authoring hooks.
+A component folder holds ``component.json``, ``component.svg`` and
+``component.css``. The folder name is the component's slug and must match the
+``.component-<slug>`` CSS class used in its stylesheet.
 """
 
 from dataclasses import dataclass
@@ -26,91 +26,55 @@ class ComponentDefinition:
     fill: str
     border: str
     text: str
-    variants: tuple[str, ...]
     svg: str
     css: str
 
 
-def _required_text(data: dict[str, Any], key: str, source: Path) -> str:
+def _field(data: dict[str, Any], key: str, kind: type | tuple[type, ...], source: Path) -> Any:
     value: object = data.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{source}: '{key}' must be non-empty text.")
-    return value.strip()
-
-
-def _required_number(data: dict[str, Any], key: str, source: Path) -> float:
-    value: object = data.get(key)
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise ValueError(f"{source}: '{key}' must be a number.")
-    return float(value)
-
-
-def _required_bool(data: dict[str, Any], key: str, source: Path) -> bool:
-    value: object = data.get(key)
-    if not isinstance(value, bool):
-        raise ValueError(f"{source}: '{key}' must be true or false.")
+    if isinstance(value, bool) and kind is not bool:
+        value = None  # JSON true/false is not a number or text
+    if not isinstance(value, kind) or value == "":
+        raise ValueError(f"{source}: '{key}' is missing or has the wrong type.")
     return value
 
 
 def load_component(folder: Path) -> ComponentDefinition:
     """Load one component folder or raise a readable configuration error."""
-    manifest_path: Path = folder / "component.json"
-    svg_path: Path = folder / "component.svg"
-    css_path: Path = folder / "component.css"
-    missing: list[str] = [
-        path.name for path in (manifest_path, svg_path, css_path) if not path.is_file()
-    ]
+    paths: dict[str, Path] = {suffix: folder / f"component.{suffix}" for suffix in ("json", "svg", "css")}
+    missing: list[str] = [path.name for path in paths.values() if not path.is_file()]
     if missing:
         raise ValueError(f"{folder}: missing {', '.join(missing)}.")
 
-    data: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
-    colors: object = data.get("colors")
-    if not isinstance(colors, dict):
-        raise ValueError(f"{manifest_path}: 'colors' must be an object.")
-    size: object = data.get("default_size")
-    if not isinstance(size, dict):
-        raise ValueError(f"{manifest_path}: 'default_size' must be an object.")
-
-    variants_value: object = data.get("variants", ["default"])
-    if not isinstance(variants_value, list) or not all(
-        isinstance(item, str) and item for item in variants_value
-    ):
-        raise ValueError(f"{manifest_path}: 'variants' must be a list of names.")
-
+    manifest: Path = paths["json"]
+    data: dict[str, Any] = json.loads(manifest.read_text(encoding="utf-8"))
+    size: dict[str, Any] = _field(data, "default_size", dict, manifest)
+    colors: dict[str, Any] = _field(data, "colors", dict, manifest)
+    number = (int, float)
     return ComponentDefinition(
-        slug=_required_text(data, "slug", manifest_path),
-        name=_required_text(data, "name", manifest_path),
-        description=_required_text(data, "description", manifest_path),
-        accepts_content=_required_bool(data, "accepts_content", manifest_path),
-        clickable=_required_bool(data, "clickable", manifest_path),
-        default_width=_required_number(size, "width", manifest_path),
-        default_height=_required_number(size, "height", manifest_path),
-        default_font_size=_required_number(data, "default_font_size", manifest_path),
-        fill=_required_text(colors, "fill", manifest_path),  # type: ignore[arg-type]
-        border=_required_text(colors, "border", manifest_path),  # type: ignore[arg-type]
-        text=_required_text(colors, "text", manifest_path),  # type: ignore[arg-type]
-        variants=tuple(variants_value),
-        svg=svg_path.read_text(encoding="utf-8").strip(),
-        css=css_path.read_text(encoding="utf-8").strip(),
+        slug=folder.name,
+        name=_field(data, "name", str, manifest),
+        description=_field(data, "description", str, manifest),
+        accepts_content=_field(data, "accepts_content", bool, manifest),
+        clickable=_field(data, "clickable", bool, manifest),
+        default_width=float(_field(size, "width", number, manifest)),
+        default_height=float(_field(size, "height", number, manifest)),
+        default_font_size=float(_field(data, "default_font_size", number, manifest)),
+        fill=_field(colors, "fill", str, manifest),
+        border=_field(colors, "border", str, manifest),
+        text=_field(colors, "text", str, manifest),
+        svg=paths["svg"].read_text(encoding="utf-8").strip(),
+        css=paths["css"].read_text(encoding="utf-8").strip(),
     )
 
 
 def load_components() -> list[ComponentDefinition]:
-    """Return components sorted by their human-facing name."""
+    """Return every component, sorted by its human-facing name."""
     root: Path = settings.COMPONENTS_DIR
-    definitions: list[ComponentDefinition] = []
-    if not root.is_dir():
-        return definitions
-    seen_slugs: set[str] = set()
-    for folder in root.iterdir():
-        if not folder.is_dir() or folder.name.startswith("."):
-            continue
-        component: ComponentDefinition = load_component(folder)
-        if component.slug in seen_slugs:
-            raise ValueError(f"Duplicate component slug '{component.slug}'.")
-        seen_slugs.add(component.slug)
-        definitions.append(component)
-    return sorted(definitions, key=lambda item: item.name.casefold())
+    folders: list[Path] = [
+        folder for folder in root.iterdir() if folder.is_dir() and not folder.name.startswith(".")
+    ] if root.is_dir() else []
+    return sorted((load_component(folder) for folder in folders), key=lambda item: item.name.casefold())
 
 
 def component_map() -> dict[str, ComponentDefinition]:
@@ -118,26 +82,20 @@ def component_map() -> dict[str, ComponentDefinition]:
 
 
 def component_css() -> str:
-    """Combine source CSS without inventing a build dependency."""
     return "\n\n".join(component.css for component in load_components())
 
 
 def default_color_css() -> str:
-    """Create the editable project color table from current component defaults."""
+    """The editable project color table, pre-filled with component defaults."""
     lines: list[str] = [
         "/*",
-        " * TilTale project-wide component colors.",
-        " * Change a HEX value here to update every element that has no per-element color override.",
+        " * Project-wide component colors. Change a HEX value to recolor every element",
+        " * of that component that has no per-element color override.",
         " */",
         ":root {",
     ]
     for component in load_components():
-        lines.extend(
-            [
-                f"  --component-{component.slug}-fill: {component.fill};",
-                f"  --component-{component.slug}-border: {component.border};",
-                f"  --component-{component.slug}-text: {component.text};",
-            ]
-        )
+        for part, value in (("fill", component.fill), ("border", component.border), ("text", component.text)):
+            lines.append(f"  --component-{component.slug}-{part}: {value};")
     lines.append("}")
     return "\n".join(lines) + "\n"

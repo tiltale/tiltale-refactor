@@ -1,0 +1,9 @@
+/* How placed elements look. Shared by the generated story and the studio's frame editor. */
+.story-element { position: absolute; transform: translate(-50%, -50%); margin: 0; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; font-size: inherit; }
+button.story-element { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.story-element:disabled { cursor: default; }
+.story-element .component-shape { position: relative; width: 100%; height: 100%; }
+.story-element svg { display: block; width: 100%; height: 100%; }
+.story-element .component-text { position: absolute; inset: 14% 12%; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.1; color: var(--element-text, var(--component-text, #111)); overflow: hidden; pointer-events: none; }
+.story-element.break-words .component-text { overflow-wrap: anywhere; }
+.story-element.delay-fade { opacity: 0; animation: tiltale-fade .35s ease forwards; }
