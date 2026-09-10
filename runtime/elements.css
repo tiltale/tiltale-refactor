@@ -3,8 +3,12 @@
 button.story-element { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 button.story-element:disabled { cursor: default; }
 .story-image img { display: block; width: 100%; height: 100%; pointer-events: none; }
-.story-element .component-shape { position: relative; width: 100%; height: 100%; }
-.story-element svg { display: block; width: 100%; height: 100%; }
+/* The shape fills the element. A component whose SVG draws in pixels (no viewBox) sets --shape-inset to half its stroke width, so the stroke ends exactly at the element's edge. */
+.story-element .component-shape { position: absolute; inset: var(--shape-inset, 0); }
+.story-element svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .story-element .component-text { position: absolute; inset: 14% 12%; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.1; color: var(--element-text, var(--component-text, #111)); overflow: hidden; pointer-events: none; }
 .story-element.break-words .component-text { overflow-wrap: anywhere; }
+/* Components with "auto_height": the text sits in the flow, so the element grows with it; the stored height is its minimum. */
+.story-element.auto-height { display: flex; align-items: center; justify-content: center; height: auto; }
+.story-element.auto-height .component-text { position: relative; inset: auto; width: 100%; padding: var(--text-padding, 16px 24px); line-height: 1.2; overflow: visible; }
 .story-element.delay-fade { opacity: 0; animation: tiltale-fade .35s ease forwards; }

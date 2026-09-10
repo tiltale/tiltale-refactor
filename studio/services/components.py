@@ -12,6 +12,8 @@ from typing import Any
 
 from django.conf import settings
 
+TAILS: tuple[str, ...] = ("", "speech", "thought", "scream")
+
 
 @dataclass(frozen=True, slots=True)
 class ComponentDefinition:
@@ -20,6 +22,8 @@ class ComponentDefinition:
     description: str
     accepts_content: bool
     clickable: bool
+    auto_height: bool  # the element grows with its text; the stored height is the minimum
+    tail: str  # "", or the kind of tail bubbles.js draws: speech, thought or scream
     default_width: float
     default_height: float
     default_font_size: float
@@ -51,12 +55,17 @@ def load_component(folder: Path) -> ComponentDefinition:
     size: dict[str, Any] = _field(data, "default_size", dict, manifest)
     colors: dict[str, Any] = _field(data, "colors", dict, manifest)
     number = (int, float)
+    tail: object = data.get("tail", "")
+    if tail not in TAILS:
+        raise ValueError(f"{manifest}: 'tail' must be one of {', '.join(repr(item) for item in TAILS)}.")
     return ComponentDefinition(
         slug=folder.name,
         name=_field(data, "name", str, manifest),
         description=_field(data, "description", str, manifest),
         accepts_content=_field(data, "accepts_content", bool, manifest),
         clickable=_field(data, "clickable", bool, manifest),
+        auto_height=data.get("auto_height") is True,
+        tail=str(tail),
         default_width=float(_field(size, "width", number, manifest)),
         default_height=float(_field(size, "height", number, manifest)),
         default_font_size=float(_field(data, "default_font_size", number, manifest)),

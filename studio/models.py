@@ -122,6 +122,10 @@ class Element(models.Model):
     border_color = models.CharField(max_length=7, blank=True, default="")
     text_color = models.CharField(max_length=7, blank=True, default="")
 
+    # Tip of a bubble's tail, in frame pixels from the element's center. Empty: the component's default place.
+    tail_x = models.FloatField(null=True, blank=True)
+    tail_y = models.FloatField(null=True, blank=True)
+
     font_size = models.FloatField(default=44.0)
     break_long_words = models.BooleanField(default=True)
     delay_mode = models.CharField(max_length=10, choices=DelayMode.choices, default=DelayMode.NONE)

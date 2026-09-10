@@ -1,0 +1,9 @@
+{
+  "name": "Laura next arrow",
+  "description": "Square arrow button that advances to a selected frame.",
+  "accepts_content": false,
+  "clickable": true,
+  "default_size": {"width": 100, "height": 100},
+  "default_font_size": 36,
+  "colors": {"fill": "#A0CFFF", "border": "#000000", "text": "#000000"}
+}

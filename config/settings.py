@@ -87,6 +87,7 @@ USE_I18N: bool = False
 USE_TZ: bool = True
 
 STATIC_URL: str = "static/"
+STATICFILES_DIRS: list[tuple[str, Path]] = [("runtime", RUNTIME_DIR)]  # the frame editor loads runtime/bubbles.js
 DEFAULT_AUTO_FIELD: str = "django.db.models.BigAutoField"
 
 # The generated story is shown inside same-origin iframes in the studio.

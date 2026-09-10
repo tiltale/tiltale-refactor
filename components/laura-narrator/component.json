@@ -1,0 +1,10 @@
+{
+  "name": "Laura narrator",
+  "description": "Caption box for narration. Grows with its text.",
+  "accepts_content": true,
+  "clickable": false,
+  "auto_height": true,
+  "default_size": {"width": 620, "height": 90},
+  "default_font_size": 36,
+  "colors": {"fill": "#DFDFCF", "border": "#000000", "text": "#000000"}
+}

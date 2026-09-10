@@ -1,0 +1,11 @@
+{
+  "name": "Laura speech bubble",
+  "description": "Rounded bubble with a pointed tail you can drag to a mouth. Grows with its text.",
+  "accepts_content": true,
+  "clickable": false,
+  "auto_height": true,
+  "tail": "speech",
+  "default_size": {"width": 560, "height": 110},
+  "default_font_size": 40,
+  "colors": {"fill": "#FFFFFF", "border": "#000000", "text": "#000000"}
+}

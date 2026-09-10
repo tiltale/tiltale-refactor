@@ -1,0 +1,10 @@
+{
+  "name": "Laura next text",
+  "description": "Instruction box with the arrow button inside it; the whole box is clickable. Grows with its text.",
+  "accepts_content": true,
+  "clickable": true,
+  "auto_height": true,
+  "default_size": {"width": 460, "height": 110},
+  "default_font_size": 30,
+  "colors": {"fill": "#DFDFCF", "border": "#000000", "text": "#000000"}
+}

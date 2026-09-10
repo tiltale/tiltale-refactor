@@ -1,0 +1,10 @@
+{
+  "name": "Laura decision",
+  "description": "Clickable answer or choice that leads to another frame. Grows with its text.",
+  "accepts_content": true,
+  "clickable": true,
+  "auto_height": true,
+  "default_size": {"width": 300, "height": 90},
+  "default_font_size": 36,
+  "colors": {"fill": "#A0CFFF", "border": "#000000", "text": "#000000"}
+}

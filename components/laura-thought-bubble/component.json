@@ -1,0 +1,11 @@
+{
+  "name": "Laura thought bubble",
+  "description": "Cloud with a trail of small circles you can drag to a head. Grows with its text.",
+  "accepts_content": true,
+  "clickable": false,
+  "auto_height": true,
+  "tail": "thought",
+  "default_size": {"width": 560, "height": 130},
+  "default_font_size": 40,
+  "colors": {"fill": "#FFFFFF", "border": "#000000", "text": "#000000"}
+}

@@ -163,6 +163,10 @@ function setupEditor() {
     saveBox(node, page);
   };
   for (const node of boxes) makeBoxEditable(node, boxes, canvas, view, onDrop);
+  document.addEventListener("click", (event) => { // after setupDialogs opened it, so the preview has a size
+    const opener = event.target.closest("[data-open-dialog]");
+    if (opener) TilTaleBubbles.draw(document.getElementById(opener.dataset.openDialog));
+  });
   document.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
     if (event.target.closest("input, textarea, select, dialog")) return; // text fields keep their own undo
@@ -230,11 +234,15 @@ function makeBoxEditable(node, boxes, canvas, view, onDrop) {
   node.addEventListener("pointerdown", (event) => {
     const start = { x: event.clientX, y: event.clientY, box: readBox(node) };
     const resizing = Boolean(event.target.closest("[data-resize]"));
+    const tailing = Boolean(event.target.closest("[data-tail-handle]"));
+    // An element that grew with its text is resized from the height it shows, not from its minimum.
+    if (resizing && "autoHeight" in node.dataset) start.box.height = node.offsetHeight;
     const others = boxes.filter((other) => other !== node).map(readBox);
     let moved = false;
     trackPointer(node, event, (move) => {
       const delta = { x: (move.clientX - start.x) / view.scale, y: (move.clientY - start.y) / view.scale };
       moved = moved || Math.hypot(delta.x, delta.y) * view.scale > DRAG_THRESHOLD_PX;
+      if (tailing) return placeBox(node, { ...start.box, tail_x: start.box.tail_x + delta.x, tail_y: start.box.tail_y + delta.y });
       if (resizing) return placeBox(node, resizedBox(start.box, delta.x, delta.y, "keepRatio" in node.dataset));
       // Shift keeps the drag horizontal or vertical, whichever way it has gone furthest (as in Illustrator).
       const axes = move.shiftKey ? [Math.abs(delta.x) > Math.abs(delta.y) ? "x" : "y"] : ["x", "y"];
@@ -251,8 +259,15 @@ function makeBoxEditable(node, boxes, canvas, view, onDrop) {
   });
 }
 
+// Elements that grow with their text store a minimum height instead of a height.
+const heightProperty = (node) => ("autoHeight" in node.dataset ? "minHeight" : "height");
+
 function readBox(node) {
-  return { x: parseFloat(node.style.left), y: parseFloat(node.style.top), width: parseFloat(node.style.width), height: parseFloat(node.style.height) };
+  const box = { x: parseFloat(node.style.left), y: parseFloat(node.style.top), width: parseFloat(node.style.width), height: parseFloat(node.style[heightProperty(node)]) };
+  if (!("tail" in node.dataset)) return box;
+  const stored = { x: parseFloat(node.style.getPropertyValue("--tail-x")), y: parseFloat(node.style.getPropertyValue("--tail-y")) };
+  const tail = Number.isNaN(stored.x) ? TilTaleBubbles.defaultTail(box.width, box.height) : stored;
+  return { ...box, tail_x: tail.x, tail_y: tail.y };
 }
 
 function placeBox(node, box) {
@@ -260,7 +275,12 @@ function placeBox(node, box) {
   node.style.left = `${Math.round(box.x)}px`;
   node.style.top = `${Math.round(box.y)}px`;
   node.style.width = `${Math.round(box.width)}px`;
-  node.style.height = `${Math.round(box.height)}px`;
+  node.style[heightProperty(node)] = `${Math.round(box.height)}px`;
+  if ("tail" in node.dataset) {
+    node.style.setProperty("--tail-x", `${Math.round(box.tail_x)}px`);
+    node.style.setProperty("--tail-y", `${Math.round(box.tail_y)}px`);
+    TilTaleBubbles.draw(node);
+  }
   // The corner stays inside the frame, or a background larger than the frame could never be resized.
   const handle = node.querySelector("[data-resize]");
   handle.style.right = `${Math.max(0, box.x + box.width / 2 - Number(frame.width))}px`;
@@ -272,7 +292,7 @@ function resizedBox(start, dx, dy, keepRatio) {
   const ratio = start.height / start.width;
   const width = Math.max(MIN_BOX_PX, start.width + dx, keepRatio ? MIN_BOX_PX / ratio : 0);
   const height = keepRatio ? width * ratio : Math.max(MIN_BOX_PX, start.height + dy);
-  return { x: start.x - start.width / 2 + width / 2, y: start.y - start.height / 2 + height / 2, width, height };
+  return { ...start, x: start.x - start.width / 2 + width / 2, y: start.y - start.height / 2 + height / 2, width, height };
 }
 
 // Moves `box` along `axes` so its closest edge meets an edge of another box, if one is within `reach`.
@@ -307,8 +327,11 @@ function showGuides(guides, lines) {
 async function saveBox(node, page) {
   const box = readBox(node);
   const dialog = document.getElementById(node.dataset.dialog);
-  // Keep the settings dialog in sync, or saving it later would undo the drag.
-  if (dialog) for (const [name, value] of Object.entries(box)) dialog.querySelector(`[name=${name}]`).value = value;
+  // Keep the settings dialog in sync, or saving it later would undo the drag. (The tail has no field there.)
+  if (dialog) for (const [name, value] of Object.entries(box)) {
+    const input = dialog.querySelector(`[name=${name}]`);
+    if (input) input.value = value;
+  }
   try {
     await postJson(node.dataset.boxUrl, page.dataset.csrf, { ...box, language: page.dataset.language });
   } catch (error) {

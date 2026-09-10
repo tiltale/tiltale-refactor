@@ -1,6 +1,6 @@
-{% extends 'studio/base.html' %}
+{% extends 'studio/base.html' %}{% load static %}
 {% block title %}TilTale | {{ frame.name }}{% endblock %}
-{% block head %}<style>{{ project_css|safe }}</style>{% endblock %}
+{% block head %}<style>{{ project_css|safe }}</style><script src="{% static 'runtime/bubbles.js' %}"></script>{% endblock %}
 {% block body %}
 <main class="workspace" data-editor data-language="{{ language }}" data-csrf="{{ csrf_token }}">
   <aside class="panel editor-panel">
@@ -93,7 +93,7 @@
   </aside>
 
   <section class="stage-area">
-    <p class="hint">Drag to move (<kbd>Shift</kbd> keeps it straight); edges stick to other elements' edges. Drag the corner dot to resize. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes. Click an element for its settings.</p>
+    <p class="hint">Drag to move (<kbd>Shift</kbd> keeps it straight); edges stick to other elements' edges. Drag the corner dot to resize, the black dot to point a bubble's tail. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes. Click an element for its settings.</p>
     <div class="stage" data-canvas-stage>
       <div class="canvas" data-canvas data-width="{{ project.frame_width|stringformat:'g' }}" data-height="{{ project.frame_height|stringformat:'g' }}"
            style="width: {{ project.frame_width|stringformat:'g' }}px; height: {{ project.frame_height|stringformat:'g' }}px;{% if frame.background_type == 'solid' %} background: {{ frame.background_color }};{% endif %}">
@@ -105,12 +105,13 @@
         {% endwith %}{% endif %}
         {% for item in elements %}
         {% with g=item.geometry element=item.element %}
-        <div class="story-element {% if element.image %}story-image{% else %}component-{{ element.component }}{% endif %}{% if element.break_long_words %} break-words{% endif %}" tabindex="0"
-             data-dialog="element-{{ element.id }}" data-box-url="{% url 'studio:element_position_api' element.id %}"{% if element.image %} data-keep-ratio{% endif %}
-             style="left: {{ g.x|stringformat:'g' }}px; top: {{ g.y|stringformat:'g' }}px; width: {{ g.width|stringformat:'g' }}px; height: {{ g.height|stringformat:'g' }}px; font-size: {{ g.font_size|stringformat:'g' }}px;{% if element.fill_color %} --element-fill: {{ element.fill_color }};{% endif %}{% if element.border_color %} --element-border: {{ element.border_color }};{% endif %}{% if element.text_color %} --element-text: {{ element.text_color }};{% endif %}">
+        <div class="story-element {% if element.image %}story-image{% else %}component-{{ element.component }}{% endif %}{% if element.break_long_words %} break-words{% endif %}{% if item.component.auto_height %} auto-height{% endif %}" tabindex="0"
+             data-dialog="element-{{ element.id }}" data-box-url="{% url 'studio:element_position_api' element.id %}"{% if element.image %} data-keep-ratio{% endif %}{% if item.component.auto_height %} data-auto-height{% endif %}{% if item.component.tail %} data-tail="{{ item.component.tail }}"{% endif %}
+             style="left: {{ g.x|stringformat:'g' }}px; top: {{ g.y|stringformat:'g' }}px; width: {{ g.width|stringformat:'g' }}px; {% if item.component.auto_height %}min-height{% else %}height{% endif %}: {{ g.height|stringformat:'g' }}px; font-size: {{ g.font_size|stringformat:'g' }}px;{% if element.tail_x is not None %} --tail-x: {{ element.tail_x|stringformat:'g' }}px; --tail-y: {{ element.tail_y|stringformat:'g' }}px;{% endif %}{% if element.fill_color %} --element-fill: {{ element.fill_color }};{% endif %}{% if element.border_color %} --element-border: {{ element.border_color }};{% endif %}{% if element.text_color %} --element-text: {{ element.text_color }};{% endif %}">
           {% if element.image %}<img src="{% url 'studio:material_file' element.image %}" alt="">
-          {% else %}<div class="component-shape">{{ item.component.svg|safe }}{% if item.component.accepts_content %}<div class="component-text">{{ item.text }}</div>{% endif %}</div>{% endif %}
+          {% else %}<div class="component-shape">{{ item.component.svg|safe }}</div>{% if item.component.accepts_content %}<div class="component-text">{{ item.text }}</div>{% endif %}{% endif %}
           <span class="resize-handle" data-resize></span>
+          {% if item.component.tail %}<span class="tail-handle" data-tail-handle title="Drag to point the tail"></span>{% endif %}
         </div>
         {% endwith %}
         {% endfor %}
@@ -207,7 +208,7 @@
   {% for component in components %}
   <dialog class="dialog" id="component-{{ component.slug }}">
     <header class="dialog-head"><h2>{{ component.name }}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
-    <div class="preview-box component-{{ component.slug }}">{{ component.svg|safe }}</div>
+    <div class="preview-box component-{{ component.slug }}"{% if component.tail %} data-tail="{{ component.tail }}"{% endif %}><div class="component-shape">{{ component.svg|safe }}</div></div>
     <p>{{ component.description }}</p>
     <form method="post" action="{% url 'studio:add_element' frame.id %}" class="dialog-foot">
       {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="component" value="{{ component.slug }}">

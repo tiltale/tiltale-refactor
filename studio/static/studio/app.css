@@ -146,7 +146,8 @@ label.compact select { width: auto; }
 .canvas .story-element:active { cursor: grabbing; }
 .canvas .story-element:hover, .canvas .story-element:focus-visible { outline: 4px dashed var(--accent); outline-offset: 4px; }
 .resize-handle { position: absolute; right: 0; bottom: 0; width: calc(16px / var(--canvas-scale)); height: calc(16px / var(--canvas-scale)); border: calc(2px / var(--canvas-scale)) solid #fff; border-radius: 50%; background: var(--accent); cursor: nwse-resize; opacity: 0; }
-.canvas .story-element:hover .resize-handle, .canvas .story-element:focus-visible .resize-handle { opacity: 1; }
+.tail-handle { position: absolute; left: calc(50% + var(--tail-x)); top: calc(50% + var(--tail-y)); width: calc(14px / var(--canvas-scale)); height: calc(14px / var(--canvas-scale)); translate: -50% -50%; border: calc(2px / var(--canvas-scale)) solid #fff; border-radius: 50%; background: #111; cursor: move; opacity: 0; }
+.canvas .story-element:hover .resize-handle, .canvas .story-element:focus-visible .resize-handle, .canvas .story-element:hover .tail-handle, .canvas .story-element:focus-visible .tail-handle { opacity: 1; }
 .snap-guide { position: absolute; background: var(--accent); pointer-events: none; }
 .snap-guide[data-snap-guide="x"] { top: 0; bottom: 0; width: calc(2px / var(--canvas-scale)); translate: -50% 0; }
 .snap-guide[data-snap-guide="y"] { left: 0; right: 0; height: calc(2px / var(--canvas-scale)); translate: 0 -50%; }
@@ -160,8 +161,10 @@ label.compact select { width: auto; }
 .material-thumb { aspect-ratio: 1; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface-2); cursor: pointer; }
 .material-thumb:hover { border-color: var(--accent); }
 .material-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.preview-box { height: 260px; padding: 1rem; margin-bottom: .8rem; border-radius: var(--radius); background: #e5e9f0; }
+.preview-box { position: relative; height: 260px; padding: 1rem; margin-bottom: .8rem; border-radius: var(--radius); background: #e5e9f0; }
+.preview-box[data-tail] { padding-bottom: 7rem; }
 .preview-box > * { display: block; width: 100%; height: 100%; object-fit: contain; }
+.preview-box svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .danger-zone { border-top: 1px solid var(--line); padding-top: 1rem; }
 .llm-box { border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .8rem; }
 .llm-box > * + * { margin-top: .6rem; }

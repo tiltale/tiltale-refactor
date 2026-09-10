@@ -623,6 +623,7 @@ def element_position_api(request: HttpRequest, project: ProjectSettings, element
     try:
         data: dict[str, Any] = _json_body(request)
         values: dict[str, float] = {key: _number(data.get(key), label, low) for key, label, low in BOX_FIELDS}
+        tail: dict[str, float] = {key: _number(data.get(key), key) for key in ("tail_x", "tail_y") if "tail_x" in data}
         language: str = str(data.get("language") or project.base_language)
         if element.frame.is_language_picker:
             language = project.base_language
@@ -631,6 +632,8 @@ def element_position_api(request: HttpRequest, project: ProjectSettings, element
     except (OSError, ValueError) as error:
         return JsonResponse({"error": str(error)}, status=400)
     _save_geometry(element, language, project, values)
+    for key, value in tail.items():  # a dragged bubble tail; the same in every language
+        setattr(element, key, value)
     element.save()
     return JsonResponse({"ok": True})
 

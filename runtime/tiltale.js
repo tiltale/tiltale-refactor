@@ -152,15 +152,23 @@
     node.id = frame.name + "--" + element.id;
     node.style.left = element.x + "px";
     node.style.top = element.y + "px";
+    var component = STORY.components[element.component] || {};
+    if (component.auto_height) node.className += " auto-height";
+    if (component.tail) node.setAttribute("data-tail", component.tail);
     node.style.width = element.width + "px";
-    node.style.height = element.height + "px";
+    node.style[component.auto_height ? "minHeight" : "height"] = element.height + "px";
     node.style.fontSize = element.font_size + "px";
+    if (element.tail_x !== null && element.tail_x !== undefined) {
+      node.style.setProperty("--tail-x", element.tail_x + "px");
+      node.style.setProperty("--tail-y", element.tail_y + "px");
+    }
     if (element.fill) node.style.setProperty("--element-fill", element.fill);
     if (element.border) node.style.setProperty("--element-border", element.border);
     if (element.text_color) node.style.setProperty("--element-text", element.text_color);
     if (params.get("element") === String(element.id)) node.className += " inspect-highlight";
 
     node.appendChild(element.image ? makeImage(element.image) : makeShape(element));
+    if (element.text) node.appendChild(makeText(element.text));
 
     var delay = STORY.default_delay_seconds;
     if ((element.delay_mode === "fade" || element.delay_mode === "both") && delay > 0) {
@@ -174,18 +182,19 @@
     if (element.clickable) node.addEventListener("click", function () { activate(frame, element); });
     return node;
   }
-  
+
   function makeShape(element) {
     var shape = document.createElement("div");
     shape.className = "component-shape";
-    shape.innerHTML = STORY.components[element.component] || "";
-    if (element.text) {
-      var text = document.createElement("span");
-      text.className = "component-text";
-      text.textContent = element.text;
-      shape.appendChild(text);
-    }
+    shape.innerHTML = (STORY.components[element.component] || {}).svg || "";
     return shape;
+  }
+
+  function makeText(value) {
+    var text = document.createElement("span");
+    text.className = "component-text";
+    text.textContent = value;
+    return text;
   }
 
   function makeImage(sources) {
@@ -213,6 +222,7 @@
     frame.elements.forEach(function (element) { panel.appendChild(makeElement(frame, element)); });
     storyNode.innerHTML = "";
     storyNode.appendChild(panel);
+    if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page
     if (inspect) return;
     state.frame = name;
     saveState();
