@@ -1,12 +1,12 @@
 {% extends 'studio/base.html' %}
-{% block title %}{{ frame.name }} · TilTale{% endblock %}
+{% block title %}TilTale | {{ frame.name }}{% endblock %}
 {% block head %}<style>{{ project_css|safe }}</style>{% endblock %}
 {% block body %}
 <main class="workspace" data-editor data-language="{{ language }}" data-csrf="{{ csrf_token }}">
   <aside class="panel editor-panel">
     <div class="panel-head">
-      <a class="back" href="{% url 'studio:flowchart' %}?lang={{ content.language }}&amp;selected={{ frame.name }}">← Flowchart</a>
-      <h1>{{ frame.name }} {% if frame.is_language_picker %}<span class="badge picker">Picker</span>{% endif %}</h1>
+      <a class="back" href="{% url 'studio:flowchart' %}?lang={{ content.language }}&amp;selected={{ frame.id }}">← Flowchart</a>
+      <h1>{{ frame.name }} <code class="frame-id">{{ frame.key }}</code> {% if frame.is_language_picker %}<span class="badge picker">Picker</span>{% endif %}</h1>
     </div>
 
     {% if frame.is_language_picker %}
@@ -23,6 +23,8 @@
       {% csrf_token %}
       <h2>Frame</h2>
       {% for error in form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      {% include 'studio/_field.html' with field=form.name %}
+      <p class="field-help">ID <code>{{ frame.key }}</code> never changes, so logs stay readable after renaming.</p>
       {% include 'studio/_field.html' with field=form.fade_in %}
       {% include 'studio/_field.html' with field=form.background_type %}
       <div data-show-when="solid">{% include 'studio/_field.html' with field=form.background_color %}</div>
@@ -54,7 +56,7 @@
       <h2>Add a component</h2>
       <div class="component-list">
         {% for component in components %}
-        <form method="post" action="{% url 'studio:add_element' frame.name %}">
+        <form method="post" action="{% url 'studio:add_element' frame.id %}">
           {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="component" value="{{ component.slug }}">
           <button class="component-card" title="{{ component.description }}"><strong>+ {{ component.name }}</strong><span>{{ component.description }}</span></button>
         </form>
@@ -62,7 +64,21 @@
       </div>
     </section>
 
-    <form method="post" action="{% url 'studio:delete_frame' frame.name %}" class="danger-zone" data-confirm="Delete {{ frame.name }} and its {{ elements|length }} element(s)?{% if incoming %} {{ incoming }} button(s) that lead here will lead nowhere.{% endif %}">
+    {% if llm_prompt %}
+    <details class="llm-box">
+      <summary>Build with an LLM</summary>
+      <p class="field-help">1. Copy the prompt and paste it into a chat with a language model, together with the storyboard image of this frame. 2. Paste the model's JSON answer below. New elements are added; existing ones stay.</p>
+      <textarea readonly rows="3" aria-label="Prompt for the language model" data-prompt>{{ llm_prompt }}</textarea>
+      <button type="button" class="button" data-copy-prompt>Copy prompt</button>
+      <form method="post" action="{% url 'studio:import_elements' frame.id %}" class="form">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+        <textarea name="answer" rows="5" required placeholder='{"elements": [...]}' aria-label="The model's answer"></textarea>
+        <button class="button primary">Add these elements</button>
+      </form>
+    </details>
+    {% endif %}
+
+    <form method="post" action="{% url 'studio:delete_frame' frame.id %}" class="danger-zone" data-confirm="Delete {{ frame.name }} and its {{ elements|length }} element(s)?{% if incoming %} {{ incoming }} button(s) that lead here will lead nowhere.{% endif %}">
       {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
       <button class="button danger">Delete frame</button>
     </form>

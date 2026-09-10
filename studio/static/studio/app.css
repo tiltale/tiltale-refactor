@@ -20,11 +20,12 @@ code, kbd { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; backgrou
 .muted { color: var(--muted); }
 .spacer { flex: 1; }
 .row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.frame-id { font-size: .72rem; color: var(--muted); font-weight: 400; }
 .count { display: inline-block; min-width: 1.6em; padding: 0 .4em; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font-size: .78rem; text-align: center; color: var(--muted); }
 
 /* Top bar and status bar */
 .topbar { position: sticky; top: 0; z-index: 20; height: var(--topbar); display: flex; align-items: center; gap: 1rem; padding: 0 1rem; background: var(--surface); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 800; letter-spacing: -.02em; font-size: 1.15rem; color: var(--text); text-decoration: none; }
+.brand img { display: block; height: 28px; }
 .project-name { color: var(--muted); padding-left: 1rem; border-left: 1px solid var(--line); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav { display: flex; gap: .25rem; margin-left: .5rem; }
 .nav a, .help-link { padding: .35rem .75rem; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 550; }
@@ -151,6 +152,10 @@ label.compact select { width: auto; }
 .component-card:hover { border-color: var(--accent); }
 .component-card span { color: var(--muted); font-size: .82rem; }
 .danger-zone { border-top: 1px solid var(--line); padding-top: 1rem; }
+.llm-box { border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .8rem; }
+.llm-box > * + * { margin-top: .6rem; }
+.llm-box summary { cursor: pointer; font-weight: 600; }
+.llm-box textarea { font: .8rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* Dialogs */
 .dialog { width: min(560px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); border: 0; border-radius: 14px; padding: 1.2rem; box-shadow: 0 20px 60px rgba(0, 0, 0, .3); }
@@ -169,6 +174,7 @@ label.compact select { width: auto; }
 .flow-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 14px; cursor: grab; touch-action: none; background: #eef0f3 radial-gradient(#d6d9df 1px, transparent 1px) 0 0 / 22px 22px; }
 .flow-viewport:active { cursor: grabbing; }
 .flow-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.flow-world.is-animating { transition: transform .35s ease; }
 .flow-edges { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .flow-edges path { fill: none; stroke: #7c8599; stroke-width: 2; }
 .flow-edges marker path { fill: #7c8599; stroke: none; }

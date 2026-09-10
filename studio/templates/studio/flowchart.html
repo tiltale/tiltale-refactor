@@ -1,5 +1,5 @@
 {% extends 'studio/base.html' %}
-{% block title %}Flowchart · TilTale{% endblock %}
+{% block title %}TilTale | Flowchart{% endblock %}
 {% block body %}
 <main class="workspace flow-workspace" data-flowchart data-save-url="{% url 'studio:flow_positions_api' %}" data-csrf="{{ csrf_token }}" data-selected="{{ selected_frame }}">
   <section class="stage-area">
@@ -22,7 +22,7 @@
         {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><button class="button">Tidy up</button>
       </form>
       <span class="spacer"></span>
-      <span class="muted hint">Drag to move · <kbd>Shift</kbd>+click to select several · drag the background to pan · double-click to edit</span>
+      <span class="muted hint">Click to focus · drag to move · <kbd>Shift</kbd>+click to select several · drag the background to pan · double-click to edit</span>
     </div>
     <div class="flow-viewport" data-flow-viewport>
       <div class="flow-world" data-flow-world>
@@ -32,9 +32,9 @@
         </svg>
         {% for node in nodes %}
         <div class="flow-node{% if node.picker %} is-picker{% endif %}{% if node.start %} is-start{% endif %}" tabindex="0"
-             data-node="{{ node.name }}" data-x="{{ node.x|stringformat:'g' }}" data-y="{{ node.y|stringformat:'g' }}"
+             data-node="{{ node.id }}" data-name="{{ node.name }}" data-key="{{ node.key }}" data-x="{{ node.x|stringformat:'g' }}" data-y="{{ node.y|stringformat:'g' }}"
              data-edit-url="{{ node.edit_url }}" data-preview-url="{{ node.preview_url }}">
-          <strong>{{ node.name }}</strong>
+          <strong>{{ node.name }}</strong> <code class="frame-id">{{ node.key }}</code>
           <span class="node-badges">
             {% if node.start %}<span class="badge start">{% if node.picker %}Start page{% else %}Story start{% endif %}</span>{% endif %}
             {% if node.picker %}<span class="badge picker">Picker</span>{% endif %}

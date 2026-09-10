@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TilTale{% endblock %}</title>
+  <link rel="icon" href="{% url 'studio:branding' 'favicon.ico' %}">
   <link rel="stylesheet" href="{% static 'studio/app.css' %}">
   {% block head %}{% endblock %}
 </head>
 <body{% if project %} style="--frame-ratio: {{ project.frame_width|stringformat:'g' }} / {{ project.frame_height|stringformat:'g' }}"{% endif %}>
 {% with here=request.resolver_match.url_name %}
   <header class="topbar">
-    <a class="brand" href="{% url 'studio:home' %}">TilTale</a>
+    <a class="brand" href="{% url 'studio:home' %}"><img src="{% url 'studio:branding' 'logo-tiltale.png' %}" alt="TilTale"></a>
     {% if project %}
       <span class="project-name" title="Active project in /project/">{{ project.name }}</span>
       <nav class="nav" aria-label="Main">
@@ -33,10 +34,10 @@
 
   {% block body %}{% endblock %}
 
-  <footer class="status-bar" data-status-bar data-url="{% url 'studio:status_api' %}" aria-live="polite" title="Database and build status (refreshes every few seconds)">
+  <footer class="status-bar" data-status-bar data-state="{{ status.state }}" aria-live="polite" title="Checked on every page load; failed saves show up here immediately">
     <span class="status-dot" aria-hidden="true"></span>
-    <strong data-status-label>Checking project…</strong>
-    <span data-status-detail></span>
+    <strong data-status-label>{{ status.label }}</strong>
+    <span data-status-detail>{{ status.detail }}</span>
   </footer>
   <script src="{% static 'studio/app.js' %}" defer></script>
 </body>

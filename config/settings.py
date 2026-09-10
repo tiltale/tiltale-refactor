@@ -21,6 +21,8 @@ PROJECT_DB: Path = PROJECT_DIR / "project.sqlite3"
 DIST_DIR: Path = BASE_DIR / "dist"
 COMPONENTS_DIR: Path = BASE_DIR / "components"
 RUNTIME_DIR: Path = BASE_DIR / "runtime"
+BRANDING_DIR: Path = BASE_DIR  # default logo-tiltale.png and favicon.ico for every project
+PROMPTS_DIR: Path = BASE_DIR / "docs" / "llm-prompts"
 
 SECRET_KEY: str = os.environ.get(
     "TILTALE_SECRET_KEY",
@@ -54,6 +56,7 @@ TEMPLATES: list[dict[str, object]] = [
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.messages.context_processors.messages",
+                "studio.views.status_context",
             ],
         },
     }

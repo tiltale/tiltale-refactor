@@ -1,5 +1,5 @@
 {% extends 'studio/base.html' %}
-{% block title %}Develop · TilTale{% endblock %}
+{% block title %}TilTale | Develop{% endblock %}
 {% block body %}
 <main class="workspace" data-develop>
   <aside class="panel frame-panel" data-frame-panel>
@@ -10,16 +10,16 @@
     {% if not frames %}<p class="muted">No frames yet. Create the first one with <strong>+ Frame</strong>.</p>{% endif %}
     <div class="thumb-grid">
       {% for frame in frames %}
-      <article class="thumb{% if frame.is_language_picker %} is-picker{% endif %}" data-frame-name="{{ frame.name }}">
+      <article class="thumb{% if frame.is_language_picker %} is-picker{% endif %}" data-frame-name="{{ frame.name|lower }}">
         <div class="thumb-screen">
-          {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ frame.name }}" src="{{ frame.preview_url }}?inspect=1&amp;frame={{ frame.name }}"></iframe>{% endif %}
+          {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ frame.name }}" src="{{ frame.preview_url }}?inspect=1&amp;frame={{ frame.key }}"></iframe>{% endif %}
         </div>
         <div class="thumb-foot">
-          <strong>{{ frame.name }}</strong>
+          <strong>{{ frame.name }}</strong> <code class="frame-id">{{ frame.key }}</code>
           {% if frame.is_language_picker %}<span class="badge picker" title="Language-picker frame: part of the start page /dist/index.html">Picker</span>{% endif %}
           <span class="thumb-actions">
-            <button type="button" class="link" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.name }}">View</button>
-            <a href="{% url 'studio:frame_editor' frame.name %}?lang={{ content.language }}">Edit</a>
+            <button type="button" class="link" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}">View</button>
+            <a href="{% url 'studio:frame_editor' frame.id %}?lang={{ content.language }}">Edit</a>
           </span>
         </div>
       </article>
@@ -31,7 +31,7 @@
     <div class="toolbar">
       <button type="button" class="icon" title="Show or hide the frame list" data-toggle-panel>☰</button>
       <form method="post" action="{% url 'studio:regenerate' %}">
-        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+        {% csrf_token %}<input type="hidden" name="language" value="{% if picker_selected %}picker{% else %}{{ content.language }}{% endif %}">
         <button class="button primary{% if dist_stale %} attention{% endif %}" title="Rebuild /dist/ from the project">Regenerate</button>
       </form>
       <a class="button" href="{% url 'studio:playtest' %}">Play-test</a>
@@ -72,7 +72,7 @@
     {% if issues %}
     <details class="alert issues">
       <summary>{{ issues|length }} thing{{ issues|length|pluralize }} to check before publishing</summary>
-      <ul>{% for issue in issues %}<li class="{{ issue.severity }}">{% if issue.frame_name %}<a href="{% url 'studio:frame_editor' issue.frame_name %}?lang={{ content.language }}">{{ issue.frame_name }}</a>: {% endif %}{{ issue.message }}</li>{% endfor %}</ul>
+      <ul>{% for issue in issues %}<li class="{{ issue.severity }}">{% if issue.frame_id %}<a href="{% url 'studio:frame_editor' issue.frame_id %}?lang={{ content.language }}">{{ issue.frame_name }}</a>: {% endif %}{{ issue.message }}</li>{% endfor %}</ul>
     </details>
     {% endif %}
 

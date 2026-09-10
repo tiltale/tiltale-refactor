@@ -24,12 +24,18 @@ from .services.components import component_map, load_components
 from .services.content import ContentTable, append_content_row, load_content_table
 from .services.flow import create_frame, tidy_layout
 from .services.generate import dist_is_stale, generate_dist, language_folder, load_build_report, page_path, story_css
-from .services.project import create_project, list_materials, project_health, project_settings, safe_child
+from .services.llm import frame_prompt, parse_elements
+from .services.project import BRANDING_FILES, create_project, list_materials, project_health, project_settings, safe_child
 from .services.study_logs import append_event, import_jsonl, logs_dir, read_events, session_summaries
 from .services.validate import DEVICE_PRESETS, validate_project
 
 GEOMETRY_FIELDS: tuple[tuple[str, str, float | None], ...] = (
     ("x", "X", None), ("y", "Y", None), ("width", "Width", 20), ("height", "Height", 20), ("font_size", "Font size", 6),
+)
+PREVIEW_MISSING: str = (
+    '<!doctype html><meta charset="utf-8"><body style="margin:0;display:grid;place-items:center;height:100vh;'
+    'background:#e6e8ec;font:15px/1.5 system-ui,sans-serif;color:#677084;text-align:center">'
+    '<p>Not built yet.<br>Press <strong>Regenerate</strong> on the Develop page.</p>'
 )
 STANDARD_LOG_KEYS: frozenset[str] = frozenset({
     "participant_id", "visit_id", "seq", "timestamp", "received_at", "project", "language", "event", "frame",
@@ -125,6 +131,14 @@ def _save_geometry(element: Element, language: str, project: ProjectSettings, va
         override.delete()
     else:
         override.save()
+
+
+def _rebuild_preview(request: HttpRequest, project: ProjectSettings) -> None:
+    """Rebuild /dist/ after a frame was added or removed, so every preview can find its page."""
+    try:
+        generate_dist(project)
+    except (OSError, ValueError) as error:
+        messages.warning(request, f"The preview could not be updated: {error}")
 
 
 def _target_value(element: Element) -> str:
@@ -258,8 +272,9 @@ def new_frame(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
         messages.error(request, "Language-picker frames need at least two language columns in content.xlsx.")
         return _to("develop", lang=content.language)
     frame: Frame = create_frame(is_picker=picker)
+    _rebuild_preview(request, project)
     messages.success(request, f"Created {frame.name}.")
-    return _to("frame_editor", lang=content.language, frame_name=frame.name)
+    return _to("frame_editor", lang=content.language, frame_id=frame.id)
 
 
 @project_view
@@ -269,8 +284,8 @@ def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     components = component_map()
     rows = content.table.by_id()
     names: dict[int, str] = {frame.id: frame.name for frame in frames}
-    story_start: str = next((frame.name for frame in frames if not frame.is_language_picker), "")
-    picker_start: str = next((frame.name for frame in frames if frame.is_language_picker), "")
+    story_start: Frame | None = next((frame for frame in frames if not frame.is_language_picker), None)
+    picker_start: Frame | None = next((frame for frame in frames if frame.is_language_picker), None)
     story_url: str = _preview_url(language_folder(project, content.language, content.languages))
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -281,20 +296,22 @@ def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
             row = rows.get(element.content_id) if element.content_id else None
             text: str = element.text if frame.is_language_picker else (row.values.get(content.language, "") if row else "")
             component = components.get(element.component)
+            target: int | None = element.target_frame_id or (story_start.id if element.target_language and story_start else None)
             edges.append({
-                "source": frame.name,
-                "target": names.get(element.target_frame_id) or (story_start if element.target_language else ""),
+                "source": frame.id,
+                "target": target,
+                "target_name": names.get(target, ""),
                 "element_id": element.id,
                 "label": (text or (component.name if component else element.component))[:80],
                 "language": element.target_language,
                 "end": element.ends_story,
             })
         nodes.append({
-            "name": frame.name, "x": frame.flow_x, "y": frame.flow_y,
+            "id": frame.id, "name": frame.name, "key": frame.key, "x": frame.flow_x, "y": frame.flow_y,
             "fade_in": frame.fade_in, "picker": frame.is_language_picker,
-            "start": frame.name in (story_start, picker_start),
-            "ends": sum(edge["end"] for edge in edges if edge["source"] == frame.name),
-            "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_name': frame.name})}?{urlencode({'lang': content.language})}",
+            "start": frame in (story_start, picker_start),
+            "ends": sum(element.ends_story for element in frame.elements.all()),
+            "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_id': frame.id})}?{urlencode({'lang': content.language})}",
             "preview_url": _preview_url("") if frame.is_language_picker else story_url,
         })
     return render(request, "studio/flowchart.html", {
@@ -314,15 +331,15 @@ def tidy_flowchart(request: HttpRequest, project: ProjectSettings) -> HttpRespon
 
 
 @project_view
-def frame_editor(request: HttpRequest, project: ProjectSettings, frame_name: str) -> HttpResponse:
-    frame: Frame = get_object_or_404(Frame, name=frame_name)
+def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
+    frame: Frame = get_object_or_404(Frame, pk=frame_id)
     content: Content = _content(request, project)
     materials: list[str] = list_materials()
     form = FrameForm(request.POST or None, instance=frame, materials=materials)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, f"Saved the settings of {frame.name}.")
-        return _to("frame_editor", lang=content.language, frame_name=frame.name)
+        return _to("frame_editor", lang=content.language, frame_id=frame.id)
 
     language: str = project.base_language if frame.is_language_picker else content.language
     component_list = load_components()
@@ -347,7 +364,7 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_name: str
 
     same_kind = Frame.objects.filter(is_language_picker=frame.is_language_picker)
     target_options: list[tuple[str, str]] = [("", "Nothing yet")]
-    target_options += [(f"frame:{item.id}", f"Go to {item.name}") for item in same_kind]
+    target_options += [(f"frame:{item.id}", f"Go to {item.name} ({item.key})") for item in same_kind]
     if frame.is_language_picker:
         target_options += [(f"language:{item}", f"Open the {item} story") for item in content.languages]
     else:
@@ -367,26 +384,29 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_name: str
         ],
         "delay_choices": Element.DelayMode.choices,
         "incoming": frame.incoming_elements.count(),
+        "llm_prompt": "" if frame.is_language_picker else frame_prompt(project, frame, content.table),
     })
 
 
 @require_POST
 @project_view
-def delete_frame(request: HttpRequest, project: ProjectSettings, frame_name: str) -> HttpResponse:
-    get_object_or_404(Frame, name=frame_name).delete()
-    messages.success(request, f"Deleted {frame_name}.")
+def delete_frame(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
+    frame: Frame = get_object_or_404(Frame, pk=frame_id)
+    frame.delete()
+    _rebuild_preview(request, project)
+    messages.success(request, f"Deleted {frame.name}.")
     return _to("flowchart", lang=request.POST.get("language", ""))
 
 
 @require_POST
 @project_view
-def add_element(request: HttpRequest, project: ProjectSettings, frame_name: str) -> HttpResponse:
-    frame: Frame = get_object_or_404(Frame, name=frame_name)
+def add_element(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
+    frame: Frame = get_object_or_404(Frame, pk=frame_id)
     component = component_map().get(request.POST.get("component", ""))
     lang: str = request.POST.get("language", "")
     if component is None:
         messages.error(request, "Unknown component.")
-        return _to("frame_editor", lang=lang, frame_name=frame.name)
+        return _to("frame_editor", lang=lang, frame_id=frame.id)
     offset: float = frame.elements.count() % 5 * 40.0  # new elements do not stack exactly
     Element.objects.create(
         frame=frame, component=component.slug,
@@ -394,7 +414,7 @@ def add_element(request: HttpRequest, project: ProjectSettings, frame_name: str)
         width=component.default_width, height=component.default_height, font_size=component.default_font_size,
     )
     messages.success(request, f"Added a {component.name}. Drag it into place; right-click it for settings.")
-    return _to("frame_editor", lang=lang, frame_name=frame.name)
+    return _to("frame_editor", lang=lang, frame_id=frame.id)
 
 
 @require_POST
@@ -403,7 +423,7 @@ def save_element(request: HttpRequest, project: ProjectSettings, element_id: int
     element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
     content: Content = _content(request, project)
     language: str = project.base_language if element.frame.is_language_picker else content.language
-    back: HttpResponse = _to("frame_editor", lang=content.language, frame_name=element.frame.name)
+    back: HttpResponse = _to("frame_editor", lang=content.language, frame_id=element.frame_id)
     data = request.POST
 
     if "reset_language" in data:
@@ -436,6 +456,8 @@ def save_element(request: HttpRequest, project: ProjectSettings, element_id: int
         setattr(element, name, value)
     _save_geometry(element, language, project, geometry)
     element.save()
+    if created:
+        _rebuild_preview(request, project)
     messages.success(request, f"Saved element #{element.id}." + (f" Created {created.name} as its target." if created else ""))
     return back
 
@@ -452,7 +474,7 @@ def duplicate_element(request: HttpRequest, project: ProjectSettings, element_id
         override.pk, override._state.adding, override.element = None, True, element
         override.save()
     messages.success(request, f"Duplicated as element #{element.id}.")
-    return _to("frame_editor", lang=request.POST.get("language", ""), frame_name=element.frame.name)
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_id=element.frame_id)
 
 
 @require_POST
@@ -470,17 +492,33 @@ def add_content_for_element(request: HttpRequest, project: ProjectSettings, elem
         element.content_id = row.content_id
         element.save(update_fields=["content_id"])
         messages.success(request, f"Added content #{row.content_id} to content.xlsx and selected it.")
-    return _to("frame_editor", lang=request.POST.get("language", ""), frame_name=element.frame.name)
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_id=element.frame_id)
 
 
 @require_POST
 @project_view
 def delete_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
     element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
-    frame_name: str = element.frame.name
     element.delete()
     messages.success(request, "Element deleted.")
-    return _to("frame_editor", lang=request.POST.get("language", ""), frame_name=frame_name)
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_id=element.frame_id)
+
+
+@require_POST
+@project_view
+def import_elements(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
+    frame: Frame = get_object_or_404(Frame, pk=frame_id, is_language_picker=False)
+    content: Content = _content(request, project)
+    targets: dict[str, int] = {item.key: item.id for item in Frame.objects.filter(is_language_picker=False)}
+    back: HttpResponse = _to("frame_editor", lang=content.language, frame_id=frame.id)
+    try:
+        values = parse_elements(request.POST.get("answer", ""), component_map(), set(content.table.by_id()), targets)
+    except ValueError as error:
+        messages.error(request, f"Nothing added. {error}")
+        return back
+    Element.objects.bulk_create([Element(frame=frame, **item) for item in values])
+    messages.success(request, f"Added {len(values)} element(s). Check their positions and texts.")
+    return back
 
 
 @project_view
@@ -520,8 +558,10 @@ def session_detail(request: HttpRequest, project: ProjectSettings, file_name: st
         events, error = read_events(_log_path(file_name)), ""
     except ValueError as problem:
         events, error = [], str(problem)
+    names: dict[str, str] = {frame.key: frame.name for frame in Frame.objects.all()}
     rows: list[dict[str, Any]] = [{
         **{key: event.get(key, "") for key in ("seq", "timestamp", "event", "frame")},
+        "frame_name": names.get(event.get("frame", ""), ""),
         "details": json.dumps({k: v for k, v in event.items() if k not in STANDARD_LOG_KEYS}, ensure_ascii=False),
     } for event in events]
     first: dict[str, Any] = events[0] if events else {}
@@ -531,18 +571,18 @@ def session_detail(request: HttpRequest, project: ProjectSettings, file_name: st
     })
 
 
-@require_GET
-def status_api(request: HttpRequest) -> JsonResponse:
+def status_context(request: HttpRequest) -> dict[str, dict[str, str]]:
+    """Context processor for the status bar in base.html (see TEMPLATES in settings.py)."""
     health = project_health()
     if not health.exists:
-        return JsonResponse({"state": "idle", "label": "No project", "detail": "Waiting for /project/."})
+        return {"status": {"state": "idle", "label": "No project", "detail": "Create one, or copy a project folder into /project/."}}
     if health.problems:
-        return JsonResponse({"state": "error", "label": "Project incomplete", "detail": "; ".join(health.problems)})
+        return {"status": {"state": "error", "label": "Project incomplete", "detail": "; ".join(health.problems)}}
     if project_settings() is None:
-        return JsonResponse({"state": "error", "label": "Database error", "detail": "Could not read project/project.sqlite3."})
+        return {"status": {"state": "error", "label": "Database error", "detail": "Could not read project/project.sqlite3."}}
     if dist_is_stale():
-        return JsonResponse({"state": "stale", "label": "Changes are not in the preview yet", "detail": "Press Regenerate."})
-    return JsonResponse({"state": "ready", "label": "Project saved", "detail": str(settings.PROJECT_DB)})
+        return {"status": {"state": "stale", "label": "Saved; not in the preview yet", "detail": "Press Regenerate."}}
+    return {"status": {"state": "ready", "label": "All changes saved", "detail": str(settings.PROJECT_DB)}}
 
 
 @require_POST
@@ -567,17 +607,17 @@ def element_position_api(request: HttpRequest, project: ProjectSettings, element
 @require_POST
 @project_view
 def flow_positions_api(request: HttpRequest, project: ProjectSettings) -> JsonResponse:
-    """Save flowchart positions for one or more frames: ``{"positions": [{name, x, y}, ...]}``."""
+    """Save flowchart positions for one or more frames: ``{"positions": [{id, x, y}, ...]}``."""
     try:
-        positions: dict[str, tuple[float, float]] = {
-            str(item["name"]): (_number(item["x"], "X"), _number(item["y"], "Y"))
+        positions: dict[int, tuple[float, float]] = {
+            int(item["id"]): (_number(item["x"], "X"), _number(item["y"], "Y"))
             for item in _json_body(request).get("positions", [])
         }
     except (KeyError, TypeError, ValueError) as error:
         return JsonResponse({"error": f"Invalid positions: {error}"}, status=400)
-    frames: list[Frame] = list(Frame.objects.filter(name__in=positions))
+    frames: list[Frame] = list(Frame.objects.filter(pk__in=positions))
     for frame in frames:
-        frame.flow_x, frame.flow_y = positions[frame.name]
+        frame.flow_x, frame.flow_y = positions[frame.pk]
     Frame.objects.bulk_update(frames, ["flow_x", "flow_y"])
     return JsonResponse({"ok": True, "saved": len(frames)})
 
@@ -617,9 +657,19 @@ def _file_response(root: Path, path: str) -> FileResponse:
     return response
 
 
-def preview_file(request: HttpRequest, path: str) -> FileResponse:
-    return _file_response(settings.DIST_DIR, path)
+def preview_file(request: HttpRequest, path: str) -> HttpResponse:
+    try:
+        return _file_response(settings.DIST_DIR, path)
+    except Http404:
+        return HttpResponse(PREVIEW_MISSING, status=404)
 
 
 def material_file(request: HttpRequest, path: str) -> FileResponse:
     return _file_response(settings.PROJECT_DIR / "materials", path)
+
+
+def branding(request: HttpRequest, name: str) -> FileResponse:
+    """The studio's own TilTale logo and favicon; a project's override is for its story only."""
+    if name not in BRANDING_FILES:  # BRANDING_DIR is the repository root: serve nothing else from it
+        raise Http404("File not found.")
+    return _file_response(settings.BRANDING_DIR, name)

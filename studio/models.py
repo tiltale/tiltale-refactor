@@ -9,9 +9,17 @@ generated file. Never write migrations by hand; TilTale applies them to
 """
 
 from decimal import Decimal
+import re
+import unicodedata
 
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
+
+
+def name_key(name: str) -> str:
+    """How frame names are compared: "Scene 2_b", "scene-2-b" and "Scene 2 B" are the same name."""
+    ascii_name: str = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")
 
 
 class ProjectSettings(models.Model):
@@ -41,7 +49,11 @@ class ProjectSettings(models.Model):
 
 
 class Frame(models.Model):
-    """One story panel. Language-picker frames only exist in multi-language projects."""
+    """One story panel. Language-picker frames only exist in multi-language projects.
+
+    ``key`` (``fnr-12``) identifies the frame in code, logs and preview links and never
+    changes; SQLite never reuses the number. ``name`` is only for people.
+    """
 
     class BackgroundType(models.TextChoices):
         NONE = "none", "None"
@@ -66,6 +78,10 @@ class Frame(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def key(self) -> str:
+        return f"fnr-{self.pk}"
 
 
 class Element(models.Model):

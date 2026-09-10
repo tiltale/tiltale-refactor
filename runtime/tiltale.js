@@ -282,19 +282,17 @@
   }
 
   // ------------------------------------------------------------- start
-  function preloadImages(progress) {
+  function preloadImages() {
     var chosen = {};
     STORY.frames.forEach(function (frame) {
       var source = frame.background.type === "image" ? chooseSource(frame.background.sources) : null;
       if (source) chosen[source.path] = source;
     });
     var sources = Object.keys(chosen).map(function (path) { return chosen[path]; });
-    var done = 0;
-    if (!sources.length) progress(1);
     return Promise.all(sources.map(function (source) {
       return new Promise(function (resolve) {
         var image = new Image();
-        image.onload = image.onerror = function () { done += 1; progress(done / sources.length); resolve(); };
+        image.onload = image.onerror = resolve;
         image.src = STORY.root + source.path;
       });
     })).then(function () {
@@ -304,7 +302,6 @@
 
   function start() {
     var loading = document.getElementById("loading");
-    var bar = document.getElementById("loading-bar");
     scaleStory();
     window.addEventListener("resize", scaleStory);
     window.addEventListener("orientationchange", function () { window.setTimeout(scaleStory, 100); });
@@ -329,7 +326,7 @@
 
     log("Loading IDN – started", {event_type: "loading_started"});
     var minimum = new Promise(function (resolve) { window.setTimeout(resolve, 3000); });
-    var images = preloadImages(function (share) { bar.style.width = Math.round(share * 100) + "%"; });
+    var images = preloadImages();
     Promise.all([images, minimum]).then(function (results) {
       var megabytes = (results[0] / 1048576).toFixed(2);
       log("Loading IDN – completed (" + megabytes + " MB)", {event_type: "loading_completed", bytes: results[0]});

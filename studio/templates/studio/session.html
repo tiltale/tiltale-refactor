@@ -1,5 +1,5 @@
 {% extends 'studio/base.html' %}
-{% block title %}{{ participant_id|default:file_name }} · TilTale{% endblock %}
+{% block title %}TilTale | {{ participant_id|default:file_name }}{% endblock %}
 {% block body %}
 <main class="page">
   <a class="back" href="{% url 'studio:results' %}">← Results</a>
@@ -10,7 +10,7 @@
     {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
     <div class="table-wrap"><table class="table">
       <thead><tr><th>#</th><th>Time (UTC)</th><th>Event</th><th>Frame</th><th>Details</th></tr></thead>
-      <tbody>{% for row in rows %}<tr><td>{{ row.seq }}</td><td>{{ row.timestamp }}</td><td>{{ row.event }}</td><td>{{ row.frame }}</td><td><code>{{ row.details }}</code></td></tr>{% endfor %}</tbody>
+      <tbody>{% for row in rows %}<tr><td>{{ row.seq }}</td><td>{{ row.timestamp }}</td><td>{{ row.event }}</td><td>{{ row.frame }} <span class="muted">{{ row.frame_name }}</span></td><td><code>{{ row.details }}</code></td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
 </main>

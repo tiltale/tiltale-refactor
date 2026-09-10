@@ -23,7 +23,12 @@ MIN_TEXT_PX: float = 12.0
 class ValidationIssue:
     severity: Severity
     message: str
-    frame_name: str | None = None
+    frame_id: int | None = None
+    frame_name: str = ""
+
+
+def _issue(severity: Severity, message: str, frame: Frame | None = None) -> ValidationIssue:
+    return ValidationIssue(severity, message, frame.id if frame else None, frame.name if frame else "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +78,7 @@ def validate_project(project: ProjectSettings, content: ContentTable) -> list[Va
     pickers: list[Frame] = [frame for frame in frames if frame.is_language_picker]
     issues: list[ValidationIssue] = list(_project_issues(project, content, pickers))
     if not story:
-        return [*issues, ValidationIssue("warning", "The story has no frames yet.")]
+        return [*issues, _issue("warning", "The story has no frames yet.")]
     checks = _Checks(project, content.languages, content.by_id(), component_map(), smallest_scale(project))
     for frame in frames:
         issues += _background_issues(frame)
@@ -89,44 +94,42 @@ def validate_project(project: ProjectSettings, content: ContentTable) -> list[Va
 
 
 def _project_issues(project: ProjectSettings, content: ContentTable, pickers: list[Frame]) -> Iterator[ValidationIssue]:
-    if not (settings.RUNTIME_DIR / "logo-tiltale.png").is_file():
-        yield ValidationIssue("error", "runtime/logo-tiltale.png is missing, so the startup screen has no logo.")
     if project.base_language not in content.languages:
-        yield ValidationIssue("error", f"Base language '{project.base_language}' is missing from content.xlsx.")
+        yield _issue("error", f"Base language '{project.base_language}' is missing from content.xlsx.")
     if pickers and len(content.languages) < 2:
-        yield ValidationIssue("warning", "Language-picker frames are ignored: content.xlsx has only one language.", pickers[0].name)
+        yield _issue("warning", "Language-picker frames are ignored: content.xlsx has only one language.", pickers[0])
 
 
 def _background_issues(frame: Frame) -> Iterator[ValidationIssue]:
     if frame.background_type == Frame.BackgroundType.NONE:
-        yield ValidationIssue("warning", "Frame has no background yet.", frame.name)
+        yield _issue("warning", "Frame has no background yet.", frame)
         return
     if frame.background_type != Frame.BackgroundType.IMAGE:
         return
     if not (settings.PROJECT_DIR / "materials" / frame.background_image).is_file():
-        yield ValidationIssue("error", f"Background image '{frame.background_image}' cannot be found.", frame.name)
+        yield _issue("error", f"Background image '{frame.background_image}' cannot be found.", frame)
 
 
 def _element_issues(element: Element, frame: Frame, checks: _Checks) -> Iterator[ValidationIssue]:
     component: ComponentDefinition | None = checks.components.get(element.component)
     if component is None:
-        yield ValidationIssue("error", f"Element #{element.id} uses unknown component '{element.component}'.", frame.name)
+        yield _issue("error", f"Element #{element.id} uses unknown component '{element.component}'.", frame)
         return
     label: str = f"{component.name} #{element.id}"
     if component.clickable and not (element.target_frame_id or element.target_language or element.ends_story):
-        yield ValidationIssue("warning", f"{label} is clickable but leads nowhere.", frame.name)
+        yield _issue("warning", f"{label} is clickable but leads nowhere.", frame)
     if not (0 <= element.x <= checks.project.frame_width and 0 <= element.y <= checks.project.frame_height):
-        yield ValidationIssue("warning", f"{label} has its center outside the frame.", frame.name)
+        yield _issue("warning", f"{label} has its center outside the frame.", frame)
     if not component.accepts_content:
         return
     for severity, problem in _text_problems(element, frame, checks):
-        yield ValidationIssue(severity, f"{label} {problem}", frame.name)
+        yield _issue(severity, f"{label} {problem}", frame)
     smallest_font: float = min(element.geometry(language)["font_size"] for language in checks.languages)
     if smallest_font * checks.scale < MIN_TEXT_PX:
-        yield ValidationIssue("warning", (
+        yield _issue("warning", (
             f"{label}: text is about {smallest_font * checks.scale:.1f}px on a {DEVICE_PRESETS[0].label} "
             f"(minimum {MIN_TEXT_PX:g}px). Increase the font size."
-        ), frame.name)
+        ), frame)
 
 
 def _text_problems(element: Element, frame: Frame, checks: _Checks) -> Iterator[tuple[Severity, str]]:
@@ -152,7 +155,7 @@ def _reach_issues(group: list[Frame], edges: dict[str, list[str]]) -> Iterator[V
     steps: dict[str, int] = distances(group[0].name, edges)
     for frame in group:
         if frame.name not in steps:
-            yield ValidationIssue("warning", f"{frame.name} cannot be reached from {group[0].name}.", frame.name)
+            yield _issue("warning", f"{frame.name} cannot be reached from {group[0].name}.", frame)
 
 
 def _picker_language_issues(pickers: list[Frame], content: ContentTable) -> Iterator[ValidationIssue]:
@@ -161,12 +164,12 @@ def _picker_language_issues(pickers: list[Frame], content: ContentTable) -> Iter
     targeted: set[str] = {element.target_language for frame in pickers for element in frame.elements.all()}
     for language in content.languages:
         if language not in targeted:
-            yield ValidationIssue("error", f"No language-picker button leads to {language}.", pickers[0].name)
+            yield _issue("error", f"No language-picker button leads to {language}.", pickers[0])
 
 
 def _redirect_issues(project: ProjectSettings, story_can_end: bool) -> Iterator[ValidationIssue]:
     redirect: str = project.finish_redirect_url
     if redirect and not story_can_end:
-        yield ValidationIssue("warning", "A finish redirect URL is set, but no element is set to “End story”.")
+        yield _issue("warning", "A finish redirect URL is set, but no element is set to “End story”.")
     if redirect and "{ID}" not in redirect:
-        yield ValidationIssue("warning", "The finish redirect URL has no {ID}, so the participant ID is not passed back.")
+        yield _issue("warning", "The finish redirect URL has no {ID}, so the participant ID is not passed back.")

@@ -4,7 +4,7 @@ import re
 
 from django import forms
 
-from .models import Frame, ProjectSettings
+from .models import Frame, ProjectSettings, name_key
 
 LANGUAGE_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z]{2,8}(?:[-_][A-Za-z0-9]{2,8})*$")
 HEX_PATTERN: re.Pattern[str] = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -98,17 +98,29 @@ class ProjectSettingsForm(forms.ModelForm):
 
 
 class FrameForm(forms.ModelForm):
-    """Frame-level settings: background and fade-in."""
+    """Frame-level settings: name, background and fade-in."""
 
     class Meta:
         model = Frame
-        fields = ["fade_in", "background_type", "background_color", "background_image"]
+        fields = ["name", "fade_in", "background_type", "background_color", "background_image"]
         labels = {"fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image"}
+        help_texts = {"name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below."}
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
 
     def __init__(self, *args: object, materials: list[str], **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.materials: list[str] = materials
+
+    def clean_name(self) -> str:
+        name: str = " ".join(self.cleaned_data["name"].split())
+        key: str = name_key(name)
+        if not key:
+            raise forms.ValidationError("Use at least one letter or digit.")
+        others = Frame.objects.exclude(pk=self.instance.pk).values_list("name", flat=True)
+        clash: str | None = next((other for other in others if name_key(other) == key), None)
+        if clash is not None:
+            raise forms.ValidationError(f"Another frame is called “{clash}”. Names must differ in more than capitals, spaces, “-” or “_”.")
+        return name
 
     def clean_background_color(self) -> str:
         return validate_hex(self.cleaned_data["background_color"])

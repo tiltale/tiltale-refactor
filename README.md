@@ -15,11 +15,35 @@ Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project
 
 ## Daily workflow
 
-1. **Develop**: add frames (`+ Frame`), place components on them, pick texts from `content.xlsx`, and set what each button does.
-2. **Flowchart**: see how frames connect. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
+1. **Develop**: add frames (`+ Frame`), place components on them, pick texts from `content.xlsx`, and set what each button does. Adding or deleting a frame updates the preview automatically; after other changes, press **Regenerate**.
+2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
 4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.
 5. Upload `/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**.
+
+The status bar at the bottom shows whether everything is saved and in the preview. It is checked on every page load, and turns red as soon as a background save (dragging an element or frame) fails.
+
+## Frame names
+
+Every frame has two labels:
+
+| | Example | Used for | Changes? |
+|---|---|---|---|
+| **ID** | `fnr-12` | the story's code, preview links, study logs, LLM answers | never; numbers of deleted frames are not reused |
+| **Name** | `Frame 12` (default), `Intro scene` | you, in the studio | rename freely in the frame editor |
+
+A new frame's default name repeats its ID number. Names must be unique, ignoring capitals, spaces, `-` and `_` (`Frame 12` is refused when `frame_12` exists), and need at least one letter (a–z) or digit. The visit log pages show each ID with the frame's current name.
+
+## Logo and favicon
+
+`logo-tiltale.png` (startup screen) and `favicon.ico` (browser tab) in the repository root are used for every generated story. To use a different one for **one project**, put a file with the same name in `/project/`, for example `/project/logo-tiltale.png`, and press Regenerate. Delete it to go back to the default. The studio itself always shows the TilTale files from the repository root.
+
+## Building with a language model
+
+`docs/llm-prompts/` has two ready prompts:
+
+1. **Texts**: `01-extract-content.md` turns a storyboard (a ZIP of PDFs/images named after their frames, or one PDF where page 1 is `frame-1`) into a filled `content.xlsx`.
+2. **Frames**: in the frame editor, open **Build with an LLM** and press **Copy prompt**. It is `02-build-frame.md` with your components, texts and frames filled in. Paste it into a model chat with the frame's storyboard image, then paste the JSON answer back and press **Add these elements**. Nothing is added unless every element in the answer is valid.
 
 ## Participant IDs (Qualtrics, Prolific, …)
 
@@ -79,7 +103,7 @@ Most changes start in one of these places:
 | File | Purpose |
 |---|---|
 | `models.py` | Database tables: project settings, frames, elements, per-language layout overrides. |
-| `views.py` | One function per page or API call. Validates input, then calls a service. |
+| `views.py` | One function per page or API call. Validates input, then calls a service. Also computes the status bar (`status_context`). |
 | `urls.py` | Maps each URL to a view. |
 | `forms.py` | Forms for new project, settings and frame settings, including their help texts. |
 | `db.py` | Routes all studio tables to `/project/project.sqlite3`. |
@@ -97,7 +121,15 @@ Most changes start in one of these places:
 
 ### `runtime/`: files copied into every generated story
 
-See `runtime/README.md` for the full table. `tiltale.js` is the story player, `log.php` the server-side logger, `logo-tiltale.png` the startup logo (add your own; the preflight list reports it when missing).
+See `runtime/README.md` for the full table. `tiltale.js` is the story player, `log.php` the server-side logger.
+
+### Repository root
+
+| File | Purpose |
+|---|---|
+| `logo-tiltale.png`, `favicon.ico` | Default startup logo and browser-tab icon of every story (see *Logo and favicon*). |
+| `manage.py` | Django's command-line entry point (`runserver`, `test`, `makemigrations`). |
+| `requirements.txt` | Python packages. |
 
 ### `components/`: reusable story elements
 
@@ -105,13 +137,13 @@ One folder per component with `component.json` (name, defaults, colors), `compon
 
 ### `docs/llm-prompts/`: default prompts for language models
 
-Placeholders for (1) extracting texts from storyboard images into `content-template.xlsx` and (2) building a frame from its image. See `docs/llm-prompts/README.md`.
+The two prompts described in *Building with a language model*, plus `content-template.xlsx`. See `docs/llm-prompts/README.md`.
 
 ### Generated folders (ignored by Git)
 
 | Folder | Contents |
 |---|---|
-| `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css`. Back this up. |
+| `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css`, and optionally your own `logo-tiltale.png` / `favicon.ico`. Back this up. |
 | `dist/` | The website produced by Regenerate. Safe to delete except `dist/logs/` on the server. |
 
 ## Changing models

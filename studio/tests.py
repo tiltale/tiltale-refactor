@@ -12,16 +12,18 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
 
-from .forms import ProjectSettingsForm, normalize_language, parse_extra_languages
-from .models import Element, Frame, ProjectSettings
-from .services.components import default_color_css
+from .forms import FrameForm, ProjectSettingsForm, normalize_language, parse_extra_languages
+from .models import Element, Frame, ProjectSettings, name_key
+from .services.components import component_map, default_color_css
 from .services.content import append_content_row, create_content_workbook, load_content_table
-from .services.flow import STEP_X, create_frame, tidy_layout
+from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.generate import generate_dist, language_folder, reset_dist_directory
+from .services.llm import parse_elements
 from .services.project import safe_child
 from .services.study_logs import import_jsonl, log_file_name, safe_name, session_kind
 from .services.validate import validate_project
 
+ANSWER: str = '{"elements": [{"component": "choice-button", "content_id": 1, "x": 960, "y": 540, "target": "fnr-2"}]}'
 EVENT: dict[str, object] = {"participant_id": "R_abc", "visit_id": "20260910T101530Z-a1b2", "event": "frame", "seq": 1}
 
 
@@ -48,6 +50,49 @@ class LanguageTests(SimpleTestCase):
 
     def test_each_language_gets_its_own_dist_folder(self) -> None:
         self.assertEqual(language_folder(ProjectSettings(slug="demo"), "nl-NL", ("en-US", "nl-NL")), "demo---nl-NL")
+
+
+class FrameNameRuleTests(SimpleTestCase):
+    def test_capitals_spaces_and_dashes_do_not_make_names_different(self) -> None:
+        self.assertEqual(name_key("Frame 12"), name_key("frame-12"))
+
+    def test_underscores_do_not_make_names_different(self) -> None:
+        self.assertEqual(name_key("Frame_12"), name_key("frame 12"))
+
+    def test_accents_do_not_make_names_different(self) -> None:
+        self.assertEqual(name_key("Café scène"), name_key("cafe scene"))
+
+    def test_default_name_repeats_the_number(self) -> None:
+        self.assertEqual(default_name("Frame", 12, set()), "Frame 12")
+
+    def test_default_name_skips_a_name_someone_already_chose(self) -> None:
+        self.assertEqual(default_name("Frame", 12, {"frame-12"}), "Frame 13")
+
+
+class LlmAnswerTests(SimpleTestCase):
+    def parse(self, answer: str) -> list[dict[str, object]]:
+        return parse_elements(answer, component_map(), content_ids={1}, targets={"fnr-2": 7})
+
+    def test_answer_becomes_element_values(self) -> None:
+        self.assertEqual(self.parse(ANSWER)[0]["target_frame_id"], 7)
+
+    def test_missing_size_uses_the_component_default(self) -> None:
+        self.assertEqual(self.parse(ANSWER)[0]["width"], component_map()["choice-button"].default_width)
+
+    def test_code_fences_around_the_answer_are_accepted(self) -> None:
+        self.assertEqual(len(self.parse(f"```json\n{ANSWER}\n```")), 1)
+
+    def test_unknown_component_names_the_element(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Element 1: unknown component"):
+            self.parse('{"elements": [{"component": "robot", "x": 1, "y": 1}]}')
+
+    def test_invented_content_id_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "content_id 99"):
+            self.parse('{"elements": [{"component": "speech-bubble", "content_id": 99, "x": 1, "y": 1}]}')
+
+    def test_unknown_target_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown target"):
+            self.parse('{"elements": [{"component": "choice-button", "x": 1, "y": 1, "target": "fnr-9"}]}')
 
 
 class ContentWorkbookTests(SimpleTestCase):
@@ -141,6 +186,55 @@ class StudyLogTests(SimpleTestCase):
                 import_jsonl("mixed.jsonl", data)
 
 
+class PreviewTests(SimpleTestCase):
+    def test_missing_preview_page_explains_what_to_do(self) -> None:
+        response = self.client.get(reverse("studio:preview_file", kwargs={"path": "not-built/index.html"}))
+        self.assertContains(response, "Regenerate", status_code=404)
+
+    def test_branding_serves_no_other_repository_files(self) -> None:
+        response = self.client.get(reverse("studio:branding", kwargs={"name": "manage.py"}))
+        self.assertEqual(response.status_code, 404)
+
+
+class FrameNameTests(TestCase):
+    databases = {"project"}
+
+    def form(self, frame: Frame, name: str) -> FrameForm:
+        data = {"name": name, "background_type": "none", "background_color": "#111111", "background_image": ""}
+        return FrameForm(data, instance=frame, materials=[])
+
+    def test_frames_can_be_renamed_with_spaces(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        self.assertTrue(self.form(frame, "Intro scene").is_valid())
+
+    def test_names_with_the_same_code_name_are_rejected(self) -> None:
+        Frame.objects.create(name="Frame-12")
+        frame = Frame.objects.create(name="frame-13")
+        self.assertIn("name", self.form(frame, "frame 12").errors)
+
+    def test_renaming_to_a_variant_of_its_own_name_is_allowed(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        self.assertTrue(self.form(frame, "Frame 1").is_valid())
+
+    def test_name_without_letters_or_digits_is_rejected(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        self.assertIn("name", self.form(frame, "!!").errors)
+
+    def test_new_frame_name_repeats_its_id_number(self) -> None:
+        frame = create_frame()
+        self.assertEqual((frame.key, frame.name), (f"fnr-{frame.pk}", f"Frame {frame.pk}"))
+
+    def test_new_picker_frames_are_called_picker(self) -> None:
+        frame = create_frame(is_picker=True)
+        self.assertEqual(frame.name, f"Picker {frame.pk}")
+
+    def test_renaming_keeps_the_id(self) -> None:
+        frame = create_frame()
+        form = self.form(frame, "Intro scene")
+        form.save()
+        self.assertEqual(Frame.objects.get(name="Intro scene").key, f"fnr-{frame.pk}")
+
+
 class FlowchartTests(TestCase):
     databases = {"project"}
 
@@ -178,9 +272,9 @@ class ProjectTestCase(TestCase):
 class StudioViewTests(ProjectTestCase):
 
     def test_dragged_flowchart_positions_are_stored(self) -> None:
-        Frame.objects.create(name="frame-1")
-        Frame.objects.create(name="frame-2")
-        body = {"positions": [{"name": "frame-1", "x": 10, "y": 20}, {"name": "frame-2", "x": 300, "y": 20}]}
+        first = Frame.objects.create(name="frame-1")
+        second = Frame.objects.create(name="frame-2")
+        body = {"positions": [{"id": first.id, "x": 10, "y": 20}, {"id": second.id, "x": 300, "y": 20}]}
         self.client.post(reverse("studio:flow_positions_api"), json.dumps(body), content_type="application/json")
         positions = list(Frame.objects.values_list("name", "flow_x", "flow_y"))
         self.assertEqual(positions, [("frame-1", 10.0, 20.0), ("frame-2", 300.0, 20.0)])
@@ -200,6 +294,29 @@ class StudioViewTests(ProjectTestCase):
         report = generate_dist(self.project)
         self.assertEqual([build.folder for build in report.builds], [""])
 
+    def test_new_frame_is_in_the_preview_straight_away(self) -> None:
+        self.client.post(reverse("studio:new_frame"))
+        self.assertTrue((self.root / "dist" / "index.html").is_file())
+
+    def test_story_uses_frame_ids_not_names(self) -> None:
+        frame = Frame.objects.create(name="Intro scene")
+        generate_dist(self.project)
+        self.assertIn(f'"start_frame":"{frame.key}"', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
+
+    def test_project_logo_overrides_the_default(self) -> None:
+        (self.root / "project" / "logo-tiltale.png").write_bytes(b"project logo")
+        Frame.objects.create(name="frame-1")
+        generate_dist(self.project)
+        self.assertEqual((self.root / "dist" / "logo-tiltale.png").read_bytes(), b"project logo")
+
+    def test_llm_answer_is_added_to_the_frame(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        target = Frame.objects.create(name="frame-2")
+        append_content_row(self.root / "project" / "content.xlsx", "", {"en-US": "Go"})
+        answer = ANSWER.replace("fnr-2", target.key)
+        self.client.post(reverse("studio:import_elements", kwargs={"frame_id": frame.id}), {"answer": answer})
+        self.assertEqual(frame.elements.get().target_frame, target)
+
     def test_preview_log_writes_one_file_per_visit(self) -> None:
         url = reverse("studio:preview_log")
         self.client.post(url, json.dumps(EVENT), content_type="application/json")
@@ -214,8 +331,8 @@ class MultiLanguageTests(ProjectTestCase):
     def setUp(self) -> None:
         super().setUp()
         Frame.objects.create(name="frame-1")
-        picker = Frame.objects.create(name="picker-1", is_language_picker=True)
-        Element.objects.create(frame=picker, component="choice-button", text="Nederlands", target_language="nl-NL")
+        self.picker = Frame.objects.create(name="picker-1", is_language_picker=True)
+        Element.objects.create(frame=self.picker, component="choice-button", text="Nederlands", target_language="nl-NL")
 
     def test_picker_page_comes_first_then_one_folder_per_language(self) -> None:
         report = generate_dist(self.project)
@@ -228,7 +345,7 @@ class MultiLanguageTests(ProjectTestCase):
     def test_picker_frames_are_not_in_the_language_pages(self) -> None:
         generate_dist(self.project)
         story_js = (self.root / "dist" / "demo---en-US" / "story.js").read_text(encoding="utf-8")
-        self.assertNotIn("picker-1", story_js)
+        self.assertNotIn(f'"{self.picker.key}"', story_js)
 
     def test_a_language_without_a_picker_button_is_an_error(self) -> None:
         issues = validate_project(self.project, load_content_table(self.root / "project" / "content.xlsx"))

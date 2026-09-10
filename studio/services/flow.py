@@ -5,10 +5,11 @@ in the flowchart is permanent. New frames are placed next to the frame that
 links to them; siblings are stacked above/below so branches never overlap.
 """
 
-import re
 from typing import Iterable
 
-from studio.models import Frame
+from django.db import transaction
+
+from studio.models import Frame, name_key
 
 STEP_X: float = 260.0
 STEP_Y: float = 130.0
@@ -36,13 +37,6 @@ def distances(start: str, edges: dict[str, list[str]]) -> dict[str, int]:
     return steps
 
 
-def next_frame_name(prefix: str) -> str:
-    """``frame-7`` / ``picker-2``. Numbers of deleted frames are not reused."""
-    pattern: re.Pattern[str] = re.compile(rf"^{prefix}-(\d+)$")
-    numbers = (int(match.group(1)) for name in Frame.objects.values_list("name", flat=True) if (match := pattern.match(name)))
-    return f"{prefix}-{max(numbers, default=0) + 1}"
-
-
 def _free_slot(x: float, y: float) -> tuple[float, float]:
     """First free spot in column ``x``, trying y, y+1 row, y-1 row, y+2 rows, ..."""
     taken: list[tuple[float, float]] = list(Frame.objects.values_list("flow_x", "flow_y"))
@@ -67,8 +61,20 @@ def create_frame(is_picker: bool = False, linked_from: Frame | None = None) -> F
         x, y = _free_slot((first.flow_x if first else 160.0) - STEP_X, first.flow_y if first else 240.0)
     else:
         x, y = _free_slot(160.0, 240.0)
-    prefix: str = "picker" if is_picker else "frame"
-    return Frame.objects.create(name=next_frame_name(prefix), is_language_picker=is_picker, flow_x=x, flow_y=y)
+    # The default name repeats the frame's number (fnr-12 is "Frame 12"), which exists only after saving.
+    with transaction.atomic(using="project"):
+        frame: Frame = Frame.objects.create(is_language_picker=is_picker, flow_x=x, flow_y=y)
+        taken: set[str] = {name_key(name) for name in Frame.objects.values_list("name", flat=True)}
+        frame.name = default_name("Picker" if is_picker else "Frame", frame.pk, taken)
+        frame.save(update_fields=["name"])
+    return frame
+
+
+def default_name(word: str, number: int, taken: set[str]) -> str:
+    """``"Frame 12"``, or a higher free number if another frame was already renamed to that."""
+    while name_key(f"{word} {number}") in taken:
+        number += 1
+    return f"{word} {number}"
 
 
 def tidy_layout() -> None:

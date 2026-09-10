@@ -5,16 +5,16 @@ const PLAYTEST_TIMEOUT_MS = 60000;
 const LOG_SETTLE_MS = 1000; // the last log requests of a play-test may still be in flight
 const DRAG_THRESHOLD_PX = 4;
 const TOAST_MS = 6000;
-const STATUS_POLL_MS = 5000;
+const FOCUS_ZOOM = 1; // clicking a frame zooms in to at least this, so its neighbours stay visible
+const FOCUS_MS = 350; // same duration as .flow-world.is-animating in app.css
 const STAGE_MARGIN_PX = 32;
 
-function showToast(message, kind = "info") {
-  const toast = document.createElement("div");
-  toast.className = `toast ${kind}`;
-  toast.setAttribute("role", "status");
-  toast.textContent = message;
-  document.querySelector(".toasts").append(toast);
-  setTimeout(() => toast.remove(), TOAST_MS);
+// Background saves (dragging elements or frames) report failures in the status bar, which stays visible.
+function reportError(message) {
+  const bar = document.querySelector("[data-status-bar]");
+  bar.dataset.state = "error";
+  bar.querySelector("[data-status-label]").textContent = message;
+  bar.querySelector("[data-status-detail]").textContent = "Reload the page to see what was saved.";
 }
 
 async function postJson(url, csrfToken, body) {
@@ -60,19 +60,6 @@ function setupDialogs() {
     if (opener) document.getElementById(opener.dataset.openDialog).showModal();
     if (event.target.closest("[data-close]")) event.target.closest("dialog").close();
   });
-}
-
-function setupStatusBar() {
-  const bar = document.querySelector("[data-status-bar]");
-  const render = (status) => {
-    bar.dataset.state = status.state;
-    bar.querySelector("[data-status-label]").textContent = status.label;
-    bar.querySelector("[data-status-detail]").textContent = status.detail;
-  };
-  const offline = { state: "error", label: "Studio not reachable", detail: "Is python manage.py runserver still running?" };
-  const refresh = () => fetch(bar.dataset.url).then((response) => response.json()).then(render, () => render(offline));
-  refresh();
-  setInterval(refresh, STATUS_POLL_MS);
 }
 
 function setupConfig() {
@@ -193,6 +180,11 @@ function setupEditor() {
     contentInput.value = row.dataset.contentId;
     picker.close();
   });
+  const copyButton = page.querySelector("[data-copy-prompt]");
+  copyButton?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(page.querySelector("[data-prompt]").value);
+    copyButton.textContent = "Copied";
+  });
   picker.querySelector("[data-content-filter]").addEventListener("input", (event) => {
     const query = event.target.value.trim().toLowerCase();
     for (const row of picker.querySelectorAll("[data-content-id]")) row.hidden = !row.textContent.toLowerCase().includes(query);
@@ -238,7 +230,7 @@ async function saveElementPosition(node, page, dialog) {
   try {
     await postJson(node.dataset.positionUrl, page.dataset.csrf, { x, y, language: page.dataset.language });
   } catch (error) {
-    showToast(`Position not saved: ${error.message}`, "error");
+    reportError(`Position not saved: ${error.message}`);
   }
 }
 
@@ -272,7 +264,7 @@ function setupFlowchart() {
   };
   const drawEdges = () => paths.replaceChildren(...edges.map((edge) => edgeGroup(edge, nodes, position)).filter(Boolean));
   const markSelection = () => {
-    for (const [name, node] of nodes) node.classList.toggle("is-selected", selected.has(name));
+    for (const [id, node] of nodes) node.classList.toggle("is-selected", selected.has(id));
   };
   const zoomAt = (zoom, clientX, clientY) => {
     const rect = viewport.getBoundingClientRect();
@@ -295,28 +287,38 @@ function setupFlowchart() {
     applyView();
   };
   const inspect = (node) => showInspector(page, node, edges);
-  const save = async (names) => {
-    const positions = names.map((name) => ({ name, ...position(nodes.get(name)) }));
+  const focus = (node) => {
+    const { x, y } = position(node);
+    view.zoom = Math.max(view.zoom, FOCUS_ZOOM);
+    view.x = viewport.clientWidth / 2 - (x + node.offsetWidth / 2) * view.zoom;
+    view.y = viewport.clientHeight / 2 - (y + node.offsetHeight / 2) * view.zoom;
+    world.classList.add("is-animating");
+    applyView();
+    setTimeout(() => world.classList.remove("is-animating"), FOCUS_MS);
+  };
+  const save = async (ids) => {
+    const positions = ids.map((id) => ({ id: Number(id), ...position(nodes.get(id)) }));
     try {
       await postJson(page.dataset.saveUrl, page.dataset.csrf, { positions });
     } catch (error) {
-      showToast(`Layout not saved: ${error.message}`, "error");
+      reportError(`Layout not saved: ${error.message}`);
     }
   };
 
   const dragNodes = (event, node) => {
-    const starts = new Map([...selected].map((name) => [name, position(nodes.get(name))]));
+    const starts = new Map([...selected].map((id) => [id, position(nodes.get(id))]));
     const origin = { x: event.clientX, y: event.clientY };
     let moved = false;
     trackPointer(viewport, event, (move) => {
       const dx = (move.clientX - origin.x) / view.zoom;
       const dy = (move.clientY - origin.y) / view.zoom;
       moved = moved || Math.hypot(dx, dy) * view.zoom > DRAG_THRESHOLD_PX;
-      for (const [name, start] of starts) place(nodes.get(name), Math.round(start.x + dx), Math.round(start.y + dy));
+      for (const [id, start] of starts) place(nodes.get(id), Math.round(start.x + dx), Math.round(start.y + dy));
       drawEdges();
     }, () => {
       if (moved) return save([...starts.keys()]);
-      inspect(node);
+      inspect(node); // first, so the viewport has its final width when centring
+      focus(node);
     });
   };
   const pan = (event) => {
@@ -337,14 +339,14 @@ function setupFlowchart() {
   viewport.addEventListener("pointerdown", (event) => {
     const node = event.target.closest("[data-node]");
     if (!node) return pan(event);
-    const name = node.dataset.node;
+    const id = node.dataset.node;
     if (event.shiftKey) {
-      if (selected.has(name)) selected.delete(name);
-      else selected.add(name);
+      if (selected.has(id)) selected.delete(id);
+      else selected.add(id);
       return markSelection();
     }
-    if (!selected.has(name)) selected.clear();
-    selected.add(name);
+    if (!selected.has(id)) selected.clear();
+    selected.add(id);
     markSelection();
     dragNodes(event, node);
   });
@@ -376,6 +378,7 @@ function setupFlowchart() {
   selected.add(preselected.dataset.node);
   markSelection();
   inspect(preselected);
+  focus(preselected);
 }
 
 function trackPointer(surface, event, onMove, onUp) {
@@ -390,8 +393,8 @@ function trackPointer(surface, event, onMove, onUp) {
 }
 
 function edgeGroup(edge, nodes, position) {
-  const source = nodes.get(edge.source);
-  const target = nodes.get(edge.target);
+  const source = nodes.get(String(edge.source));
+  const target = nodes.get(String(edge.target));
   if (!source || (!target && !edge.end)) return null;
   const start = position(source);
   const x1 = start.x + source.offsetWidth;
@@ -419,19 +422,18 @@ function edgeKind(edge) {
 }
 
 function edgeDestination(edge) {
-  return { end: "End story", language: `${edge.language} story`, frame: edge.target }[edgeKind(edge)];
+  return { end: "End story", language: `${edge.language} story`, frame: edge.target_name }[edgeKind(edge)];
 }
 
 function showInspector(page, node, edges) {
   const inspector = page.querySelector("[data-inspector]");
   const frame = inspector.querySelector("[data-inspector-frame]");
-  const name = node.dataset.node;
-  const frameUrl = `${node.dataset.previewUrl}?inspect=1&frame=${encodeURIComponent(name)}`;
+  const frameUrl = `${node.dataset.previewUrl}?inspect=1&frame=${encodeURIComponent(node.dataset.key)}`;
   inspector.hidden = false;
-  inspector.querySelector("[data-inspector-title]").textContent = name;
+  inspector.querySelector("[data-inspector-title]").textContent = node.dataset.name;
   inspector.querySelector("[data-inspector-edit]").href = node.dataset.editUrl;
   if (frame) frame.src = frameUrl;
-  const items = edges.filter((edge) => edge.source === name).map((edge) => {
+  const items = edges.filter((edge) => String(edge.source) === node.dataset.node).map((edge) => {
     const item = document.createElement("li");
     item.textContent = `${edge.label} → ${edgeDestination(edge)}`;
     item.addEventListener("mouseenter", () => { if (frame) frame.src = `${frameUrl}&element=${edge.element_id}`; });
@@ -491,7 +493,7 @@ function setPlaytestState(card, state, badge, message) {
 async function showPlaytestLog(card, settings, fileName) {
   const response = await fetch(settings.logApi.replace("FILE", encodeURIComponent(fileName)));
   const { events = [], error } = await response.json();
-  if (error) showToast(`Log not found: ${error}`, "error");
+  if (error) reportError(`Play-test log not found: ${error}`);
   const rows = events.map((event) => {
     const row = document.createElement("tr");
     for (const value of [event.seq, event.timestamp, event.event, event.frame]) row.insertCell().textContent = value ?? "";
@@ -508,7 +510,6 @@ async function showPlaytestLog(card, settings, fileName) {
 setupToasts();
 setupForms();
 setupDialogs();
-setupStatusBar();
 setupConfig();
 setupResults();
 setupDevelop();

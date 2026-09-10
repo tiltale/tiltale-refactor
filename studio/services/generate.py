@@ -12,7 +12,8 @@ Multi-language project::
     dist/tiltale.js, style.css, ...     shared by every page
 
 Shared by every page: ``tiltale.js``, ``style.css``, ``logo-tiltale.png``,
-``favicon.ico`` (optional), ``assets/`` (responsive images), ``log.php`` and ``logs/``.
+``favicon.ico``, ``assets/`` (responsive images), ``log.php`` and ``logs/``.
+Frames are identified by their fixed ID (``Frame.key``, e.g. ``fnr-12``) in everything generated.
 """
 
 from dataclasses import asdict, dataclass
@@ -32,7 +33,7 @@ from studio.models import Frame, ProjectSettings
 
 from .components import ComponentDefinition, component_css, component_map
 from .content import ContentRow, ContentTable, load_content_table
-from .project import newest_source_timestamp, safe_child
+from .project import BRANDING_FILES, newest_source_timestamp, safe_child
 from .validate import ValidationIssue, validate_project
 
 IMAGE_WIDTHS: tuple[int, ...] = (480, 960, 1920)
@@ -53,6 +54,12 @@ class BuildReport:
     source_timestamp: float
     builds: tuple[Build, ...]
     issues: tuple[ValidationIssue, ...]
+
+
+def branding_file(name: str) -> Path:
+    """The project's own logo/favicon when present in /project/, else the TilTale default."""
+    override: Path = settings.PROJECT_DIR / name
+    return override if override.is_file() else settings.BRANDING_DIR / name
 
 
 def story_css() -> str:
@@ -143,7 +150,7 @@ def _frame_payload(
             "content_id": element.content_id,
             "text": text if component.accepts_content else "",
             "clickable": component.clickable,
-            "target": element.target_frame.name if element.target_frame else None,
+            "target": element.target_frame.key if element.target_frame else None,
             "language": element.target_language or None,
             "ends_story": element.ends_story,
             **element.geometry(language),
@@ -153,7 +160,7 @@ def _frame_payload(
             "break_long_words": element.break_long_words,
             "delay_mode": element.delay_mode,
         })
-    return {"name": frame.name, "fade_in": frame.fade_in, "background": background, "elements": elements}
+    return {"name": frame.key, "fade_in": frame.fade_in, "background": background, "elements": elements}
 
 
 def _story_js(story: dict[str, Any]) -> str:
@@ -165,12 +172,10 @@ def _write_page(folder: str, story: dict[str, Any], html_language: str, title: s
     output: Path = settings.DIST_DIR / folder if folder else settings.DIST_DIR
     output.mkdir(exist_ok=True)
     root: str = story["root"]
-    favicon: str = f'<link rel="icon" href="{root}favicon.ico">' if (settings.DIST_DIR / "favicon.ico").is_file() else ""
     html: str = (
         (settings.RUNTIME_DIR / "index.html").read_text(encoding="utf-8")
         .replace("__LANGUAGE__", escape(html_language, quote=True))
         .replace("__TITLE__", escape(title))
-        .replace("__FAVICON__", favicon)
         .replace("__ROOT__", root)
     )
     (output / "index.html").write_text(html, encoding="utf-8")
@@ -186,9 +191,8 @@ def _write_shared_files() -> None:
     (dist / "logs").mkdir(exist_ok=True)
     (dist / "logs" / ".htaccess").write_text("Require all denied\n", encoding="utf-8")
     shutil.copy2(runtime / "log.php", dist / "log.php")
-    for name in ("logo-tiltale.png", "favicon.ico"):
-        if (runtime / name).is_file():
-            shutil.copy2(runtime / name, dist / name)
+    for name in BRANDING_FILES:
+        shutil.copy2(branding_file(name), dist / name)
     (dist / "tiltale.js").write_text(
         f"/* {GENERATED_NOTE} */\n" + (runtime / "tiltale.js").read_text(encoding="utf-8"), encoding="utf-8"
     )
@@ -230,7 +234,7 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
             "participant_parameter": project.participant_parameter,
             "finish_redirect_url": project.finish_redirect_url,
             "languages": folders if not language else {},
-            "start_frame": page_frames[0].name if page_frames else None,
+            "start_frame": page_frames[0].key if page_frames else None,
             "components": {slug: component.svg for slug, component in components.items()},
             "frames": [_frame_payload(frame, language, content_by_id, components, images) for frame in page_frames],
         }

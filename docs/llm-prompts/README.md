@@ -1,11 +1,11 @@
 # Default LLM prompts
 
-Prompts for letting a language model do repetitive setup work. Both are placeholders for now.
+Prompts that let a language model do repetitive setup work.
 
-| File | Use it to… | Input | Output |
-|---|---|---|---|
-| `01-extract-content.md` | turn storyboard exports into texts | ZIP of PDFs/images, one per frame, named after the frame | a filled copy of `content-template.xlsx` |
-| `02-build-frame.md` | place a frame's elements automatically | one frame image | frame and elements in the project database |
-| `content-template.xlsx` | start from the exact `content.xlsx` layout | — | — |
+| File | Use it to… | How |
+|---|---|---|
+| `01-extract-content.md` | turn a storyboard (ZIP of PDFs/images, or one PDF) into texts | Paste it into a model chat with the storyboard and `content-template.xlsx` attached, then save the returned file as `/project/content.xlsx` (or copy its rows into your existing one). |
+| `02-build-frame.md` | place a frame's elements from its storyboard image | In the frame editor, open **Build with an LLM**, press **Copy prompt** (this fills in your components, texts and frames), paste it into a model chat with the frame image, and paste the JSON answer back into the editor. |
+| `content-template.xlsx` | start from the exact `content.xlsx` layout | Rename the `en-US` column to your language(s) first. |
 
-Prompt 2 needs a page that shows every component with its data first, so the model knows the options. That page does not exist yet.
+Prompt 2 contains `$frame_id`, `$components`, … placeholders; the studio fills them in. Do not use `$` elsewhere in that file.

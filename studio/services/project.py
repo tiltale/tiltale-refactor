@@ -21,6 +21,7 @@ from .content import create_content_workbook
 PROJECT_FILES: tuple[str, ...] = (
     "project.sqlite3", "content.xlsx", "materials", "logs", "default-colors.css", "style-overrides.css",
 )
+BRANDING_FILES: tuple[str, ...] = ("logo-tiltale.png", "favicon.ico")  # in the repository root; /project/ may override
 IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
 _schema_lock = threading.Lock()
@@ -129,6 +130,7 @@ def newest_source_timestamp() -> float:
         settings.PROJECT_DIR / "content.xlsx",
         settings.PROJECT_DIR / "default-colors.css",
         settings.PROJECT_DIR / "style-overrides.css",
+        *(folder / name for folder in (settings.BRANDING_DIR, settings.PROJECT_DIR) for name in BRANDING_FILES),
     ]
     for folder in (settings.PROJECT_DIR / "materials", settings.COMPONENTS_DIR, settings.RUNTIME_DIR):
         if folder.is_dir():

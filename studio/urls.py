@@ -18,9 +18,10 @@ urlpatterns = [
     path("develop/flowchart/", views.flowchart, name="flowchart"),
     path("develop/flowchart/tidy/", views.tidy_flowchart, name="tidy_flowchart"),
     path("develop/frames/new/", views.new_frame, name="new_frame"),
-    path("develop/edit/<slug:frame_name>/", views.frame_editor, name="frame_editor"),
-    path("develop/edit/<slug:frame_name>/delete/", views.delete_frame, name="delete_frame"),
-    path("develop/edit/<slug:frame_name>/elements/add/", views.add_element, name="add_element"),
+    path("develop/frames/<int:frame_id>/", views.frame_editor, name="frame_editor"),
+    path("develop/frames/<int:frame_id>/delete/", views.delete_frame, name="delete_frame"),
+    path("develop/frames/<int:frame_id>/elements/add/", views.add_element, name="add_element"),
+    path("develop/frames/<int:frame_id>/elements/import/", views.import_elements, name="import_elements"),
     path("develop/elements/<int:element_id>/save/", views.save_element, name="save_element"),
     path("develop/elements/<int:element_id>/duplicate/", views.duplicate_element, name="duplicate_element"),
     path("develop/elements/<int:element_id>/content/add/", views.add_content_for_element, name="add_content_for_element"),
@@ -30,7 +31,6 @@ urlpatterns = [
     path("results/import/", views.import_logs, name="import_logs"),
     path("results/session/<str:file_name>/", views.session_detail, name="session_detail"),
 
-    path("api/status/", views.status_api, name="status_api"),
     path("api/elements/<int:element_id>/position/", views.element_position_api, name="element_position_api"),
     path("api/flow-positions/", views.flow_positions_api, name="flow_positions_api"),
     path("api/logs/<str:file_name>/", views.log_api, name="log_api"),
@@ -39,4 +39,5 @@ urlpatterns = [
     path("preview/log.php", views.preview_log, name="preview_log"),
     path("preview/<path:path>", views.preview_file, name="preview_file"),
     path("materials/<path:path>", views.material_file, name="material_file"),
+    path("branding/<str:name>", views.branding, name="branding"),
 ]
