@@ -12,6 +12,11 @@ var TilTaleBubbles = (function () {
 
   var NUDGE = 6;  // the tail's base starts this far inside the body, hiding the body's stroke there
 
+  /* Bumps, dots and tail bases grow with the bubble (1x at 150px, up to 2.5x), so big frames get big clouds. */
+  function unit(width, height) {
+    return Math.min(2.5, Math.max(1, Math.min(width, height) / 150));
+  }
+
   function sign(value) { return value < 0 ? -1 : 1; }
   function point(x, y) { return x.toFixed(1) + " " + y.toFixed(1); }
 
@@ -62,7 +67,7 @@ var TilTaleBubbles = (function () {
     var edge = edgePoint(width, height, tip);
     if (!edge) return "";
     var length = Math.sqrt(Math.pow(tip.x - edge.x, 2) + Math.pow(tip.y - edge.y, 2));
-    var scale = Math.min(1, length / 150);
+    var scale = unit(width, height) * Math.min(1, length / (150 * unit(width, height)));
     var path = "";
     [[0.2, 22], [0.52, 15], [0.85, 9]].forEach(function (step) {
       path += circle(edge.x + (tip.x - edge.x) * step[0], edge.y + (tip.y - edge.y) * step[0], step[1] * scale);
@@ -90,12 +95,13 @@ var TilTaleBubbles = (function () {
   function cloud(width, height) {
     var path = "";
     var last = null;
-    walk(width, height, 8, 30, function (edge, i, x, y, chord) {
+    var inset = 8 * unit(width, height);
+    walk(width, height, inset, 30 * unit(width, height), function (edge, i, x, y, chord) {
       var r = (chord * 0.62).toFixed(1);
       path += last === null ? "M" + point(x, y) : "A" + r + " " + r + " 0 0 1 " + point(x, y);
       last = {x: x, y: y, r: r};
     });
-    return path + "A" + last.r + " " + last.r + " 0 0 1 " + point(8, 8) + "Z";
+    return path + "A" + last.r + " " + last.r + " 0 0 1 " + point(inset, inset) + "Z";
   }
 
   /* A box whose outline zigzags between the edge and 22px inside it. */
@@ -111,9 +117,9 @@ var TilTaleBubbles = (function () {
 
   var BODIES = {thought: cloud, scream: burst};
   var TAILS = {
-    speech: function (w, h, tip) { return pointer(w, h, tip, 20, 30); },
+    speech: function (w, h, tip) { return pointer(w, h, tip, 20 * unit(w, h), 30); },
     thought: dots,
-    scream: function (w, h, tip) { return pointer(w, h, tip, 8, 12); }
+    scream: function (w, h, tip) { return pointer(w, h, tip, 8 * unit(w, h), 12); }
   };
 
   function tailOf(node, width, height) {

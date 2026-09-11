@@ -1,5 +1,5 @@
-.component-laura-next-text { --component-fill: var(--component-laura-next-text-fill, #dfdfcf); --component-border: var(--component-laura-next-text-border, #000); --component-text: var(--component-laura-next-text-text, #000); --shape-inset: 2px; --text-padding: 16px 130px 16px 26px; }
+.component-laura-next-text { --component-fill: var(--component-laura-next-text-fill, #dfdfcf); --component-border: var(--component-laura-next-text-border, #000); --component-text: var(--component-laura-next-text-text, #000); --shape-inset: 2px; --text-padding: 16px 30% 16px 26px; }
 .component-laura-next-text .laura-box { fill: var(--element-fill, var(--component-fill)); fill-opacity: .7; stroke: var(--element-border, var(--component-border)); stroke-width: 4; transition: filter .12s ease; }
-.component-laura-next-text .laura-button { fill: var(--component-laura-next-arrow-fill, #a0cfff); stroke: var(--element-border, var(--component-border)); stroke-width: 4; }
+.component-laura-next-text .laura-button { fill: var(--component-laura-next-arrow-fill, #a0cfff); stroke: var(--element-border, var(--component-border)); stroke-width: 4; vector-effect: non-scaling-stroke; }
 .component-laura-next-text .laura-arrow { fill: var(--element-text, var(--component-text)); fill-rule: evenodd; }
 .component-laura-next-text:hover .laura-box { filter: brightness(.94); }
