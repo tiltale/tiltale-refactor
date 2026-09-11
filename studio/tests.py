@@ -5,6 +5,7 @@ project database, so /project/ is never touched.
 """
 
 import json
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,7 +21,7 @@ from .services.content import append_content_row, create_content_workbook, load_
 from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.generate import generate_dist, language_folder, reset_dist_directory
 from .services.llm import parse_elements
-from .services.project import image_size, safe_child
+from .services.project import image_size, project_health, safe_child
 from .services.study_logs import frame_visits, import_jsonl, log_file_name, readable_events, safe_name, session_kind
 from .services.validate import validate_project
 
@@ -313,6 +314,30 @@ class StudioViewTests(ProjectTestCase):
         self.client.post(reverse("studio:flow_positions_api"), json.dumps(body), content_type="application/json")
         positions = list(Frame.objects.values_list("name", "flow_x", "flow_y"))
         self.assertEqual(positions, [("frame-1", 10.0, 20.0), ("frame-2", 300.0, 20.0)])
+
+    def test_deleting_logs_or_materials_does_not_block_the_studio(self) -> None:
+        """They hold nothing of their own, so TilTale makes them again instead of asking for a backup."""
+        for name in ("logs", "materials"):
+            shutil.rmtree(self.root / "project" / name)
+        self.assertEqual(project_health().problems, ())
+        self.assertTrue((self.root / "project" / "logs").is_dir())
+
+    def test_new_elements_go_in_front_and_can_be_sent_backward(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        first = Element.objects.create(frame=frame, component="choice-button")
+        second = Element.objects.create(frame=frame, component="choice-button")
+        self.assertEqual(list(frame.elements.values_list("id", flat=True)), [first.id, second.id])
+        self.client.post(reverse("studio:move_element", args=[second.id]), {"direction": "backward"})
+        self.assertEqual(list(frame.elements.values_list("id", flat=True)), [second.id, first.id])
+
+    def test_target_list_is_alphabetical_and_skips_the_frame_itself(self) -> None:
+        frame = Frame.objects.create(name="Middle")
+        Frame.objects.create(name="zebra")
+        Frame.objects.create(name="Apple")
+        Element.objects.create(frame=frame, component="choice-button")
+        html = self.client.get(reverse("studio:frame_editor", args=[frame.id])).content.decode()
+        self.assertLess(html.index("Go to Apple"), html.index("Go to zebra"))
+        self.assertNotIn("Go to Middle", html)
 
     def test_single_language_projects_cannot_create_picker_frames(self) -> None:
         self.client.post(reverse("studio:new_frame"), {"picker": "1"})

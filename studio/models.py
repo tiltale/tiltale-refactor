@@ -133,6 +133,7 @@ class Element(models.Model):
     font_size = models.FloatField(default=44.0)
     break_long_words = models.BooleanField(default=True)
     delay_mode = models.CharField(max_length=10, choices=DelayMode.choices, default=DelayMode.NONE)
+    order = models.PositiveIntegerField(default=0)  # stacking on the frame: higher is in front; ties by id
 
     # What a click does. At most one of these is set (the editor enforces it).
     target_frame = models.ForeignKey(
@@ -146,10 +147,16 @@ class Element(models.Model):
     ends_story = models.BooleanField(default=False)
 
     class Meta:
-        ordering: list[str] = ["id"]
+        ordering: list[str] = ["order", "id"]
 
     def __str__(self) -> str:
         return f"{self.frame.name}: {self.component} #{self.pk}"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self._state.adding and not self.order:  # a new element goes in front of the others
+            top: int | None = Element.objects.filter(frame_id=self.frame_id).aggregate(top=models.Max("order"))["top"]
+            self.order = (top or 0) + 1
+        super().save(*args, **kwargs)
 
     def geometry(self, language: str) -> dict[str, float]:
         """Position, size and font size for ``language``, including overrides.

@@ -284,6 +284,7 @@ def _flow_graph(project: ProjectSettings, content: Content) -> tuple[list[dict[s
     names: dict[int, str] = {frame.id: frame.name for frame in frames}
     story_start: Frame | None = next((frame for frame in frames if not frame.is_language_picker), None)
     picker_start: Frame | None = next((frame for frame in frames if frame.is_language_picker), None)
+    documents: set[int] = {frame.id for frame in frames if frame.zoomable}  # readers look and come back
     story_url: str = _preview_url(language_folder(project, content.language, content.languages))
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -304,10 +305,11 @@ def _flow_graph(project: ProjectSettings, content: Content) -> tuple[list[dict[s
                 "text": text[:80],
                 "language": element.target_language,
                 "end": element.ends_story,
+                "document": target in documents,
             })
         nodes.append({
             "id": frame.id, "name": frame.name, "key": frame.key, "x": frame.flow_x, "y": frame.flow_y,
-            "fade_in": frame.fade_in, "picker": frame.is_language_picker,
+            "fade_in": frame.fade_in, "picker": frame.is_language_picker, "document": frame.zoomable,
             "start": frame in (story_start, picker_start),
             "ends": sum(element.ends_story for element in frame.elements.all()),
             "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_id': frame.id})}?{urlencode({'lang': content.language})}",
@@ -368,9 +370,9 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) 
             "target": _target_value(element),
         })
 
-    same_kind = Frame.objects.filter(is_language_picker=frame.is_language_picker)
+    same_kind = Frame.objects.filter(is_language_picker=frame.is_language_picker).exclude(pk=frame.pk)  # never to itself
     target_options: list[tuple[str, str]] = [("", "Nothing yet")]
-    target_options += [(f"frame:{item.id}", f"Go to {item.name} ({item.key})") for item in same_kind]
+    target_options += [(f"frame:{item.id}", f"Go to {item.name} ({item.key})") for item in sorted(same_kind, key=lambda item: item.name.lower())]
     if frame.is_language_picker:
         target_options += [(f"language:{item}", f"Open the {item} story") for item in content.languages]
     else:
@@ -500,6 +502,22 @@ def duplicate_element(request: HttpRequest, project: ProjectSettings, element_id
         override.pk, override._state.adding, override.element = None, True, element
         override.save()
     messages.success(request, f"Duplicated as element #{element.id}.")
+    return _to("frame_editor", lang=request.POST.get("language", ""), frame_id=element.frame_id)
+
+
+@require_POST
+@project_view
+def move_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
+    """Swap an element with the one in front of it ("forward") or behind it ("backward")."""
+    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id)
+    siblings: list[Element] = list(element.frame.elements.all())  # back to front
+    index: int = siblings.index(element)
+    other: int = index + (1 if request.POST.get("direction") == "forward" else -1)
+    if 0 <= other < len(siblings):
+        for position, item in enumerate(siblings):
+            item.order = position
+        siblings[index].order, siblings[other].order = other, index
+        Element.objects.bulk_update(siblings, ["order"])
     return _to("frame_editor", lang=request.POST.get("language", ""), frame_id=element.frame_id)
 
 

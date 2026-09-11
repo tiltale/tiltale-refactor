@@ -42,7 +42,10 @@ class SessionSummary:
 
 
 def logs_dir() -> Path:
-    return settings.PROJECT_DIR / "logs"
+    """``/project/logs/``, made if it is gone (as ``log.php`` does on the server)."""
+    path: Path = settings.PROJECT_DIR / "logs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def safe_name(value: object) -> str:
@@ -145,6 +148,8 @@ def readable_events(events: list[dict[str, Any]], frame_names: dict[str, str], e
             if event.get("how") == "resumed":
                 lines.append("IDN refreshed")
             lines.append(f"{frame}: visited (last frame)" if seconds is None else f"{frame}: visited for {seconds:.0f} s")
+        elif kind == "choice" and event.get("component") == "close":
+            lines.append(f"{frame}: closed, back to the previous frame")
         elif kind == "choice":
             label = element_labels.get(event.get("element_id"), str(event.get("component", "element")))
             lines.append(f"{frame}: clicked '{label}'")

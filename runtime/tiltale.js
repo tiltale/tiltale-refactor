@@ -232,6 +232,7 @@
     if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page
     viewerBar.hidden = true;
     viewer = frame.zoomable && !inspect ? makeViewer(panel, frame) : null;
+    storyNode.className = viewer ? "document" : "";  // let the zoomed document spill past the frame's letterbox
     if (inspect) return;
     if (state.frame !== name) state.previous = state.frame;  // where "× Close" goes
     state.frame = name;
@@ -293,7 +294,17 @@
     var pointers = {};
     var dragged = false;
     function apply() { panel.style.transform = "translate(" + view.x + "px, " + view.y + "px) scale(" + view.zoom + ")"; }
-    function zoomBy(factor) { view.zoom = Math.min(8, Math.max(1, view.zoom * factor)); apply(); }
+    function zoomBy(factor) { view.zoom = Math.min(Math.max(8, fit * 4), Math.max(1, view.zoom * factor)); apply(); }
+    // Start with the document (everything placed on the frame) as large as the screen allows, fully visible:
+    // a portrait poster on a phone then fills the height instead of sitting small inside the landscape frame.
+    var box = contentBox(panel);
+    var fit = box ? Math.min(window.innerWidth / (box.width * storyScale), window.innerHeight / (box.height * storyScale)) : 1;
+    if (box) {
+      view.zoom = Math.max(1, fit);
+      view.x = (STORY.frame_width / 2 - box.x) * view.zoom;
+      view.y = (STORY.frame_height / 2 - box.y) * view.zoom;
+      apply();
+    }
     function spread() {
       var ids = Object.keys(pointers);
       if (ids.length < 2) return 0;
@@ -321,6 +332,20 @@
     viewerBar.querySelector("[data-close]").textContent = "\u00d7 " + (frame.close_text || "");
     viewerBar.hidden = false;
     return {zoomBy: zoomBy, frame: frame, move: move, release: function (event) { delete pointers[event.pointerId]; }};
+  }
+
+  /* The smallest box around the frame's elements, in frame pixels (elements are positioned by their centre). */
+  function contentBox(panel) {
+    var items = panel.querySelectorAll(".story-element");
+    if (!items.length) return null;
+    var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    Array.prototype.forEach.call(items, function (item) {
+      left = Math.min(left, item.offsetLeft - item.offsetWidth / 2);
+      right = Math.max(right, item.offsetLeft + item.offsetWidth / 2);
+      top = Math.min(top, item.offsetTop - item.offsetHeight / 2);
+      bottom = Math.max(bottom, item.offsetTop + item.offsetHeight / 2);
+    });
+    return {x: (left + right) / 2, y: (top + bottom) / 2, width: right - left, height: bottom - top};
   }
 
   document.addEventListener("pointermove", function (event) { if (viewer) viewer.move(event); });
@@ -356,6 +381,7 @@
 
   /* Prefer unvisited frames, then "End story", then the least visited frame. */
   function robotStep(frame) {
+    window.parent.postMessage({tiltale: "playtest", progress: frame.name}, "*");  // the studio's stall timer restarts
     visits[frame.name] = (visits[frame.name] || 0) + 1;
     steps += 1;
     if (steps > 400) return report(false, "Stopped after 400 frames: the story seems to loop without an end.");

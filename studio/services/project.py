@@ -19,9 +19,10 @@ from studio.models import ProjectSettings
 from .components import default_color_css
 from .content import create_content_workbook
 
-PROJECT_FILES: tuple[str, ...] = (
-    "project.sqlite3", "content.xlsx", "materials", "logs", "default-colors.css", "style-overrides.css",
+PROJECT_FILES: tuple[str, ...] = (  # data: TilTale never recreates these, so nothing is silently replaced
+    "project.sqlite3", "content.xlsx", "default-colors.css", "style-overrides.css",
 )
+PROJECT_FOLDERS: tuple[str, ...] = ("materials", "logs")  # containers: an empty one is the same as a missing one
 BRANDING_FILES: tuple[str, ...] = ("logo-tiltale.png", "favicon.ico")  # in the repository root; /project/ may override
 IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 QUARTER_TURNS: frozenset[int] = frozenset({5, 6, 7, 8})  # EXIF orientations that ImageOps.exif_transpose turns 90°
@@ -44,8 +45,16 @@ def project_exists() -> bool:
 
 
 def project_health() -> ProjectHealth:
+    """Report missing data files, after recreating the two folders that hold nothing of their own.
+
+    Deleting ``logs/`` to start a study clean, or ``materials/`` to shrink a ZIP, is normal; empty
+    folders are also dropped by ZIP files and Git. Recreating them hides nothing: a lost image still
+    shows up in the preflight check of the frame that uses it.
+    """
     if not project_exists():
         return ProjectHealth(exists=False, problems=())
+    for name in PROJECT_FOLDERS:
+        (settings.PROJECT_DIR / name).mkdir(exist_ok=True)
     missing = tuple(f"Missing project/{name}" for name in PROJECT_FILES if not (settings.PROJECT_DIR / name).exists())
     return ProjectHealth(exists=True, problems=missing)
 
@@ -89,8 +98,8 @@ def create_project(name: str, base_language: str, extra_languages: list[str]) ->
     project_dir: Path = settings.PROJECT_DIR
     project_dir.mkdir()
     try:
-        (project_dir / "materials").mkdir()
-        (project_dir / "logs").mkdir()
+        for name in PROJECT_FOLDERS:
+            (project_dir / name).mkdir()
         create_content_workbook(project_dir / "content.xlsx", [base_language, *extra_languages])
         (project_dir / "default-colors.css").write_text(default_color_css(), encoding="utf-8")
         (project_dir / "style-overrides.css").write_text(

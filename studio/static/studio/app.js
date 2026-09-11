@@ -1,7 +1,7 @@
 // TilTale studio behavior. Each setup function returns early when its page is not open.
 "use strict";
 
-const PLAYTEST_TIMEOUT_MS = 60000;
+const PLAYTEST_STALL_MS = 60000; // without a next frame for this long, the robot is considered stuck
 const LOG_SETTLE_MS = 1000; // the last log requests of a play-test may still be in flight
 const DRAG_THRESHOLD_PX = 4;
 const TOAST_MS = 6000;
@@ -114,14 +114,17 @@ function setupResults() {
       const frame = stats.frames[node.dataset.key];
       const times = frame?.times ?? [];
       const spread = times.length ? ` · avg ${seconds(times.reduce((a, b) => a + b) / times.length)} (min ${seconds(Math.min(...times))}, max ${seconds(Math.max(...times))})` : "";
-      node.querySelector("[data-stats]").textContent = frame ? `n = ${frame.n}${spread}` : "";
+      // A document frame is optional: count how many visits opened it 0×, 1×, 2×… rather than visits.
+      const opened = node.classList.contains("is-document") ? shown.map((session) => session.frames.filter(([key]) => key === node.dataset.key).length) : null;
+      const usage = opened ? [...new Set(opened)].sort((a, b) => a - b).map((count) => `${count}×: ${opened.filter((value) => value === count).length}`).join(", ") : "";
+      node.querySelector("[data-stats]").textContent = opened ? `opened ${usage}${spread}` : frame ? `n = ${frame.n}${spread}` : "";
       const visits = person ? person.frames.filter(([key]) => key === node.dataset.key) : [];
       node.classList.toggle("is-path", visits.length > 0);
       const known = visits.map(([, secs]) => secs).filter((secs) => secs !== null);
       node.querySelector("[data-person]").textContent = visits.length ? `${known.length ? seconds(known.reduce((a, b) => a + b)) : "last frame"}${visits.length > 1 ? ` in ${visits.length} visits` : ""}` : "";
     }
     for (const edge of edges) {
-      const total = stats.frames[edge.dataset.source]?.n;
+      const total = edge.classList.contains("document") ? 0 : stats.frames[edge.dataset.source]?.n; // documents: see the node
       edge.querySelector("text").textContent = total ? `${Math.round((stats.choices[edge.dataset.element] ?? 0) / total * 100)}%` : "";
       edge.classList.toggle("is-path", Boolean(person?.choices.includes(Number(edge.dataset.element))));
     }
@@ -328,8 +331,9 @@ function makeBoxEditable(node, boxes, canvas, view, onDrop) {
       placeBox(node, snap.box);
     }, () => {
       showGuides(guides, {});
-      if (moved) onDrop(node, start.box);
-      else dialog?.showModal();
+      if (moved) return onDrop(node, start.box);
+      placeBox(node, start.box); // a click that wobbled a little is not a move
+      dialog?.showModal();
     });
   });
 }
@@ -597,6 +601,14 @@ function edgeGroup(edge, nodes, position) {
     return group;
   }
   const end = position(target);
+  if (edge.document) { // a document sits above (or below) the frame that opens it: a straight two-way arrow between their middles
+    const x = start.x + source.offsetWidth / 2;
+    const above = end.y < start.y;
+    const [ya, yb] = above ? [start.y, end.y + target.offsetHeight] : [start.y + source.offsetHeight, end.y];
+    group.append(svgElement("path", { d: `M${x} ${ya} L${x} ${yb}`, "marker-start": "url(#flow-arrow-document)", "marker-end": "url(#flow-arrow-document)" }));
+    group.append(svgElement("text", { class: "edge-label", x: x + 8, y: (ya + yb) / 2 }));
+    return group;
+  }
   const x2 = end.x;
   const y2 = end.y + target.offsetHeight / 2;
   const bend = Math.max(40, Math.abs(x2 - x1) / 2);
@@ -612,7 +624,7 @@ function edgeLabel(edge) {
 function edgeKind(edge) {
   if (edge.end) return "end";
   if (edge.language) return "language";
-  return "frame";
+  return edge.document ? "frame document" : "frame";
 }
 
 function edgeDestination(edge) {
@@ -664,6 +676,15 @@ async function runPlaytest(card, settings) {
 
 function waitForPlaytest(frame, url, parameter, participant) {
   return new Promise((resolve) => {
+    // A long story takes minutes, so the clock measures time since the robot's last frame, not the whole run.
+    let timer;
+    const wait = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => finish({
+        ok: false,
+        message: `No next frame for ${PLAYTEST_STALL_MS / 1000} seconds. Open the page in the preview to see what happens.`,
+      }), PLAYTEST_STALL_MS);
+    };
     const finish = (result) => {
       clearTimeout(timer);
       window.removeEventListener("message", onMessage);
@@ -671,9 +692,10 @@ function waitForPlaytest(frame, url, parameter, participant) {
     };
     const onMessage = (event) => {
       if (event.source !== frame.contentWindow || event.data?.tiltale !== "playtest") return;
+      if (event.data.progress) return wait(); // still going: the robot reached another frame
       finish(event.data);
     };
-    const timer = setTimeout(() => finish({ ok: false, message: "No result within 60 seconds. Open the page in the preview to see what happens." }), PLAYTEST_TIMEOUT_MS);
+    wait();
     window.addEventListener("message", onMessage);
     frame.src = `${url}?${new URLSearchParams({ autoplay: "1", preview: "1", restart: "1", [parameter]: participant })}`;
   });

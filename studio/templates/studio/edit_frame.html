@@ -62,11 +62,15 @@
     </form>
 
     <section>
-      <h2>Elements <span class="count">{{ elements|length }}</span></h2>
+      <h2>Elements <span class="count">{{ elements|length }}</span> <span class="muted">back to front</span></h2>
       {% if not elements %}<p class="muted">Add a component below.</p>{% endif %}
       <ul class="element-list">
         {% for item in elements %}
         <li><button type="button" class="link" data-open-dialog="element-{{ item.element.id }}">#{{ item.element.id }} {{ item.component.name|default:item.element.image }}{% if item.has_override %} ◆{% endif %}</button>
+          <span class="element-order">
+            {% if not forloop.first %}<button class="icon" form="move-{{ item.element.id }}" name="direction" value="backward" title="Send backward (the background always stays behind)">▼</button>{% endif %}
+            {% if not forloop.last %}<button class="icon" form="move-{{ item.element.id }}" name="direction" value="forward" title="Bring forward">▲</button>{% endif %}
+          </span>
           {% if item.component %}<span class="muted">{{ item.text|truncatechars:40|default:"(no text)" }}</span>{% endif %}</li>
         {% endfor %}
       </ul>
@@ -215,6 +219,7 @@
     {% endif %}
     {% if item.has_override %}<form method="post" id="reset-{{ element.id }}" action="{% url 'studio:save_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="reset_language" value="1"></form>{% endif %}
     <form method="post" id="duplicate-{{ element.id }}" action="{% url 'studio:duplicate_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
+    <form method="post" id="move-{{ element.id }}" action="{% url 'studio:move_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
     <form method="post" id="delete-{{ element.id }}" action="{% url 'studio:delete_element' element.id %}" data-confirm="Delete element #{{ element.id }}?">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
   </dialog>
   {% endwith %}

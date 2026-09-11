@@ -1,19 +1,210 @@
 # TilTale
 
-TilTale is a local studio for building interactive, branching stories (for example for research studies). You build the story in your browser; **Regenerate** turns it into a plain website in `/project/dist/` made of HTML, CSS, JavaScript and one small `log.php`, which you upload to any web host with PHP.
+**TilTale** is a local studio for building and running **interactive digital narratives (IDNs)**: branching stories with photos, speech bubbles and choices, for example for research studies. You build the story in your browser; **Regenerate** turns it into a plain website (HTML, CSS, JavaScript and one small `log.php`) that you upload to any web host with PHP.
 
-## Quick start
+You do **not** need previous experience with Python, Django or command-line development to work on this project. TilTale is intentionally developed with students and less-experienced developers in mind. If some of the tools below are new to you, that is fine: this README explains only what you need to get started.
 
-Install Python 3.12 or newer first. On Windows, restart the PC after installing Python: otherwise `python` and `pip` are often not found in the terminal yet.
+---
+
+## Contents
+
+| Section | What you will find |
+|---|---|
+| [Before you begin](#before-you-begin) | The tools you need and what they do. |
+| [Install Python](#install-python) | Setup for Windows, macOS and Linux. |
+| [Get TilTale](#get-tiltale) | Download the project as a ZIP or clone it with Git. |
+| [Run TilTale](#run-tiltale) | Install dependencies and start the studio. |
+| [Useful commands](#useful-commands) | The commands you will use most often. |
+| [Daily workflow](#daily-workflow) | Building, checking, publishing and analysing a story. |
+| [Shortcuts](#shortcuts) | Mouse and keyboard in the frame editor and the flowchart. |
+| [Document frames](#document-frames-zoom-and-drag) | Posters and leaflets that readers zoom, drag and close. |
+| [Frame names](#frame-names), [Logo and favicon](#logo-and-favicon), [Building with a language model](#building-with-a-language-model) | Naming, branding and LLM prompts. |
+| [Participant IDs](#participant-ids-qualtrics-prolific-) | Links, logging, restarting and the finish redirect. |
+| [Several languages](#several-languages), [Publishing](#publishing) | Multilingual stories and uploading. |
+| [Tech stack](#tech-stack) | A short explanation of the technologies used. |
+| [Project structure](#project-structure) | Where the important files live. |
+| [Development conventions](#development-conventions) | A few rules that keep the code readable. |
+| [Changing models](#changing-models), [Tests and CI](#tests-and-ci) | For developers changing the studio. |
+| [Quick fixes](#quick-fixes) | Common setup problems and how to diagnose them. |
+
+---
+
+## Before you begin
+
+You need two main tools:
+
+### Visual Studio Code
+
+**Visual Studio Code (VS Code)** is the code editor we use for TilTale. It lets you edit the project and run terminal commands in one place.
+
+Download: <https://code.visualstudio.com/>
+
+Recommended extension: **Python** (by Microsoft).
+
+### Python
+
+**Python** runs the TilTale studio on your own computer.
+
+Installing Python also installs **pip**, which downloads and manages the project's dependencies.
+
+Use **Python 3.12 or newer**.
+
+### Development environment used for TilTale
+
+| Software | Version / environment |
+|---|---|
+| Operating system | Windows 11 Pro |
+| Python | 3.14 |
+| Editor | Visual Studio Code |
+
+TilTale can also be developed on macOS and Linux. Exact package versions are in `requirements.txt`.
+
+---
+
+## Install Python
+
+Official download: <https://www.python.org/downloads/>
+
+### Windows 11
+
+1. Download the latest Windows installer.
+2. Run it. **Tick "Add python.exe to PATH"** before pressing *Install Now*.
+3. **Restart the PC.** Without a restart, `python` and `pip` are often not found in the terminal yet.
+4. Open VS Code, then **Terminal → New Terminal**.
+
+Check the installation:
+
+```powershell
+python --version
+pip --version
+```
+
+Check where Python is installed:
+
+```powershell
+where.exe python
+```
+
+> **More experienced?**
+>
+> ```powershell
+> winget install Python.Python.3.14
+> ```
+
+### macOS
+
+1. Download the macOS installer from the Python website.
+2. Install it and restart VS Code.
+
+Check:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python3 --version
+pip3 --version
+which python3
+```
+
+### Linux
+
+Most distributions ship Python. Make sure `venv` is available:
+
+```bash
+sudo apt install python3 python3-venv     # Debian / Ubuntu
+```
+
+Check:
+
+```bash
+python3 --version
+which python3
+```
+
+---
+
+## Get TilTale
+
+### Recommended: Download ZIP
+
+This is the easiest option if you are new to Git.
+
+1. Open the repository: <https://github.com/tiltale/tiltale>
+2. Select **Code → Download ZIP**.
+3. Unpack the ZIP.
+4. Open VS Code.
+5. Select **File → Open Folder...**.
+6. Open the unpacked `tiltale` folder.
+7. Select **Terminal → New Terminal**.
+
+Check that you opened the correct folder:
+
+```powershell
+Test-Path manage.py
+```
+
+It should return:
+
+```text
+True
+```
+
+### More experienced? Use Git
+
+```powershell
+git clone https://github.com/tiltale/tiltale.git
+cd tiltale
+```
+
+---
+
+## Run TilTale
+
+Create a private Python environment for the project (once), activate it, and install the exact dependencies from `requirements.txt`:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate            # macOS / Linux: source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+Then start the studio:
+
+```powershell
 python manage.py runserver
 ```
 
-Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project/` folder next to `manage.py`. The TilTale version is in `config/settings.py` (`TILTALE_VERSION`) and on the Help page; every generated page carries it in an HTML comment.
+Open <http://127.0.0.1:8000/> in your browser. Create a project there, or copy an existing `project/` folder next to `manage.py` first.
+
+Stop the server with:
+
+```text
+Ctrl + C
+```
+
+Next time, only the activation and the `runserver` line are needed. The TilTale version is in `config/settings.py` (`TILTALE_VERSION`) and on the Help page; every generated page carries it in an HTML comment.
+
+---
+
+## Useful commands
+
+Run these with the environment activated (`(.venv)` shows at the start of the terminal line).
+
+| Command | What it does |
+|---|---|
+| `.venv\Scripts\activate` | Activates the project's Python environment (macOS / Linux: `source .venv/bin/activate`). |
+| `pip install -r requirements.txt` | Installs the project's dependencies. |
+| `python manage.py runserver` | Starts the local studio at <http://127.0.0.1:8000/>. |
+| `python manage.py test` | Runs the behavior tests. |
+| `python manage.py check` | Checks the Django configuration for problems. |
+| `python manage.py makemigrations studio` | Writes a migration after you changed `studio/models.py` (see *Changing models*). |
+
+Before committing or handing in work:
+
+```powershell
+python manage.py check
+python manage.py test
+```
+
+---
 
 ## Daily workflow
 
@@ -37,6 +228,7 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 | `Shift` + drag | move it only horizontally or only vertically, whichever way you drag furthest. |
 | Drag a corner dot (appear on hover) | resize it from that corner; the opposite corner stays. Images and the background keep their proportions; components do not. Components that grow with their text (the `laura-*` ones) use this as their minimum height. |
 | `Shift` + drag a corner dot | the opposite: distort an image freely, or keep a component's proportions. |
+| ▲ / ▼ in the *Elements* list | bring an element forward or send it backward. The list runs back to front; new elements start in front. The background is not an element and always stays behind. |
 | Drag the black dot (bubbles only) | point the bubble's tail at a mouth or head. The bubble itself stays where it is. |
 | Click an element or image, or `Tab` to it and press `Enter` | open its settings (text, exact size and position, colors, what a click does). |
 | `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` | undo / redo a move or resize. The history covers the current page: it starts over after anything that reloads it, such as adding an element or saving settings. Inside a text field these keys undo typing instead. |
@@ -56,7 +248,7 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 
 ## Document frames (zoom and drag)
 
-Some frames are documents (a poster, a leaflet). In the frame editor, tick **Readers can zoom and drag this frame** under *Document viewer*. Readers then drag with a finger or the mouse, pinch on a phone, or use the mouse wheel and the **+** / **−** buttons on larger screens. A fixed **× Close** button in the top-right corner returns to the previous frame; its text is a row of `content.xlsx`, so it appears in the reader's language (leave it empty for a plain ×). The play-test robot ignores the Close button, so give a document frame a normal button that leads on, or the robot treats it as an end.
+Some frames are documents (a poster, a leaflet). In the frame editor, tick **Readers can zoom and drag this frame** under *Document viewer*. Readers then drag with a finger or the mouse, pinch on a phone, or use the mouse wheel and the **+** / **−** buttons on larger screens. A fixed **× Close** button in the top-right corner returns to the previous frame; its text is a row of `content.xlsx`, so it appears in the reader's language (leave it empty for a plain ×). In the story the document opens as large as the screen allows: the frame is zoomed so that everything placed on it just fits, so a portrait poster fills a phone's height instead of sitting small inside the landscape frame. In the flowchart, document frames are blue and sit right above the frame that opens them, joined by a two-way arrow, because readers always come back; Results counts how many visits opened one 0×, 1×, 2× and so on, instead of a percentage. The play-test robot ignores the Close button, so give a document frame a normal button that leads on, or the robot treats it as an end.
 
 ## Frame names
 
@@ -119,7 +311,27 @@ dist/tiltale.js, style.css, assets/, log.php, logs/, restart/   shared by all pa
 
 Upload the **contents** of `/project/dist/` to a folder on a web server with PHP 7.4 or newer. `log.php` writes to `dist/logs/`, so that folder must be writable by the web server. `logs/.htaccess` blocks public access on Apache; on nginx add `location ~ /logs/ { deny all; }`. Regenerate never deletes `dist/logs/`.
 
-## Where to find what
+---
+
+## Tech stack
+
+You do not need to know these tools before you begin.
+
+| Technology | What it does |
+|---|---|
+| **Python 3** | Runs the studio. |
+| **Django** | The web framework behind the studio: pages, forms, the database of frames and elements. |
+| **SQLite** | The project database, one file: `project/project.sqlite3`. |
+| **openpyxl** | Reads and writes `content.xlsx`, where all story texts live. |
+| **Pillow** | Resizes the story's images for phones and desktops during Regenerate. |
+| **Plain HTML, CSS and JavaScript** | The studio's pages and the generated story use no frontend framework and no build step. |
+| **PHP** (only on the web server) | `log.php` stores the visit logs of a published story. |
+
+Exact installed versions are recorded in `requirements.txt`.
+
+---
+
+## Project structure
 
 Most changes start in one of these places:
 
@@ -189,6 +401,19 @@ The two prompts described in *Building with a language model*, plus `content-tem
 | `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css`, and optionally your own `logo-tiltale.png` / `favicon.ico`. Back this up. |
 | `project/dist/` | The website produced by Regenerate. Safe to delete except `dist/logs/` on the server. (Before v2.0.10 this was `/dist/` in the repository root; that folder can be deleted.) |
 
+## Development conventions
+
+To keep TilTale understandable for everyone:
+
+- Prefer readable code over clever code, and the smallest change that does the job.
+- Use type hints in Python; keep functions short and named after what they do.
+- Keep the story player (`runtime/tiltale.js`) in plain ES5 JavaScript, so old phones can run it; the studio (`app.js`) may use modern JavaScript.
+- Put reusable logic in `studio/services/`; views only validate input and call a service.
+- Do not edit `project/`, `project/dist/` or `studio/migrations/` by hand (see *Changing models*).
+- Add or adjust a test in `studio/tests.py` when you change behavior.
+
+---
+
 ## Changing models
 
 After editing `studio/models.py`:
@@ -203,3 +428,91 @@ Django writes the migration; never write one by hand. TilTale applies pending mi
 ## Tests and CI
 
 `python manage.py test` runs the behavior tests against an in-memory database. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, a syntax check of `tiltale.js`, `app.js` and `log.php`, and, on pull requests, fails when `TILTALE_VERSION` in `config/settings.py` was not bumped.
+
+---
+
+## Quick fixes
+
+### `python` or `pip` is not recognized
+
+Restart the PC (Windows) or VS Code, then run:
+
+```powershell
+python --version
+pip --version
+```
+
+On Windows, check whether Python can be found:
+
+```powershell
+where.exe python
+```
+
+If nothing is returned, reinstall Python and tick **Add python.exe to PATH** in the installer.
+
+---
+
+### PowerShell says `activate.ps1` cannot be loaded
+
+Use the command-prompt version of the activation script instead:
+
+```powershell
+.venv\Scripts\activate.bat
+```
+
+This avoids changing your PowerShell security settings.
+
+---
+
+### You are in the wrong folder
+
+Check your current location and whether `manage.py` is there:
+
+```powershell
+Get-Location
+Test-Path manage.py
+```
+
+Expected: `True`.
+
+---
+
+### `ModuleNotFoundError: No module named 'django'`
+
+The environment is not activated, or the dependencies are missing:
+
+```powershell
+.venv\Scripts\activate
+pip install -r requirements.txt
+python manage.py runserver
+```
+
+---
+
+### `Error: That port is already in use`
+
+Another `runserver` is still running. Stop it with `Ctrl + C` in its terminal, or start on another port:
+
+```powershell
+python manage.py runserver 8001
+```
+
+---
+
+### The preview says "Not built yet" or the status bar is amber
+
+Press **Regenerate** on the Develop page. The preview only changes when you do; the terminal running `runserver` shows the progress.
+
+---
+
+### Asking for help
+
+Include the output of:
+
+```powershell
+python --version
+python manage.py check
+python manage.py test
+```
+
+Also include the **first error message** shown in the terminal, and the TilTale version from the Help page.

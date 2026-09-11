@@ -25,6 +25,7 @@ urlpatterns = [
     path("develop/frames/<int:frame_id>/elements/import/", views.import_elements, name="import_elements"),
     path("develop/elements/<int:element_id>/save/", views.save_element, name="save_element"),
     path("develop/elements/<int:element_id>/duplicate/", views.duplicate_element, name="duplicate_element"),
+    path("develop/elements/<int:element_id>/move/", views.move_element, name="move_element"),
     path("develop/elements/<int:element_id>/content/add/", views.add_content_for_element, name="add_content_for_element"),
     path("develop/elements/<int:element_id>/delete/", views.delete_element, name="delete_element"),
 

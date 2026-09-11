@@ -5,7 +5,7 @@
   <section class="card hero">
     <p class="eyebrow">Automatic check</p>
     <h1>Play-test every page in /project/dist/</h1>
-    <p>A robot plays each generated page like a reader: it waits for delays, clicks buttons (preferring frames it has not seen yet) and stops at <strong>End story</strong>. A test <strong>fails</strong> on a button that leads nowhere, a JavaScript error, a loop without an end, or no answer within 60 seconds. Every test writes a normal log (participant <code>playtest-…</code>) that you can read below and under Results.</p>
+    <p>A robot plays each generated page like a reader: it waits for delays, clicks buttons (preferring frames it has not seen yet) and stops at <strong>End story</strong>. A test <strong>fails</strong> on a button that leads nowhere, a JavaScript error, a loop without an end, or a robot that stops reaching new frames for a minute. Every test writes a normal log (participant <code>playtest-…</code>) that you can read below and under Results.</p>
     {% if dist_stale %}<div class="alert warning">/project/dist/ is older than your latest changes. Regenerate first to test what you see in the editor.</div>{% endif %}
     {% if builds %}<button type="button" class="button primary" data-run-all>Run all play-tests</button>
     {% else %}<p class="muted">Nothing has been generated yet. Press <strong>Regenerate</strong> on the Develop page first.</p>{% endif %}

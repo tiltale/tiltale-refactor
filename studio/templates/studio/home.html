@@ -13,7 +13,7 @@
       <a class="button primary" href="{% url 'studio:new_project' %}">Create a new project</a>
     {% elif health.problems %}
       <h1>The project folder is incomplete</h1>
-      <div class="alert error"><p>TilTale never recreates missing project files by itself, so nothing gets overwritten. Restore these from a backup:</p>
+      <div class="alert error"><p>TilTale never recreates project files that hold your work, so an empty one never replaces the real thing. Restore these from a backup:</p>
         <ul>{% for problem in health.problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>
     {% elif not project %}
       <h1>The project database cannot be read</h1>
