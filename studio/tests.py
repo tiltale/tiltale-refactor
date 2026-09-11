@@ -329,9 +329,10 @@ class StudioViewTests(ProjectTestCase):
         report = generate_dist(self.project)
         self.assertEqual([build.folder for build in report.builds], [""])
 
-    def test_new_frame_is_in_the_preview_straight_away(self) -> None:
+    def test_adding_a_frame_does_not_rebuild_dist(self) -> None:
+        """Regenerate can take minutes on a big story, so only the Regenerate button starts it."""
         self.client.post(reverse("studio:new_frame"))
-        self.assertTrue((self.root / "dist" / "index.html").is_file())
+        self.assertFalse((self.root / "dist").exists())
 
     def test_story_uses_frame_ids_not_names(self) -> None:
         frame = Frame.objects.create(name="Intro scene")

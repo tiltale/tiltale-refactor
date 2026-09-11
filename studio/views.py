@@ -141,14 +141,6 @@ def _cover_box(image: str, project: ProjectSettings) -> dict[str, float]:
     return {"x": project.frame_width / 2, "y": project.frame_height / 2, "width": width * scale, "height": height * scale}
 
 
-def _rebuild_preview(request: HttpRequest, project: ProjectSettings) -> None:
-    """Rebuild /dist/ after a frame was added or removed, so every preview can find its page."""
-    try:
-        generate_dist(project)
-    except (OSError, ValueError) as error:
-        messages.warning(request, f"The preview could not be updated: {error}")
-
-
 def _target_value(element: Element) -> str:
     if element.ends_story:
         return "end"
@@ -280,7 +272,6 @@ def new_frame(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
         messages.error(request, "Language-picker frames need at least two language columns in content.xlsx.")
         return _to("develop", lang=content.language)
     frame: Frame = create_frame(is_picker=picker)
-    _rebuild_preview(request, project)
     messages.success(request, f"Created {frame.name}.")
     return _to("frame_editor", lang=content.language, frame_id=frame.id)
 
@@ -411,7 +402,6 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) 
 def delete_frame(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
     frame: Frame = get_object_or_404(Frame, pk=frame_id)
     frame.delete()
-    _rebuild_preview(request, project)
     messages.success(request, f"Deleted {frame.name}.")
     return _to("flowchart", lang=request.POST.get("language", ""))
 
@@ -494,8 +484,6 @@ def save_element(request: HttpRequest, project: ProjectSettings, element_id: int
         setattr(element, name, value)
     _save_geometry(element, language, project, geometry)
     element.save()
-    if created:
-        _rebuild_preview(request, project)
     messages.success(request, f"Saved element #{element.id}." + (f" Created {created.name} as its target." if created else ""))
     return back
 

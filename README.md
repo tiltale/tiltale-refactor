@@ -17,7 +17,7 @@ Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project
 
 ## Daily workflow
 
-1. **Develop**: add frames (`+ Frame`), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. Adding or deleting a frame updates the preview automatically; after other changes, press **Regenerate**. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
+1. **Develop**: add frames (`+ Frame`), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. The preview only changes when you press **Regenerate**, which the status bar reminds you of. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
 2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
 4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.

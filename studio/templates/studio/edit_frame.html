@@ -51,7 +51,14 @@
         <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the previous frame. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
       </fieldset>
       {% endif %}
-      <button class="button primary">Save frame</button>
+      <div class="row">
+        <button class="button primary">Save frame</button>
+        <button class="button danger" form="delete-frame">Delete frame</button>
+      </div>
+    </form>
+    <form method="post" id="delete-frame" action="{% url 'studio:delete_frame' frame.id %}"
+          data-confirm="Delete {{ frame.name }} and its {{ elements|length }} element(s)?{% if incoming %} {{ incoming }} button(s) that lead here will lead nowhere.{% endif %}">
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
     </form>
 
     <section>
@@ -98,11 +105,6 @@
       </form>
     </details>
     {% endif %}
-
-    <form method="post" action="{% url 'studio:delete_frame' frame.id %}" class="danger-zone" data-confirm="Delete {{ frame.name }} and its {{ elements|length }} element(s)?{% if incoming %} {{ incoming }} button(s) that lead here will lead nowhere.{% endif %}">
-      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
-      <button class="button danger">Delete frame</button>
-    </form>
   </aside>
 
   <section class="stage-area">
