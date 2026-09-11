@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <rect class="bubble-body" width="100%" height="100%" rx="30"/>
   <path class="bubble-tail"/>
+  <path class="bubble-tail-line"/>
 </svg>

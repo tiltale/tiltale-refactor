@@ -35,7 +35,8 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 |---|---|
 | Drag | move it. Its edges stick to the edges of other elements, shown by a blue line. |
 | `Shift` + drag | move it only horizontally or only vertically, whichever way you drag furthest. |
-| Drag the corner dot (appears on hover) | resize it. Images and the background keep their proportions; components do not. Components that grow with their text (the `laura-*` ones) use this as their minimum height. |
+| Drag a corner dot (appear on hover) | resize it from that corner; the opposite corner stays. Images and the background keep their proportions; components do not. Components that grow with their text (the `laura-*` ones) use this as their minimum height. |
+| `Shift` + drag a corner dot | the opposite: distort an image freely, or keep a component's proportions. |
 | Drag the black dot (bubbles only) | point the bubble's tail at a mouth or head. The bubble itself stays where it is. |
 | Click an element or image, or `Tab` to it and press `Enter` | open its settings (text, exact size and position, colors, what a click does). |
 | `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` | undo / redo a move or resize. The history covers the current page: it starts over after anything that reloads it, such as adding an element or saving settings. Inside a text field these keys undo typing instead. |

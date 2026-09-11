@@ -38,24 +38,30 @@ var TilTaleBubbles = (function () {
     return {x: width / 2 + dx * t, y: height / 2 + dy * t, nx: vertical ? 0 : sign(dx), ny: vertical ? sign(dy) : 0};
   }
 
-  /* Two base points on the edge, `half` apart on each side, kept clear of the corners. */
-  function base(edge, width, height, half, corner) {
+  /* Two base points `half` apart on each side of the edge point, `offset` along the outward normal
+     (negative: inside the body), kept clear of the corners. */
+  function base(edge, width, height, half, corner, offset) {
     var along = edge.nx ? "y" : "x";
     var limit = (edge.nx ? height : width) - corner;
     var center = Math.min(Math.max(edge[along], corner + half), limit - half);
-    var first = {x: edge.x - edge.nx * NUDGE, y: edge.y - edge.ny * NUDGE};
+    var first = {x: edge.x + edge.nx * offset, y: edge.y + edge.ny * offset};
     var second = {x: first.x, y: first.y};
     first[along] = center - half;
     second[along] = center + half;
     return [first, second];
   }
 
-  /* An open triangle: filled, but stroked only on its two flanks. */
-  function pointer(width, height, tip, half, corner) {
+  /* A filled triangle whose base sits inside the body (covering the body's stroke there), and the
+     outline of its two flanks, which starts at the outer edge of that stroke so no line enters the bubble. */
+  function pointer(width, height, tip, half, corner, stroke) {
     var edge = edgePoint(width, height, tip);
-    if (!edge) return "";
-    var ends = base(edge, width, height, half, corner);
-    return "M" + point(ends[0].x, ends[0].y) + "L" + point(tip.x, tip.y) + "L" + point(ends[1].x, ends[1].y);
+    if (!edge) return {fill: "", line: ""};
+    var inner = base(edge, width, height, half, corner, -NUDGE);
+    var outer = base(edge, width, height, half, corner, stroke / 2);
+    return {
+      fill: "M" + point(inner[0].x, inner[0].y) + "L" + point(tip.x, tip.y) + "L" + point(inner[1].x, inner[1].y) + "Z",
+      line: "M" + point(outer[0].x, outer[0].y) + "L" + point(tip.x, tip.y) + "L" + point(outer[1].x, outer[1].y)
+    };
   }
 
   function circle(x, y, r) {
@@ -116,10 +122,10 @@ var TilTaleBubbles = (function () {
   }
 
   var BODIES = {thought: cloud, scream: burst};
-  var TAILS = {
-    speech: function (w, h, tip) { return pointer(w, h, tip, 20 * unit(w, h), 30); },
-    thought: dots,
-    scream: function (w, h, tip) { return pointer(w, h, tip, 8 * unit(w, h), 12); }
+  var TAILS = {  // each returns {fill, line}: the .bubble-tail path and, when the SVG has one, the .bubble-tail-line path
+    speech: function (w, h, tip, stroke) { return pointer(w, h, tip, 20 * unit(w, h), 30, stroke); },
+    thought: function (w, h, tip) { return {fill: dots(w, h, tip), line: ""}; },
+    scream: function (w, h, tip, stroke) { return pointer(w, h, tip, 8 * unit(w, h), 12, stroke); }
   };
 
   function tailOf(node, width, height) {
@@ -138,8 +144,13 @@ var TilTaleBubbles = (function () {
     if (!width || !height) return;  // not laid out yet (hidden); the next draw() call does it
     var body = svg.querySelector(".bubble-body");
     var tail = svg.querySelector(".bubble-tail");
+    var line = svg.querySelector(".bubble-tail-line");
     if (body && BODIES[kind]) body.setAttribute("d", BODIES[kind](width, height));
-    if (tail && TAILS[kind]) tail.setAttribute("d", TAILS[kind](width, height, tailOf(node, width, height)));
+    if (!tail || !TAILS[kind]) return;
+    var stroke = parseFloat(window.getComputedStyle(body).strokeWidth) || 0;
+    var shapes = TAILS[kind](width, height, tailOf(node, width, height), stroke);
+    tail.setAttribute("d", shapes.fill);
+    if (line) line.setAttribute("d", shapes.line);
   }
 
   /* Draws `root` itself when it has a tail, and every element with one inside it. */

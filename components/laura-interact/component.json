@@ -1,0 +1,9 @@
+{
+  "name": "Laura interact",
+  "description": "See-through clickable area with a thick blue frame. Put it over the part of the picture readers should tap. The fill color is not used.",
+  "accepts_content": false,
+  "clickable": true,
+  "default_size": {"width": 480, "height": 360},
+  "default_font_size": 36,
+  "colors": {"fill": "#FFFFFF", "border": "#A6CDF6", "text": "#000000"}
+}

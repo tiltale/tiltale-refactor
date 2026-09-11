@@ -10,6 +10,7 @@ const FOCUS_MS = 350; // same duration as .flow-world.is-animating in app.css
 const STAGE_MARGIN_PX = 32;
 const SNAP_PX = 6; // an edge this close (on screen) to another element's edge sticks to it
 const MIN_BOX_PX = 20; // same minimum width and height as BOX_FIELDS in views.py
+const SIDES = { n: "top", s: "bottom", w: "left", e: "right" }; // the corner handles: "nw" sits at the top-left
 
 // Background saves (dragging elements or frames) report failures in the status bar, which stays visible.
 function reportError(message) {
@@ -306,17 +307,18 @@ function makeBoxEditable(node, boxes, canvas, view, onDrop) {
   });
   node.addEventListener("pointerdown", (event) => {
     const start = { x: event.clientX, y: event.clientY, box: readBox(node) };
-    const resizing = Boolean(event.target.closest("[data-resize]"));
+    const handle = event.target.closest("[data-resize]");
     const tailing = Boolean(event.target.closest("[data-tail-handle]"));
     // An element that grew with its text is resized from the height it shows, not from its minimum.
-    if (resizing && "autoHeight" in node.dataset) start.box.height = node.offsetHeight;
+    if (handle && "autoHeight" in node.dataset) start.box.height = node.offsetHeight;
     const others = boxes.filter((other) => other !== node).map(readBox);
     let moved = false;
     trackPointer(node, event, (move) => {
       const delta = { x: (move.clientX - start.x) / view.scale, y: (move.clientY - start.y) / view.scale };
       moved = moved || Math.hypot(delta.x, delta.y) * view.scale > DRAG_THRESHOLD_PX;
       if (tailing) return placeBox(node, { ...start.box, tail_x: start.box.tail_x + delta.x, tail_y: start.box.tail_y + delta.y });
-      if (resizing) return placeBox(node, resizedBox(start.box, delta.x, delta.y, "keepRatio" in node.dataset));
+      // Images keep their proportions and components do not; Shift does the opposite.
+      if (handle) return placeBox(node, resizedBox(start.box, delta.x, delta.y, ("keepRatio" in node.dataset) !== move.shiftKey, handle.dataset.resize));
       // Shift keeps the drag horizontal or vertical, whichever way it has gone furthest (as in Illustrator).
       const axes = move.shiftKey ? [Math.abs(delta.x) > Math.abs(delta.y) ? "x" : "y"] : ["x", "y"];
       const box = { ...start.box };
@@ -354,18 +356,24 @@ function placeBox(node, box) {
     node.style.setProperty("--tail-y", `${Math.round(box.tail_y)}px`);
     TilTaleBubbles.draw(node);
   }
-  // The corner stays inside the frame, or a background larger than the frame could never be resized.
-  const handle = node.querySelector("[data-resize]");
-  handle.style.right = `${Math.max(0, box.x + box.width / 2 - Number(frame.width))}px`;
-  handle.style.bottom = `${Math.max(0, box.y + box.height / 2 - Number(frame.height))}px`;
+  // The corners stay inside the frame, or a background larger than the frame could never be resized.
+  const overflow = {
+    left: Math.max(0, box.width / 2 - box.x), top: Math.max(0, box.height / 2 - box.y),
+    right: Math.max(0, box.x + box.width / 2 - Number(frame.width)), bottom: Math.max(0, box.y + box.height / 2 - Number(frame.height)),
+  };
+  for (const handle of node.querySelectorAll("[data-resize]")) {
+    for (const letter of handle.dataset.resize) handle.style[SIDES[letter]] = `${overflow[SIDES[letter]]}px`;
+  }
 }
 
-// Resizing keeps the top-left corner in place. Images keep their aspect ratio.
-function resizedBox(start, dx, dy, keepRatio) {
+// Dragging `corner` ("nw", "ne", "se" or "sw") keeps the opposite corner in place.
+function resizedBox(start, dx, dy, keepRatio, corner) {
+  const signX = corner.includes("w") ? -1 : 1; // a left corner grows the box when dragged left
+  const signY = corner.includes("n") ? -1 : 1;
   const ratio = start.height / start.width;
-  const width = Math.max(MIN_BOX_PX, start.width + dx, keepRatio ? MIN_BOX_PX / ratio : 0);
-  const height = keepRatio ? width * ratio : Math.max(MIN_BOX_PX, start.height + dy);
-  return { ...start, x: start.x - start.width / 2 + width / 2, y: start.y - start.height / 2 + height / 2, width, height };
+  const width = Math.max(MIN_BOX_PX, start.width + signX * dx, keepRatio ? MIN_BOX_PX / ratio : 0);
+  const height = keepRatio ? width * ratio : Math.max(MIN_BOX_PX, start.height + signY * dy);
+  return { ...start, x: start.x + signX * (width - start.width) / 2, y: start.y + signY * (height - start.height) / 2, width, height };
 }
 
 // Moves `box` along `axes` so its closest edge meets an edge of another box, if one is within `reach`.

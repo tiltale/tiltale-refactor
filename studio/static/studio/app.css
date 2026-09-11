@@ -147,7 +147,8 @@ label.compact select { width: auto; }
 .canvas .story-element { cursor: grab; touch-action: none; user-select: none; }
 .canvas .story-element:active { cursor: grabbing; }
 .canvas .story-element:hover, .canvas .story-element:focus-visible { outline: 4px dashed var(--accent); outline-offset: 4px; }
-.resize-handle { position: absolute; right: 0; bottom: 0; width: calc(16px / var(--canvas-scale)); height: calc(16px / var(--canvas-scale)); border: calc(2px / var(--canvas-scale)) solid #fff; border-radius: 50%; background: var(--accent); cursor: nwse-resize; opacity: 0; }
+.resize-handle { position: absolute; width: calc(16px / var(--canvas-scale)); height: calc(16px / var(--canvas-scale)); border: calc(2px / var(--canvas-scale)) solid #fff; border-radius: 50%; background: var(--accent); cursor: nwse-resize; opacity: 0; }  /* placeBox() sets which corner */
+.resize-handle[data-resize="ne"], .resize-handle[data-resize="sw"] { cursor: nesw-resize; }
 .tail-handle { position: absolute; left: calc(50% + var(--tail-x)); top: calc(50% + var(--tail-y)); width: calc(14px / var(--canvas-scale)); height: calc(14px / var(--canvas-scale)); translate: -50% -50%; border: calc(2px / var(--canvas-scale)) solid #fff; border-radius: 50%; background: #111; cursor: move; opacity: 0; }
 .canvas .story-element:hover .resize-handle, .canvas .story-element:focus-visible .resize-handle, .canvas .story-element:hover .tail-handle, .canvas .story-element:focus-visible .tail-handle { opacity: 1; }
 .snap-guide { position: absolute; background: var(--accent); pointer-events: none; }

@@ -106,14 +106,14 @@
   </aside>
 
   <section class="stage-area">
-    <p class="hint">Drag to move (<kbd>Shift</kbd> keeps it straight); edges stick to other elements' edges. Drag the corner dot to resize, the black dot to point a bubble's tail. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes. Click an element for its settings.</p>
+    <p class="hint">Drag to move (<kbd>Shift</kbd> keeps it straight); edges stick to other elements' edges. Drag a corner dot to resize (<kbd>Shift</kbd> flips whether the proportions are kept), the black dot to point a bubble's tail. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes. Click an element for its settings.</p>
     <div class="stage" data-canvas-stage>
       <div class="canvas" data-canvas data-width="{{ project.frame_width|stringformat:'g' }}" data-height="{{ project.frame_height|stringformat:'g' }}"
            style="width: {{ project.frame_width|stringformat:'g' }}px; height: {{ project.frame_height|stringformat:'g' }}px;{% if frame.background_type == 'solid' %} background: {{ frame.background_color }};{% endif %}">
         {% if background %}{% with box=background.box %}
         <div class="story-element story-image" data-keep-ratio data-box-url="{% url 'studio:background_box_api' frame.id %}"
              style="left: {{ box.x|stringformat:'g' }}px; top: {{ box.y|stringformat:'g' }}px; width: {{ box.width|stringformat:'g' }}px; height: {{ box.height|stringformat:'g' }}px;">
-          <img src="{{ background.url }}" alt="Background"><span class="resize-handle" data-resize></span>
+          <img src="{{ background.url }}" alt="Background"><span class="resize-handle" data-resize="nw"></span><span class="resize-handle" data-resize="ne"></span><span class="resize-handle" data-resize="se"></span><span class="resize-handle" data-resize="sw"></span>
         </div>
         {% endwith %}{% endif %}
         {% for item in elements %}
@@ -123,7 +123,7 @@
              style="left: {{ g.x|stringformat:'g' }}px; top: {{ g.y|stringformat:'g' }}px; width: {{ g.width|stringformat:'g' }}px; {% if item.component.auto_height %}min-height{% else %}height{% endif %}: {{ g.height|stringformat:'g' }}px; font-size: {{ g.font_size|stringformat:'g' }}px;{% if element.tail_x is not None %} --tail-x: {{ element.tail_x|stringformat:'g' }}px; --tail-y: {{ element.tail_y|stringformat:'g' }}px;{% endif %}{% if element.fill_color %} --element-fill: {{ element.fill_color }};{% endif %}{% if element.border_color %} --element-border: {{ element.border_color }};{% endif %}{% if element.text_color %} --element-text: {{ element.text_color }};{% endif %}">
           {% if element.image %}<img src="{% url 'studio:material_file' element.image %}" alt="">
           {% else %}<div class="component-shape">{{ item.component.svg|safe }}</div>{% if item.component.accepts_content %}<div class="component-text">{{ item.text }}</div>{% endif %}{% endif %}
-          <span class="resize-handle" data-resize></span>
+          <span class="resize-handle" data-resize="nw"></span><span class="resize-handle" data-resize="ne"></span><span class="resize-handle" data-resize="se"></span><span class="resize-handle" data-resize="sw"></span>
           {% if item.component.tail %}<span class="tail-handle" data-tail-handle title="Drag to point the tail"></span>{% endif %}
         </div>
         {% endwith %}
