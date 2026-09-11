@@ -12,7 +12,7 @@ Multi-language project::
     dist/tiltale.js, style.css, ...     shared by every page
 
 Shared by every page: ``tiltale.js``, ``bubbles.js``, ``style.css``, ``logo-tiltale.png``,
-``favicon.ico``, ``assets/`` (responsive images), ``log.php`` and ``logs/``.
+``favicon.ico``, ``assets/`` (responsive images), ``log.php``, ``logs/`` and ``restart/``.
 Frames are identified by their fixed ID (``Frame.key``, e.g. ``fnr-12``) in everything generated.
 """
 
@@ -21,9 +21,11 @@ from datetime import datetime, timezone
 import hashlib
 from html import escape
 import json
+import logging
 from pathlib import Path
 import re
 import shutil
+import time
 from typing import Any
 
 from django.conf import settings
@@ -35,6 +37,8 @@ from .components import ComponentDefinition, component_css, component_map
 from .content import ContentRow, ContentTable, load_content_table
 from .project import BRANDING_FILES, newest_source_timestamp, safe_child
 from .validate import ValidationIssue, validate_project
+
+log = logging.getLogger(__name__)  # shown in the runserver terminal (see LOGGING in settings.py)
 
 IMAGE_WIDTHS: tuple[int, ...] = (480, 960, 1920)
 SHARED_FILES: tuple[str, ...] = ("tiltale.js", "bubbles.js", "style.css", "logo-tiltale.png", "favicon.ico")
@@ -86,14 +90,14 @@ def page_path(folder: str) -> str:
 
 
 def reset_dist_directory() -> None:
-    """Empty ``/dist/`` but keep ``/dist/logs/`` (study data is never deleted)."""
+    """Empty ``/project/dist/`` but keep its ``logs/`` (study data is never deleted)."""
     base: Path = settings.BASE_DIR.resolve()
     dist: Path = settings.DIST_DIR.resolve()
     project: Path = settings.PROJECT_DIR.resolve()
     if dist == base or base not in dist.parents:
         raise ValueError("DIST_DIR must be a dedicated folder inside the TilTale repository.")
-    if dist == project or dist in project.parents or project in dist.parents:
-        raise ValueError("Refusing to regenerate because DIST_DIR overlaps /project/.")
+    if dist == project or dist in project.parents:
+        raise ValueError("Refusing to regenerate because DIST_DIR contains /project/.")
     dist.mkdir(exist_ok=True)
     for child in dist.iterdir():
         if child.name == "logs":
@@ -131,6 +135,7 @@ def _frame_payload(
     components: dict[str, ComponentDefinition],
     images: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
+    close_row = content_by_id.get(frame.close_content_id) if frame.close_content_id else None
     background: dict[str, Any] = {"type": frame.background_type}
     if frame.background_type == Frame.BackgroundType.SOLID:
         background["color"] = frame.background_color
@@ -169,7 +174,10 @@ def _frame_payload(
             "break_long_words": element.break_long_words,
             "delay_mode": element.delay_mode,
         })
-    return {"name": frame.key, "fade_in": frame.fade_in, "background": background, "elements": elements}
+    return {
+        "name": frame.key, "fade_in": frame.fade_in, "background": background, "elements": elements,
+        "zoomable": frame.zoomable, "close_text": close_row.values.get(language, "") if close_row else "",
+    }
 
 
 def _story_js(story: dict[str, Any]) -> str:
@@ -186,6 +194,7 @@ def _write_page(folder: str, story: dict[str, Any], html_language: str, title: s
         .replace("__LANGUAGE__", escape(html_language, quote=True))
         .replace("__TITLE__", escape(title))
         .replace("__ROOT__", root)
+        .replace("__VERSION__", settings.TILTALE_VERSION)
     )
     (output / "index.html").write_text(html, encoding="utf-8")
     shared: int = sum((settings.DIST_DIR / name).stat().st_size for name in SHARED_FILES if (settings.DIST_DIR / name).is_file())
@@ -200,6 +209,8 @@ def _write_shared_files() -> None:
     (dist / "logs").mkdir(exist_ok=True)
     (dist / "logs" / ".htaccess").write_text("Require all denied\n", encoding="utf-8")
     shutil.copy2(runtime / "log.php", dist / "log.php")
+    (dist / "restart").mkdir()  # <root>/restart/ clears a browser's progress, then opens the story
+    shutil.copy2(runtime / "restart.html", dist / "restart" / "index.html")
     for name in BRANDING_FILES:
         shutil.copy2(branding_file(name), dist / name)
     for name in ("tiltale.js", "bubbles.js"):
@@ -222,11 +233,16 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
     story_frames: list[Frame] = [frame for frame in frames if not frame.is_language_picker]
     pickers: list[Frame] = [frame for frame in frames if frame.is_language_picker] if len(languages) > 1 else []
 
+    started: float = time.monotonic()
     reset_dist_directory()
     _write_shared_files()
     backgrounds: set[str] = {frame.background_image for frame in frames if frame.background_type == Frame.BackgroundType.IMAGE}
     pictures: set[str] = {element.image for frame in frames for element in frame.elements.all() if element.image}
-    images: dict[str, list[dict[str, Any]]] = {path: _image_variants(path) for path in sorted(backgrounds | pictures)}
+    paths: list[str] = sorted(backgrounds | pictures)
+    images: dict[str, list[dict[str, Any]]] = {}
+    for number, path in enumerate(paths, start=1):
+        log.info("Regenerate: image %d/%d %s", number, len(paths), path)
+        images[path] = _image_variants(path)
     content_by_id = content.by_id()
 
     def story(page_frames: list[Frame], language: str, root: str) -> dict[str, Any]:
@@ -265,6 +281,7 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
         issues=tuple(issues),
     )
     (settings.DIST_DIR / ".build.json").write_text(json.dumps(asdict(report), indent=2), encoding="utf-8")
+    log.info("Regenerate: %d page(s) written to %s in %.1f s", len(builds), settings.DIST_DIR, time.monotonic() - started)
     return report
 
 

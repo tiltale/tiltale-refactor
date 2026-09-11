@@ -26,7 +26,7 @@ from .services.flow import create_frame, tidy_layout
 from .services.generate import dist_is_stale, generate_dist, language_folder, load_build_report, page_path, story_css
 from .services.llm import frame_prompt, parse_elements
 from .services.project import BRANDING_FILES, create_project, image_size, list_materials, project_health, project_settings, safe_child
-from .services.study_logs import append_event, import_jsonl, logs_dir, read_events, session_summaries
+from .services.study_logs import append_event, import_jsonl, logs_dir, read_events, session_record, session_summaries
 from .services.validate import DEVICE_PRESETS, validate_project
 
 BOX_FIELDS: tuple[tuple[str, str, float | None], ...] = (
@@ -188,7 +188,7 @@ def home(request: HttpRequest) -> HttpResponse:
 
 
 def help_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "studio/help.html", {"project": project_settings()})
+    return render(request, "studio/help.html", {"project": project_settings(), "version": settings.TILTALE_VERSION})
 
 
 def new_project(request: HttpRequest) -> HttpResponse:
@@ -285,9 +285,8 @@ def new_frame(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     return _to("frame_editor", lang=content.language, frame_id=frame.id)
 
 
-@project_view
-def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
-    content: Content = _content(request, project)
+def _flow_graph(project: ProjectSettings, content: Content) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Nodes and edges of the flowchart, shared by the Flowchart and Results pages."""
     frames: list[Frame] = list(Frame.objects.prefetch_related("elements"))
     components = component_map()
     rows = content.table.by_id()
@@ -310,7 +309,8 @@ def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
                 "target": target,
                 "target_name": names.get(target, ""),
                 "element_id": element.id,
-                "label": (text or (component.name if component else element.component))[:80],
+                "component": component.name if component else element.component,
+                "text": text[:80],
                 "language": element.target_language,
                 "end": element.ends_story,
             })
@@ -322,6 +322,13 @@ def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
             "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_id': frame.id})}?{urlencode({'lang': content.language})}",
             "preview_url": _preview_url("") if frame.is_language_picker else story_url,
         })
+    return nodes, edges
+
+
+@project_view
+def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    content: Content = _content(request, project)
+    nodes, edges = _flow_graph(project, content)
     return render(request, "studio/flowchart.html", {
         "project": project, "content": content, "nodes": nodes, "edges": edges,
         "selected_frame": request.GET.get("selected", ""),
@@ -343,7 +350,7 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) 
     frame: Frame = get_object_or_404(Frame, pk=frame_id)
     content: Content = _content(request, project)
     materials: list[str] = list_materials()
-    form = FrameForm(request.POST or None, instance=frame, materials=materials)
+    form = FrameForm(request.POST or None, instance=frame, materials=materials, content_ids=set(content.table.by_id()))
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, f"Saved the settings of {frame.name}.")
@@ -554,7 +561,17 @@ def import_elements(request: HttpRequest, project: ProjectSettings, frame_id: in
 
 @project_view
 def results(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
-    return render(request, "studio/results.html", {"project": project, "sessions": session_summaries()})
+    content: Content = _content(request, project)
+    nodes, edges = _flow_graph(project, content)
+    names: dict[str, str] = {node["key"]: node["name"] for node in nodes}
+    labels: dict[int, str] = {
+        edge["element_id"]: f"{edge['component']} ({edge['text']})" if edge["text"] else edge["component"] for edge in edges
+    }
+    return render(request, "studio/results.html", {
+        "project": project, "content": content, "nodes": nodes, "edges": edges, "readonly": True,
+        "sessions": [session_record(summary, names, labels) for summary in session_summaries()],
+        "dist_ready": (settings.DIST_DIR / page_path(language_folder(project, content.language, content.languages))).is_file(),
+    })
 
 
 @require_POST

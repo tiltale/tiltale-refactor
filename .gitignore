@@ -9,11 +9,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# TilTale user data: NEVER commit study/project data.
+# TilTale user data: NEVER commit study/project data. Includes the generated website in /project/dist/.
 /project/
-
-# Generated output: rebuild it with Regenerate.
-/dist/
 
 # Archives shared outside Git
 *.zip

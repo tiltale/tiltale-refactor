@@ -75,6 +75,10 @@ class Frame(models.Model):
     background_width = models.FloatField(null=True, blank=True)
     background_height = models.FloatField(null=True, blank=True)
     fade_in = models.BooleanField(default=False)
+    # Document frames: readers may zoom and drag the frame, and a fixed "× Close" button
+    # returns to the previous frame. Its label is a row of content.xlsx (empty: just "×").
+    zoomable = models.BooleanField(default=False)
+    close_content_id = models.PositiveIntegerField(null=True, blank=True)
     flow_x = models.FloatField(default=0.0)
     flow_y = models.FloatField(default=0.0)
 

@@ -24,28 +24,7 @@
       <span class="spacer"></span>
       <span class="muted hint">Click to focus · drag to move · <kbd>Shift</kbd>+click to select several · drag the background to pan · double-click to edit</span>
     </div>
-    <div class="flow-viewport" data-flow-viewport>
-      <div class="flow-world" data-flow-world>
-        <svg class="flow-edges" aria-hidden="true">
-          <defs><marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker></defs>
-          <g data-flow-paths></g>
-        </svg>
-        {% for node in nodes %}
-        <div class="flow-node{% if node.picker %} is-picker{% endif %}{% if node.start %} is-start{% endif %}" tabindex="0"
-             data-node="{{ node.id }}" data-name="{{ node.name }}" data-key="{{ node.key }}" data-x="{{ node.x|stringformat:'g' }}" data-y="{{ node.y|stringformat:'g' }}"
-             data-edit-url="{{ node.edit_url }}" data-preview-url="{{ node.preview_url }}">
-          <strong>{{ node.name }}</strong> <code class="frame-id">{{ node.key }}</code>
-          <span class="node-badges">
-            {% if node.start %}<span class="badge start">{% if node.picker %}Start page{% else %}Story start{% endif %}</span>{% endif %}
-            {% if node.picker %}<span class="badge picker">Picker</span>{% endif %}
-            {% if node.fade_in %}<span class="badge">Fade</span>{% endif %}
-            {% if node.ends %}<span class="badge end">End ×{{ node.ends }}</span>{% endif %}
-          </span>
-        </div>
-        {% endfor %}
-      </div>
-      {% if not nodes %}<div class="empty-state"><p>No frames yet.</p><p class="muted">Create the first one with <strong>+ Frame</strong>.</p></div>{% endif %}
-    </div>
+    {% include 'studio/_flow.html' %}
     <div class="legend">
       <span><i class="swatch story"></i> Story frame</span>
       {% if content.multilingual %}<span><i class="swatch picker"></i> Language-picker frame (start page, not in content.xlsx)</span><span><i class="line dashed"></i> Opens a language</span>{% endif %}
@@ -53,14 +32,6 @@
     </div>
   </section>
 
-  <aside class="panel inspector" data-inspector hidden>
-    <div class="panel-head"><h2 data-inspector-title></h2></div>
-    <div class="inspector-screen">{% if dist_ready %}<iframe title="Frame preview" tabindex="-1" data-inspector-frame></iframe>{% else %}<p class="muted">Regenerate to see a preview.</p>{% endif %}</div>
-    {% if dist_stale and dist_ready %}<p class="muted">The preview may be older than your latest changes.</p>{% endif %}
-    <h3>Buttons on this frame</h3>
-    <ul class="link-list" data-inspector-links></ul>
-    <a class="button primary" data-inspector-edit>Edit frame</a>
-  </aside>
-  {{ edges|json_script:"flow-edges" }}
+  {% include 'studio/_flow_inspector.html' %}
 </main>
 {% endblock %}

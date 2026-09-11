@@ -15,10 +15,12 @@ So the absence of ``/project/`` simply means "no active project".
 from pathlib import Path
 import os
 
+TILTALE_VERSION: str = "2.0.10"  # bump on every release; CI checks this on pull requests
+
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 PROJECT_DIR: Path = BASE_DIR / "project"
 PROJECT_DB: Path = PROJECT_DIR / "project.sqlite3"
-DIST_DIR: Path = BASE_DIR / "dist"
+DIST_DIR: Path = PROJECT_DIR / "dist"  # the generated website lives with the project it belongs to
 COMPONENTS_DIR: Path = BASE_DIR / "components"
 RUNTIME_DIR: Path = BASE_DIR / "runtime"
 BRANDING_DIR: Path = BASE_DIR  # default logo-tiltale.png and favicon.ico for every project
@@ -92,3 +94,12 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.BigAutoField"
 
 # The generated story is shown inside same-origin iframes in the studio.
 X_FRAME_OPTIONS: str = "SAMEORIGIN"
+
+# Regenerate reports its progress in the terminal running ``runserver`` (silent in tests, where DEBUG is off).
+LOGGING: dict[str, object] = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {"require_debug_true": {"()": "django.utils.log.RequireDebugTrue"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "filters": ["require_debug_true"]}},
+    "loggers": {"studio": {"handlers": ["console"], "level": "INFO"}},
+}

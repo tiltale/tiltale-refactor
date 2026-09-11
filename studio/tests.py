@@ -21,7 +21,7 @@ from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.generate import generate_dist, language_folder, reset_dist_directory
 from .services.llm import parse_elements
 from .services.project import image_size, safe_child
-from .services.study_logs import import_jsonl, log_file_name, safe_name, session_kind
+from .services.study_logs import frame_visits, import_jsonl, log_file_name, readable_events, safe_name, session_kind
 from .services.validate import validate_project
 
 ANSWER: str = '{"elements": [{"component": "choice-button", "content_id": 1, "x": 960, "y": 540, "target": "fnr-2"}]}'
@@ -138,10 +138,10 @@ class FileBoundaryTests(SimpleTestCase):
         with TemporaryDirectory() as directory, self.assertRaises(ValueError):
             safe_child(Path(directory), "../outside.txt")
 
-    def test_regeneration_refuses_a_dist_inside_project(self) -> None:
+    def test_regeneration_refuses_a_dist_that_contains_the_project(self) -> None:
         with TemporaryDirectory() as directory:
             base = Path(directory)
-            with override_settings(BASE_DIR=base, PROJECT_DIR=base / "project", DIST_DIR=base / "project" / "dist"):
+            with override_settings(BASE_DIR=base, PROJECT_DIR=base / "data" / "project", DIST_DIR=base / "data"):
                 with self.assertRaises(ValueError):
                     reset_dist_directory()
 
@@ -181,6 +181,23 @@ class StudyLogTests(SimpleTestCase):
     def test_qualtrics_ids_count_as_study_visits(self) -> None:
         self.assertEqual(session_kind("R_1abcDEF"), "study")
 
+    def test_seconds_per_frame_run_until_the_next_frame_or_the_end(self) -> None:
+        events = [
+            {"event": "frame", "frame": "fnr-1", "timestamp": "2026-09-10T10:00:00Z"},
+            {"event": "choice", "frame": "fnr-1", "element_id": 5, "timestamp": "2026-09-10T10:00:12Z"},
+            {"event": "frame", "frame": "fnr-2", "timestamp": "2026-09-10T10:00:12Z"},
+            {"event": "Story finished", "frame": "fnr-2", "timestamp": "2026-09-10T10:00:15Z"},
+        ]
+        self.assertEqual(frame_visits(events), [("fnr-1", 12.0), ("fnr-2", 3.0)])
+
+    def test_readable_lines_use_frame_and_element_names(self) -> None:
+        events = [
+            {"event": "frame", "frame": "fnr-1", "timestamp": "2026-09-10T10:00:00Z", "how": "resumed"},
+            {"event": "choice", "frame": "fnr-1", "element_id": 5, "timestamp": "2026-09-10T10:00:12Z"},
+        ]
+        lines = readable_events(events, {"fnr-1": "Intro"}, {5: "Choice button (Go on)"})
+        self.assertEqual(lines, ["IDN refreshed", "Intro: visited (last frame)", "Intro: clicked 'Choice button (Go on)'"])
+
     def test_import_never_overwrites_an_existing_log(self) -> None:
         data = (json.dumps(EVENT) + "\n").encode()
         with TemporaryDirectory() as directory:
@@ -213,7 +230,7 @@ class FrameNameTests(TestCase):
 
     def form(self, frame: Frame, name: str) -> FrameForm:
         data = {"name": name, "background_type": "none", "background_color": "#111111", "background_image": ""}
-        return FrameForm(data, instance=frame, materials=[])
+        return FrameForm(data, instance=frame, materials=[], content_ids=set())
 
     def test_frames_can_be_renamed_with_spaces(self) -> None:
         frame = Frame.objects.create(name="frame-1")
@@ -243,7 +260,7 @@ class FrameNameTests(TestCase):
     def test_a_new_background_image_fills_the_frame_again(self) -> None:
         frame = Frame.objects.create(name="frame-1", background_type="image", background_image="old.png", background_width=50)
         data = {"name": "frame-1", "background_type": "image", "background_color": "#111111", "background_image": "new.png"}
-        FrameForm(data, instance=frame, materials=["new.png"]).save()
+        FrameForm(data, instance=frame, materials=["new.png"], content_ids=set()).save()
         self.assertIsNone(Frame.objects.get(pk=frame.pk).background_box)
 
     def test_renaming_keeps_the_id(self) -> None:
@@ -320,6 +337,24 @@ class StudioViewTests(ProjectTestCase):
         frame = Frame.objects.create(name="Intro scene")
         generate_dist(self.project)
         self.assertIn(f'"start_frame":"{frame.key}"', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
+
+    def test_generated_pages_carry_the_version_and_a_restart_route(self) -> None:
+        Frame.objects.create(name="frame-1")
+        generate_dist(self.project)
+        self.assertIn("Made with TilTale version", (self.root / "dist" / "index.html").read_text(encoding="utf-8"))
+        self.assertTrue((self.root / "dist" / "restart" / "index.html").is_file())
+
+    def test_document_frames_get_a_close_text_in_the_story(self) -> None:
+        append_content_row(self.root / "project" / "content.xlsx", "", {"en-US": "Close"})
+        Frame.objects.create(name="frame-1", zoomable=True, close_content_id=1)
+        generate_dist(self.project)
+        self.assertIn('"zoomable":true,"close_text":"Close"', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
+
+    def test_results_page_lists_visits_with_readable_events(self) -> None:
+        Frame.objects.create(name="Intro")
+        frame = Frame.objects.first()
+        self.client.post(reverse("studio:preview_log"), json.dumps({**EVENT, "frame": frame.key, "timestamp": "2026-09-10T10:00:00Z"}), content_type="application/json")
+        self.assertContains(self.client.get(reverse("studio:results")), "Intro: visited (last frame)")
 
     def test_project_logo_overrides_the_default(self) -> None:
         (self.root / "project" / "logo-tiltale.png").write_bytes(b"project logo")

@@ -1,42 +1,59 @@
 {% extends 'studio/base.html' %}
 {% block title %}TilTale | Results{% endblock %}
 {% block body %}
-<main class="page">
-  <section class="card">
-    <p class="eyebrow">Logs</p>
-    <h1>Results</h1>
-    <p class="muted">One file per visit in <code>/project/logs/</code>. Preview and play-test visits are written here directly; study logs are downloaded from <code>dist/logs/</code> on your web server and imported below. Existing files are never overwritten.</p>
-    <form method="post" action="{% url 'studio:import_logs' %}" enctype="multipart/form-data" class="row">
-      {% csrf_token %}
-      <input type="file" name="log_files" accept=".jsonl" multiple aria-label="Log files">
-      <button class="button primary">Import</button>
-    </form>
+<main class="workspace results-workspace" data-results data-flowchart data-readonly data-selected="">
+  <aside class="panel results-panel">
+    <div class="panel-head">
+      <h2>Visits <span class="count">{{ sessions|length }}</span></h2>
+      <form class="filters" data-filters>
+        <label class="check"><input type="checkbox" name="exclude_tests"> <span>Exclude previews and play-tests</span></label>
+        <label class="check"><input type="checkbox" name="finished_only"> <span>Finished only</span></label>
+        <label class="compact">From <input type="date" name="from"></label>
+        <label class="compact">To <input type="date" name="to"></label>
+      </form>
+    </div>
+    <button type="button" class="session-all is-active" data-show-all>Show all <span class="muted" data-shown-count></span></button>
+    {% for session in sessions %}
+    <details class="session" data-session="{{ forloop.counter0 }}">
+      <summary>
+        <strong>{{ session.participant_id }}</strong>
+        <span class="muted">{{ session.started_label }} · <span class="badge {{ session.kind }}">{{ session.kind }}</span> · {{ session.language|default:"—" }} · {{ session.event_count }} events ({{ session.finished|yesno:"finished,incomplete" }})</span>
+      </summary>
+      <ol class="timeline">{% for line in session.lines %}<li>{{ line }}</li>{% endfor %}</ol>
+      <a class="muted" href="{% url 'studio:session_detail' session.file_name %}">Raw log</a>
+    </details>
+    {% empty %}
+    <p class="muted">No logs yet. Open the preview or run a play-test to create one, or import files below.</p>
+    {% endfor %}
+  </aside>
+
+  <section class="stage-area">
+    <div class="toolbar">
+      {% if content.multilingual %}
+      <form method="get"><label class="compact">Texts in
+        <select name="lang" data-autosubmit>{% for language in content.languages %}<option value="{{ language }}"{% if language == content.language %} selected{% endif %}>{{ language }}</option>{% endfor %}</select>
+      </label></form>
+      <span class="divider"></span>
+      {% endif %}
+      <button type="button" class="icon" title="Zoom out" data-zoom-step="-1">−</button>
+      <span class="muted zoom" data-zoom></span>
+      <button type="button" class="icon" title="Zoom in" data-zoom-step="1">+</button>
+      <button type="button" class="button" title="Show all frames" data-fit>Fit</button>
+      <span class="spacer"></span>
+      <form method="post" action="{% url 'studio:import_logs' %}" enctype="multipart/form-data" class="row" title="Study logs downloaded from dist/logs/ on your web server. Existing files are never overwritten.">
+        {% csrf_token %}
+        <input type="file" name="log_files" accept=".jsonl" multiple aria-label="Log files">
+        <button class="button primary">Import</button>
+      </form>
+    </div>
+    {% include 'studio/_flow.html' %}
+    <div class="legend">
+      <span>Per frame: <em>n</em> visits and seconds on screen (avg, min, max) for the visits listed on the left · on each line: how many of those visits continued that way</span>
+      <span><i class="line selected"></i> Path of the selected visit</span>
+    </div>
   </section>
 
-  <section class="card">
-    <div class="row">
-      <h2>Visits <span class="count">{{ sessions|length }}</span></h2>
-      <span class="spacer"></span>
-      <label class="check"><input type="checkbox" data-hide-test-sessions> <span>Only study visits</span></label>
-    </div>
-    {% if sessions %}
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>Participant</th><th>Type</th><th>Language</th><th>Started</th><th>Events</th><th>Last frame</th><th>Finished</th></tr></thead>
-      <tbody>
-        {% for session in sessions %}
-        <tr data-kind="{{ session.kind }}">
-          <td><a href="{% url 'studio:session_detail' session.file_name %}">{{ session.participant_id }}</a></td>
-          <td><span class="badge {{ session.kind }}">{{ session.kind }}</span></td>
-          <td>{{ session.language|default:"—" }}</td>
-          <td>{{ session.started }}</td>
-          <td>{{ session.event_count }}</td>
-          <td>{{ session.last_frame|default:"—" }}</td>
-          <td>{% if session.finished %}✓{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table></div>
-    {% else %}<p class="muted">No logs yet. Open the preview or run a play-test to create one.</p>{% endif %}
-  </section>
+  {% include 'studio/_flow_inspector.html' %}
+  {{ sessions|json_script:"results-sessions" }}
 </main>
 {% endblock %}

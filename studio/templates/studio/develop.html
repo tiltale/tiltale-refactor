@@ -10,17 +10,14 @@
     {% if not frames %}<p class="muted">No frames yet. Create the first one with <strong>+ Frame</strong>.</p>{% endif %}
     <div class="thumb-grid">
       {% for frame in frames %}
-      <article class="thumb{% if frame.is_language_picker %} is-picker{% endif %}" data-frame-name="{{ frame.name|lower }}">
+      <article class="thumb{% if frame.is_language_picker %} is-picker{% endif %}" data-frame-name="{{ frame.name|lower }}" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}" title="Click to show this frame in the preview">
         <div class="thumb-screen">
           {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ frame.name }}" src="{{ frame.preview_url }}?inspect=1&amp;frame={{ frame.key }}"></iframe>{% endif %}
         </div>
         <div class="thumb-foot">
           <strong>{{ frame.name }}</strong> <code class="frame-id">{{ frame.key }}</code>
           {% if frame.is_language_picker %}<span class="badge picker" title="Language-picker frame: part of the start page /dist/index.html">Picker</span>{% endif %}
-          <span class="thumb-actions">
-            <button type="button" class="link" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}">View</button>
-            <a href="{% url 'studio:frame_editor' frame.id %}?lang={{ content.language }}">Edit</a>
-          </span>
+          <a class="button small thumb-edit" href="{% url 'studio:frame_editor' frame.id %}?lang={{ content.language }}">Edit</a>
         </div>
       </article>
       {% endfor %}
@@ -32,7 +29,7 @@
       <button type="button" class="icon" title="Show or hide the frame list" data-toggle-panel>☰</button>
       <form method="post" action="{% url 'studio:regenerate' %}">
         {% csrf_token %}<input type="hidden" name="language" value="{% if picker_selected %}picker{% else %}{{ content.language }}{% endif %}">
-        <button class="button primary{% if dist_stale %} attention{% endif %}" title="Rebuild /dist/ from the project">Regenerate</button>
+        <button class="button primary{% if dist_stale %} attention{% endif %}" title="Rebuild /project/dist/ from the project" data-busy="Regenerating…">Regenerate</button>
       </form>
       <a class="button" href="{% url 'studio:playtest' %}">Play-test</a>
       <span class="divider"></span>
@@ -80,7 +77,7 @@
       {% if dist_ready %}
         <div class="device" data-device-shell><iframe title="Story preview" data-preview src="{{ preview_url }}?preview=1"></iframe></div>
       {% else %}
-        <div class="empty-state"><p>No preview yet.</p><p class="muted">Press <strong>Regenerate</strong> to build the website into <code>/dist/</code>.</p></div>
+        <div class="empty-state"><p>No preview yet.</p><p class="muted">Press <strong>Regenerate</strong> to build the website into <code>/project/dist/</code>.</p></div>
       {% endif %}
     </div>
   </section>

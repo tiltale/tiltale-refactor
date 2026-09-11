@@ -50,6 +50,11 @@ function setupForms() {
       return;
     }
     unsaved = false;
+    const button = event.submitter;
+    if (button?.dataset.busy) { // e.g. Regenerate: show that something is happening (the terminal shows details)
+      button.textContent = button.dataset.busy;
+      button.disabled = true;
+    }
   });
   window.addEventListener("beforeunload", (event) => {
     if (unsaved) event.preventDefault();
@@ -76,12 +81,80 @@ function setupConfig() {
   update();
 }
 
+// Results: the visits on the left drive the statistics drawn on the flowchart (set up by setupFlowchart first).
 function setupResults() {
-  const toggle = document.querySelector("[data-hide-test-sessions]");
-  if (!toggle) return;
-  toggle.addEventListener("change", () => {
-    for (const row of document.querySelectorAll("tr[data-kind]")) row.hidden = toggle.checked && row.dataset.kind !== "study";
-  });
+  const page = document.querySelector("[data-results]");
+  if (!page) return;
+  const sessions = JSON.parse(document.getElementById("results-sessions").textContent);
+  const items = [...page.querySelectorAll("[data-session]")];
+  const filters = page.querySelector("[data-filters]").elements;
+  const showAll = page.querySelector("[data-show-all]");
+  const nodes = [...page.querySelectorAll("[data-node]")];
+  const edges = [...page.querySelectorAll("[data-flow-paths] [data-element]")];
+  let selected = null;
+
+  const isShown = (session) =>
+    !(filters.exclude_tests.checked && session.kind !== "study")
+    && !(filters.finished_only.checked && !session.finished)
+    && (!filters.from.value || session.started.slice(0, 10) >= filters.from.value)
+    && (!filters.to.value || session.started.slice(0, 10) <= filters.to.value);
+  const seconds = (value) => `${Math.round(value)} s`;
+
+  const render = () => {
+    const shown = sessions.filter(isShown);
+    items.forEach((item, index) => { item.hidden = !isShown(sessions[index]); });
+    if (selected !== null && !isShown(sessions[selected])) selected = null;
+    const person = selected === null ? null : sessions[selected];
+    const stats = aggregate(shown);
+    showAll.classList.toggle("is-active", person === null);
+    showAll.querySelector("[data-shown-count]").textContent = `(${shown.length})`;
+    page.classList.toggle("has-selection", person !== null);
+    for (const node of nodes) {
+      const frame = stats.frames[node.dataset.key];
+      const times = frame?.times ?? [];
+      const spread = times.length ? ` · avg ${seconds(times.reduce((a, b) => a + b) / times.length)} (min ${seconds(Math.min(...times))}, max ${seconds(Math.max(...times))})` : "";
+      node.querySelector("[data-stats]").textContent = frame ? `n = ${frame.n}${spread}` : "";
+      const visits = person ? person.frames.filter(([key]) => key === node.dataset.key) : [];
+      node.classList.toggle("is-path", visits.length > 0);
+      const known = visits.map(([, secs]) => secs).filter((secs) => secs !== null);
+      node.querySelector("[data-person]").textContent = visits.length ? `${known.length ? seconds(known.reduce((a, b) => a + b)) : "last frame"}${visits.length > 1 ? ` in ${visits.length} visits` : ""}` : "";
+    }
+    for (const edge of edges) {
+      const total = stats.frames[edge.dataset.source]?.n;
+      edge.querySelector("text").textContent = total ? `${Math.round((stats.choices[edge.dataset.element] ?? 0) / total * 100)}%` : "";
+      edge.classList.toggle("is-path", Boolean(person?.choices.includes(Number(edge.dataset.element))));
+    }
+  };
+
+  for (const [index, item] of items.entries()) {
+    item.addEventListener("toggle", () => {
+      if (item.open) {
+        for (const other of items) if (other !== item) other.open = false;
+        selected = index;
+      } else if (selected === index) {
+        selected = null;
+      }
+      render();
+    });
+  }
+  showAll.addEventListener("click", () => { for (const item of items) item.open = false; selected = null; render(); });
+  page.querySelector("[data-filters]").addEventListener("input", render);
+  render();
+}
+
+// Visits per frame (with the seconds spent there) and clicks per element, over the given sessions.
+function aggregate(sessions) {
+  const frames = {};
+  const choices = {};
+  for (const session of sessions) {
+    for (const [key, secs] of session.frames) {
+      const frame = (frames[key] ??= { n: 0, times: [] });
+      frame.n += 1;
+      if (secs !== null) frame.times.push(secs);
+    }
+    for (const id of session.choices) choices[id] = (choices[id] ?? 0) + 1;
+  }
+  return { frames, choices };
 }
 
 function setupDevelop() {
@@ -128,8 +201,8 @@ function setupDevelop() {
     preview.src = url;
   });
   page.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-view-frame]");
-    if (button && preview) preview.src = button.dataset.viewFrame;
+    const thumb = event.target.closest("[data-view-frame]");
+    if (thumb && preview && !event.target.closest("a")) preview.src = thumb.dataset.viewFrame;
   });
   page.querySelector("[data-frame-filter]").addEventListener("input", (event) => {
     const query = event.target.value.trim().toLowerCase();
@@ -348,6 +421,7 @@ function svgElement(tag, attributes) {
 function setupFlowchart() {
   const page = document.querySelector("[data-flowchart]");
   if (!page) return;
+  const readonly = "readonly" in page.dataset; // Results: look, do not move or edit
   const viewport = page.querySelector("[data-flow-viewport]");
   const world = page.querySelector("[data-flow-world]");
   const paths = page.querySelector("[data-flow-paths]");
@@ -453,15 +527,16 @@ function setupFlowchart() {
     if (!selected.has(id)) selected.clear();
     selected.add(id);
     markSelection();
+    if (readonly) return inspect(node);
     dragNodes(event, node);
   });
   viewport.addEventListener("dblclick", (event) => {
     const node = event.target.closest("[data-node]");
-    if (node) window.location = node.dataset.editUrl;
+    if (node && !readonly) window.location = node.dataset.editUrl;
   });
   viewport.addEventListener("keydown", (event) => {
     const node = event.target.closest("[data-node]");
-    if (node && event.key === "Enter") window.location = node.dataset.editUrl;
+    if (node && event.key === "Enter" && !readonly) window.location = node.dataset.editUrl;
   });
   viewport.addEventListener("wheel", (event) => {
     event.preventDefault();
@@ -504,12 +579,13 @@ function edgeGroup(edge, nodes, position) {
   const start = position(source);
   const x1 = start.x + source.offsetWidth;
   const y1 = start.y + source.offsetHeight / 2;
-  const group = svgElement("g", { class: `edge ${edgeKind(edge)}` });
+  const group = svgElement("g", { class: `edge ${edgeKind(edge)}`, "data-element": edge.element_id, "data-source": source.dataset.key });
   group.append(svgElement("title", {}));
-  group.firstChild.textContent = `${edge.label} → ${edgeDestination(edge)}`;
+  group.firstChild.textContent = `${edgeLabel(edge)} → ${edgeDestination(edge)}`;
   if (!target) {
     group.append(svgElement("path", { d: `M${x1} ${y1} h36`, "marker-end": "url(#flow-arrow)" }));
     group.append(svgElement("circle", { cx: x1 + 46, cy: y1, r: 8 }));
+    group.append(svgElement("text", { class: "edge-label", x: x1 + 18, y: y1 - 10 })); // filled in by the Results page
     return group;
   }
   const end = position(target);
@@ -517,7 +593,12 @@ function edgeGroup(edge, nodes, position) {
   const y2 = end.y + target.offsetHeight / 2;
   const bend = Math.max(40, Math.abs(x2 - x1) / 2);
   group.append(svgElement("path", { d: `M${x1} ${y1} C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2} ${y2}`, "marker-end": "url(#flow-arrow)" }));
+  group.append(svgElement("text", { class: "edge-label", x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 6 })); // the curve's midpoint
   return group;
+}
+
+function edgeLabel(edge) {
+  return edge.text || edge.component;
 }
 
 function edgeKind(edge) {
@@ -536,11 +617,12 @@ function showInspector(page, node, edges) {
   const frameUrl = `${node.dataset.previewUrl}?inspect=1&frame=${encodeURIComponent(node.dataset.key)}`;
   inspector.hidden = false;
   inspector.querySelector("[data-inspector-title]").textContent = node.dataset.name;
-  inspector.querySelector("[data-inspector-edit]").href = node.dataset.editUrl;
+  const edit = inspector.querySelector("[data-inspector-edit]"); // absent on the Results page
+  if (edit) edit.href = node.dataset.editUrl;
   if (frame) frame.src = frameUrl;
   const items = edges.filter((edge) => String(edge.source) === node.dataset.node).map((edge) => {
     const item = document.createElement("li");
-    item.textContent = `${edge.label} → ${edgeDestination(edge)}`;
+    item.textContent = `${edgeLabel(edge)} → ${edgeDestination(edge)}`;
     item.addEventListener("mouseenter", () => { if (frame) frame.src = `${frameUrl}&element=${edge.element_id}`; });
     return item;
   });
@@ -616,8 +698,8 @@ setupToasts();
 setupForms();
 setupDialogs();
 setupConfig();
-setupResults();
 setupDevelop();
 setupEditor();
 setupFlowchart();
+setupResults();
 setupPlaytest();

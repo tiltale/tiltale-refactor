@@ -1,0 +1,10 @@
+{# Preview of the frame clicked in the flowchart. Without readonly it also links to the frame editor. #}
+<aside class="panel inspector" data-inspector hidden>
+  <div class="panel-head"><h2 data-inspector-title></h2></div>
+  <div class="inspector-screen">{% if dist_ready %}<iframe title="Frame preview" tabindex="-1" data-inspector-frame></iframe>{% else %}<p class="muted">Regenerate to see a preview.</p>{% endif %}</div>
+  {% if dist_stale and dist_ready %}<p class="muted">The preview may be older than your latest changes.</p>{% endif %}
+  <h3>Buttons on this frame</h3>
+  <ul class="link-list" data-inspector-links></ul>
+  {% if not readonly %}<a class="button primary" data-inspector-edit>Edit frame</a>{% endif %}
+</aside>
+{{ edges|json_script:"flow-edges" }}

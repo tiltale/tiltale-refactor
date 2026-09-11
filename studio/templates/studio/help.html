@@ -5,7 +5,7 @@
   <section class="card hero">
     <p class="eyebrow">Help</p>
     <h1>How TilTale fits together</h1>
-    <p>You build the story here. <strong>Regenerate</strong> turns it into a plain website in <code>/dist/</code> (HTML, CSS, JavaScript and one small <code>log.php</code>), which you upload to any web host with PHP.</p>
+    <p>You build the story here. <strong>Regenerate</strong> turns it into a plain website in <code>/project/dist/</code> (HTML, CSS, JavaScript and one small <code>log.php</code>), which you upload to any web host with PHP.</p>
   </section>
   <section class="card">
     <h2>The workflow</h2>
@@ -14,7 +14,7 @@
       <li><strong>Text</strong> comes from <code>/project/content.xlsx</code>: one row per text, one column per language. Pick a row for an element, or add one from the element's settings.</li>
       <li><strong>Connections</strong>: set what a button does (go to a frame, end the story, or open a language). The <em>Flowchart</em> shows the result.</li>
       <li><strong>Regenerate</strong>, then check the preview on different phones and run the <em>Play-test</em>.</li>
-      <li>Upload <code>/dist/</code>; later download <code>dist/logs/</code> from the server and import it under <em>Results</em>.</li>
+      <li>Upload <code>/project/dist/</code>; later download <code>dist/logs/</code> from the server and import it under <em>Results</em>.</li>
     </ol>
   </section>
   <section class="card">
@@ -27,7 +27,8 @@
   </section>
   <section class="card">
     <h2>Keep data local</h2>
-    <p><code>/project/</code> and <code>/dist/</code> are ignored by Git. The full developer guide, with a table of every file, is in <code>README.md</code>.</p>
+    <p><code>/project/</code> (including the generated website in <code>/project/dist/</code>) is ignored by Git. The full developer guide, with a table of every file, is in <code>README.md</code>.</p>
+    <p class="muted">TilTale version {{ version }}</p>
   </section>
 </main>
 {% endblock %}

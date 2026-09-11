@@ -1,11 +1,12 @@
 # Story runtime
 
-Framework-free files that every generated story uses. Regenerate copies them into `/dist/`.
+Framework-free files that every generated story uses. Regenerate copies them into `/project/dist/`.
 
 | File | What it does | Edit it when… |
 |---|---|---|
-| `index.html` | Page shell with startup logo. `__ROOT__`, `__TITLE__`, … are filled in by Regenerate. | you need extra `<meta>` tags. |
-| `tiltale.js` | The whole story player: scaling, frames, clicks, participant IDs, logging, finish redirect, play-test robot. | the story should *behave* differently. |
+| `index.html` | Page shell with startup logo, the zoom controls of document frames and the TilTale version. `__ROOT__`, `__TITLE__`, … are filled in by Regenerate. | you need extra `<meta>` tags. |
+| `restart.html` | Becomes `<root>/restart/index.html`: forgets the browser's progress and reopens the story with the same parameters. | the restart link should behave differently. |
+| `tiltale.js` | The whole story player: scaling, frames, clicks, zoom/drag of document frames, participant IDs, logging, finish redirect, play-test robot. | the story should *behave* differently. |
 | `bubbles.js` | Draws the bodies and tails of bubble components (`"tail"` in `component.json`) in pixels, so borders never scale. Also used by the frame editor. | a bubble shape or tail should look different. |
 | `style.css` | Page scaling, letterboxing, startup screen, notices. | the story page should look different for every project. Per-project tweaks go in `/project/style-overrides.css`. |
 | `elements.css` | How placed elements look (position, text box, fade). Also used by the studio's frame editor, so both always match. | every element should look different. |

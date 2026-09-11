@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex">
+  <title>Restart</title>
+</head>
+<body>
+  <!-- <root>/restart/?ppn=… forgets this browser's progress and opens the story again with the same parameters. -->
+  <script>window.location.replace("../index.html" + window.location.search + (window.location.search ? "&" : "?") + "restart");</script>
+  <noscript>Open <a href="../index.html?restart">the story</a>.</noscript>
+</body>
+</html>

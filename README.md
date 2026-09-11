@@ -1,8 +1,10 @@
 # TilTale
 
-TilTale is a local studio for building interactive, branching stories (for example for research studies). You build the story in your browser; **Regenerate** turns it into a plain website in `/dist/` made of HTML, CSS, JavaScript and one small `log.php`, which you upload to any web host with PHP.
+TilTale is a local studio for building interactive, branching stories (for example for research studies). You build the story in your browser; **Regenerate** turns it into a plain website in `/project/dist/` made of HTML, CSS, JavaScript and one small `log.php`, which you upload to any web host with PHP.
 
 ## Quick start
+
+Install Python 3.12 or newer first. On Windows, restart the PC after installing Python: otherwise `python` and `pip` are often not found in the terminal yet.
 
 ```bash
 python3 -m venv .venv
@@ -11,15 +13,15 @@ pip install -r requirements.txt
 python manage.py runserver
 ```
 
-Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project/` folder next to `manage.py`.
+Open <http://127.0.0.1:8000/> and create a project, or copy an existing `project/` folder next to `manage.py`. The TilTale version is in `config/settings.py` (`TILTALE_VERSION`) and on the Help page; every generated page carries it in an HTML comment.
 
 ## Daily workflow
 
-1. **Develop**: add frames (`+ Frame`), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Adding or deleting a frame updates the preview automatically; after other changes, press **Regenerate**.
+1. **Develop**: add frames (`+ Frame`), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. Adding or deleting a frame updates the preview automatically; after other changes, press **Regenerate**. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
 2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
 4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.
-5. Upload `/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**.
+5. Upload `/project/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**, which lists every visit with a readable timeline and draws visit counts, seconds per frame and the percentage that took each path onto the flowchart. Select one visit to see its own path highlighted.
 
 The status bar at the bottom shows whether everything is saved and in the preview. It is checked on every page load, and turns red as soon as a background save (dragging an element or frame) fails.
 
@@ -50,6 +52,10 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 | Drag the background | pan. |
 | Mouse wheel, or the `−` / `+` buttons | zoom. **Fit** shows every frame. |
 | Double-click a frame, or `Tab` to it and press `Enter` | open it in the frame editor. |
+
+## Document frames (zoom and drag)
+
+Some frames are documents (a poster, a leaflet). In the frame editor, tick **Readers can zoom and drag this frame** under *Document viewer*. Readers then drag with a finger or the mouse, pinch on a phone, or use the mouse wheel and the **+** / **−** buttons on larger screens. A fixed **× Close** button in the top-right corner returns to the previous frame; its text is a row of `content.xlsx`, so it appears in the reader's language (leave it empty for a plain ×). The play-test robot ignores the Close button, so give a document frame a normal button that leads on, or the robot treats it as an end.
 
 ## Frame names
 
@@ -85,6 +91,14 @@ In Qualtrics, put this link in a *Text/Graphic* question or an *End of Survey* r
 
 - The ID is used for logging. Links without it get a random ID that stays the same in that browser.
 - **Every page load is a new visit with its own log file**: `logs/<participant>--<visit>.jsonl`. Opening the link again never overwrites an earlier log. Readers who reload continue on the frame where they were; the visit files show exactly what happened.
+
+### Starting, continuing and restarting a story
+
+| Link | What happens |
+|---|---|
+| `…/index.html?ppn=R_1abcDEF` | Starts the story. Opening the same link again, or refreshing, continues where the reader was. |
+| `…/restart/?ppn=R_1abcDEF` | Forgets this browser's progress and starts over, keeping the parameters. For experimenters who reuse a device; no incognito window needed. Only at the site root: with several languages it opens the start page again. |
+| any story link with `&restart` added, e.g. `…/our-story---nl-NL/index.html?ppn=R_1abcDEF&restart` | The same, for one specific page. TilTale removes `restart` from the address once it has been handled, so a later refresh continues normally. |
 - **Finish redirect**: under Settings, enter a URL to open when a reader clicks an element set to *End story*. Write `{ID}` where the participant ID belongs. It is URL-encoded automatically. Example: `https://example.qualtrics.com/jfe/form/SV_abc?ppn={ID}` sends participant `R_1abcDEF` back to `…?ppn=R_1abcDEF`. `{ID}` was chosen because curly braces never appear in normal URLs, while `%` and `@` already mean something there.
 
 ## Several languages
@@ -95,14 +109,14 @@ Languages are the columns after `content_id` and `note` in `/project/content.xls
 dist/index.html               start page built from language-picker frames (optional)
 dist/<slug>---en-US/index.html  the English story
 dist/<slug>---nl-NL/index.html  the Dutch story
-dist/tiltale.js, style.css, assets/, log.php, logs/   shared by all pages
+dist/tiltale.js, style.css, assets/, log.php, logs/, restart/   shared by all pages
 ```
 
 **Language-picker frames** (`+ Picker frame`) are the frames of the start page. They are shown before a language is chosen, so their texts are typed directly instead of coming from `content.xlsx`, and their buttons open a language. They have an amber dashed border and a *Picker* badge everywhere in the studio. Without picker frames, no `dist/index.html` is generated and you link participants to a language folder directly. The participant ID and the visit carry over from the start page into the chosen language.
 
 ## Publishing
 
-Upload the **contents** of `/dist/` to a folder on a web server with PHP 7.4 or newer. `log.php` writes to `dist/logs/`, so that folder must be writable by the web server. `logs/.htaccess` blocks public access on Apache; on nginx add `location ~ /logs/ { deny all; }`. Regenerate never deletes `dist/logs/`.
+Upload the **contents** of `/project/dist/` to a folder on a web server with PHP 7.4 or newer. `log.php` writes to `dist/logs/`, so that folder must be writable by the web server. `logs/.htaccess` blocks public access on Apache; on nginx add `location ~ /logs/ { deny all; }`. Regenerate never deletes `dist/logs/`.
 
 ## Where to find what
 
@@ -122,7 +136,7 @@ Most changes start in one of these places:
 
 | File | Purpose |
 |---|---|
-| `settings.py` | Paths (`PROJECT_DIR`, `DIST_DIR`, …), databases, installed apps. |
+| `settings.py` | `TILTALE_VERSION`, paths (`PROJECT_DIR`, `DIST_DIR`, …), databases, installed apps, terminal logging. |
 | `urls.py` | Sends every URL to the studio app. |
 | `wsgi.py` | Entry point for a WSGI server (not needed for `runserver`). |
 
@@ -142,9 +156,9 @@ Most changes start in one of these places:
 | `services/components.py` | Loading `components/*`. |
 | `services/flow.py` | Frame links, reachability, placing new frames, *Tidy up*. |
 | `services/validate.py` | Preflight checks and phone presets. |
-| `services/generate.py` | Regenerate: builds `/dist/`. |
-| `services/study_logs.py` | Writing, importing and summarizing visit logs. |
-| `templates/studio/` | One HTML template per page; `base.html` is the shared frame and `_field.html` renders a form field. |
+| `services/generate.py` | Regenerate: builds `/project/dist/`. |
+| `services/study_logs.py` | Writing, importing and summarizing visit logs; seconds per frame and readable event lines for Results. |
+| `templates/studio/` | One HTML template per page; `base.html` is the shared frame, `_field.html` renders a form field, `_flow.html` and `_flow_inspector.html` are the flowchart canvas shared by Flowchart and Results. |
 | `static/studio/app.css`, `app.js` | All studio styling and interactivity (no libraries). |
 
 ### `runtime/`: files copied into every generated story
@@ -172,7 +186,7 @@ The two prompts described in *Building with a language model*, plus `content-tem
 | Folder | Contents |
 |---|---|
 | `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css`, and optionally your own `logo-tiltale.png` / `favicon.ico`. Back this up. |
-| `dist/` | The website produced by Regenerate. Safe to delete except `dist/logs/` on the server. |
+| `project/dist/` | The website produced by Regenerate. Safe to delete except `dist/logs/` on the server. (Before v2.0.10 this was `/dist/` in the repository root; that folder can be deleted.) |
 
 ## Changing models
 
@@ -187,4 +201,4 @@ Django writes the migration; never write one by hand. TilTale applies pending mi
 
 ## Tests and CI
 
-`python manage.py test` runs the behavior tests against an in-memory database. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, and a syntax check of `tiltale.js`, `app.js` and `log.php`.
+`python manage.py test` runs the behavior tests against an in-memory database. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, a syntax check of `tiltale.js`, `app.js` and `log.php`, and, on pull requests, fails when `TILTALE_VERSION` in `config/settings.py` was not bumped.

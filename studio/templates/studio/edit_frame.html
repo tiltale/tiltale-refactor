@@ -38,6 +38,19 @@
         {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
         {% if frame.background_box %}<button class="button" name="fill_frame" value="1">Fill the frame again</button>{% endif %}
       </div>
+      {% if not frame.is_language_picker %}
+      <fieldset><legend>Document viewer</legend>
+        {% include 'studio/_field.html' with field=form.zoomable %}
+        <label class="field"><span class="field-label">Text of the “× Close” button <em>(from content.xlsx)</em></span>
+          <select name="close_content_id">
+            <option value="">× only</option>
+            {% for row in content_rows %}<option value="{{ row.id }}"{% if row.id == frame.close_content_id %} selected{% endif %}>{{ row.id }} · {{ row.text|truncatechars:40 }}</option>{% endfor %}
+          </select>
+        </label>
+        {% for error in form.close_content_id.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the previous frame. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
+      </fieldset>
+      {% endif %}
       <button class="button primary">Save frame</button>
     </form>
 

@@ -38,6 +38,7 @@ class SessionSummary:
     last_frame: str
     finished: bool
     kind: str  # "study", "preview" or "play-test"
+    events: tuple[dict[str, Any], ...]
 
 
 def logs_dir() -> Path:
@@ -111,8 +112,58 @@ def session_summaries() -> list[SessionSummary]:
             last_frame=frames[-1] if frames else "",
             finished=any(event.get("event") == FINISHED_EVENT for event in events),
             kind=session_kind(participant),
+            events=tuple(events),
         ))
     return sorted(summaries, key=lambda item: item.started, reverse=True)
+
+
+def _time(value: object) -> datetime:
+    return datetime.fromisoformat(str(value))
+
+
+def frame_visits(events: list[dict[str, Any]]) -> list[tuple[str, float | None]]:
+    """Frames in the order shown, each with the seconds until the next frame (``None`` for the last one)."""
+    stops = [event for event in events if event.get("event") in ("frame", FINISHED_EVENT)]
+    visits: list[tuple[str, float | None]] = []
+    for current, following in zip(stops, [*stops[1:], None]):
+        if current["event"] != "frame":
+            continue
+        seconds = None if following is None else (_time(following["timestamp"]) - _time(current["timestamp"])).total_seconds()
+        visits.append((str(current.get("frame", "")), seconds))
+    return visits
+
+
+def readable_events(events: list[dict[str, Any]], frame_names: dict[str, str], element_labels: dict[int, str]) -> list[str]:
+    """One plain-English line per event, e.g. ``Intro scene: visited for 12 s``."""
+    durations = iter(seconds for _key, seconds in frame_visits(events))
+    lines: list[str] = []
+    for event in events:
+        kind = str(event.get("event", ""))
+        frame: str = frame_names.get(str(event.get("frame", "")), str(event.get("frame", "")))
+        if kind == "frame":
+            seconds = next(durations)
+            if event.get("how") == "resumed":
+                lines.append("IDN refreshed")
+            lines.append(f"{frame}: visited (last frame)" if seconds is None else f"{frame}: visited for {seconds:.0f} s")
+        elif kind == "choice":
+            label = element_labels.get(event.get("element_id"), str(event.get("component", "element")))
+            lines.append(f"{frame}: clicked '{label}'")
+        else:
+            lines.append(kind)
+    return lines
+
+
+def session_record(summary: SessionSummary, frame_names: dict[str, str], element_labels: dict[int, str]) -> dict[str, Any]:
+    """Everything the Results page shows for one visit: the list entry, its timeline and the path for the flowchart."""
+    return {
+        "file_name": summary.file_name, "participant_id": summary.participant_id, "kind": summary.kind,
+        "language": summary.language, "event_count": summary.event_count, "finished": summary.finished,
+        "started": summary.started,
+        "started_label": _time(summary.started).strftime("%d %b %Y, %H:%M UTC") if summary.started else "",
+        "frames": frame_visits(summary.events),
+        "choices": [event["element_id"] for event in summary.events if event.get("event") == "choice" and event.get("element_id") is not None],
+        "lines": readable_events(summary.events, frame_names, element_labels),
+    }
 
 
 def import_jsonl(file_name: str, data: bytes) -> Path:

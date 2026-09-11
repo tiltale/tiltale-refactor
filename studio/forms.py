@@ -102,14 +102,18 @@ class FrameForm(forms.ModelForm):
 
     class Meta:
         model = Frame
-        fields = ["name", "fade_in", "background_type", "background_color", "background_image"]
-        labels = {"fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image"}
+        fields = ["name", "fade_in", "background_type", "background_color", "background_image", "zoomable", "close_content_id"]
+        labels = {
+            "fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image",
+            "zoomable": "Readers can zoom and drag this frame (for documents)",
+        }
         help_texts = {"name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below."}
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
 
-    def __init__(self, *args: object, materials: list[str], **kwargs: object) -> None:
+    def __init__(self, *args: object, materials: list[str], content_ids: set[int], **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.materials: list[str] = materials
+        self.content_ids: set[int] = content_ids
 
     def clean_name(self) -> str:
         name: str = " ".join(self.cleaned_data["name"].split())
@@ -124,6 +128,12 @@ class FrameForm(forms.ModelForm):
 
     def clean_background_color(self) -> str:
         return validate_hex(self.cleaned_data["background_color"])
+
+    def clean_close_content_id(self) -> int | None:
+        content_id: int | None = self.cleaned_data["close_content_id"]
+        if content_id is not None and content_id not in self.content_ids:
+            raise forms.ValidationError(f"content_id {content_id} is not in content.xlsx.")
+        return content_id
 
     def clean(self) -> dict[str, object]:
         cleaned: dict[str, object] = super().clean()

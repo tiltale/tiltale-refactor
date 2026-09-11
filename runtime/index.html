@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Made with TilTale version __VERSION__ -->
 <html lang="__LANGUAGE__">
 <head>
   <meta charset="utf-8">
@@ -14,6 +15,11 @@
       <img src="__ROOT__logo-tiltale.png" alt="">
     </div>
     <div id="story" hidden></div>
+    <div id="viewer" hidden>
+      <button type="button" data-zoom="1.25" aria-label="Zoom in">+</button>
+      <button type="button" data-zoom="0.8" aria-label="Zoom out">−</button>
+      <button type="button" data-close></button>
+    </div>
     <div id="notice" role="status" hidden></div>
   </main>
   <noscript>This interactive story requires JavaScript.</noscript>

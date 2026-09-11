@@ -17,6 +17,12 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
 /* Played alternately, ease-out rises slowing down and falls speeding up: a bounce. */
 @keyframes tiltale-bounce { from { transform: translateY(0); } to { transform: translateY(-24px); } }
 
+/* Document frames (zoomable): the frame itself is transformed by tiltale.js; the controls stay fixed. */
+.story-frame.zoomable { transform-origin: center; touch-action: none; cursor: grab; }
+#viewer { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; }
+#viewer button { min-width: 44px; height: 44px; padding: 0 14px; border: 0; border-radius: 22px; background: rgba(255, 255, 255, .92); color: #111; font: 600 20px/1 system-ui, sans-serif; box-shadow: 0 2px 10px rgba(0, 0, 0, .3); cursor: pointer; }
+@media (max-width: 640px) { #viewer [data-zoom] { display: none; } }  /* phones pinch instead */
+
 #notice { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: calc(100vw - 32px); padding: 18px 22px; border-radius: 10px; background: rgba(255, 255, 255, .95); color: #111; font: 600 18px/1.4 system-ui, sans-serif; text-align: center; overflow-wrap: anywhere; box-shadow: 0 6px 30px rgba(0, 0, 0, .35); }
 
 /* Studio-only helpers (thumbnails and the flowchart inspector). */

@@ -6,7 +6,8 @@
  *
  * URL parameters
  *   ?<STORY.participant_parameter>=ID  use an external participant ID (e.g. Qualtrics ?ppn=...)
- *   ?restart     forget this browser's progress and start as a new participant
+ *   ?restart     forget this browser's progress and start over (also <root>/restart/); the
+ *                parameter is removed from the address again, so a refresh continues normally
  *   ?preview     opened inside the TilTale studio (no real redirect at the end)
  *   ?frame=NAME  start at a frame (studio "View" button)
  *   ?inspect     static thumbnail: no splash, no logging, no clicks
@@ -67,9 +68,13 @@
     write(local, participantKey, participantId);
   }
 
-  var stateKey = prefix + "state:" + participantId;  // {language, frame}: resume after a crash
+  var stateKey = prefix + "state:" + participantId;  // {language, frame, previous}: resume after a crash
   if (restart) forget(local, stateKey);
   var state = read(local, stateKey) || {};
+  if (restart && window.history.replaceState) {
+    params["delete"]("restart");
+    window.history.replaceState(null, "", window.location.pathname + (params.toString() ? "?" + params : ""));
+  }
 
   // A visit is one page load and gets its own log file. The language picker
   // hands its visit to the language page so that choice and story share a file.
@@ -132,9 +137,11 @@
   }
 
   // ------------------------------------------------------------- rendering
+  var storyScale = 1;
+
   function scaleStory() {
-    var scale = Math.min(window.innerWidth / STORY.frame_width, window.innerHeight / STORY.frame_height);
-    storyNode.style.transform = "translate(-50%, -50%) scale(" + scale + ")";
+    storyScale = Math.min(window.innerWidth / STORY.frame_width, window.innerHeight / STORY.frame_height);
+    storyNode.style.transform = "translate(-50%, -50%) scale(" + storyScale + ")";
   }
 
   function chooseSource(sources) {
@@ -223,7 +230,10 @@
     storyNode.innerHTML = "";
     storyNode.appendChild(panel);
     if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page
+    viewerBar.hidden = true;
+    viewer = frame.zoomable && !inspect ? makeViewer(panel, frame) : null;
     if (inspect) return;
+    if (state.frame !== name) state.previous = state.frame;  // where "× Close" goes
     state.frame = name;
     saveState();
     var event = {frame: name};
@@ -240,6 +250,7 @@
       element_id: element.id,
       component: element.component,
       content_id: element.content_id,
+      text: element.text || null,
       target: element.ends_story ? "end" : (element.target || element.language)
     });
     if (element.ends_story) finish(frame);
@@ -269,6 +280,62 @@
     if (!url) return notice("✓");
     window.setTimeout(function () { window.location.href = url; }, 400);  // let the last log leave first
   }
+
+  // ------------------------------------------------------------- zoom and drag (document frames)
+  var viewer = null;
+  var viewerBar = document.getElementById("viewer");
+
+  /* Drag with one finger or the mouse, pinch with two fingers, or use the mouse wheel and the
+     + / − buttons (hidden on phones). Zoom is between 1× (the frame as designed) and 8×.
+     Pointer moves are watched on the document, not captured, so buttons on the frame still click. */
+  function makeViewer(panel, frame) {
+    var view = {x: 0, y: 0, zoom: 1};
+    var pointers = {};
+    var dragged = false;
+    function apply() { panel.style.transform = "translate(" + view.x + "px, " + view.y + "px) scale(" + view.zoom + ")"; }
+    function zoomBy(factor) { view.zoom = Math.min(8, Math.max(1, view.zoom * factor)); apply(); }
+    function spread() {
+      var ids = Object.keys(pointers);
+      if (ids.length < 2) return 0;
+      var a = pointers[ids[0]], b = pointers[ids[1]];
+      return Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+    }
+    function move(event) {
+      var before = pointers[event.pointerId];
+      if (!before) return;
+      var pinch = spread();
+      pointers[event.pointerId] = {x: event.clientX, y: event.clientY};
+      if (pinch) return zoomBy(spread() / pinch);
+      view.x += (event.clientX - before.x) / storyScale;
+      view.y += (event.clientY - before.y) / storyScale;
+      dragged = dragged || Math.abs(event.clientX - before.x) + Math.abs(event.clientY - before.y) > 3;
+      apply();
+    }
+    panel.className += " zoomable";
+    panel.addEventListener("wheel", function (event) { event.preventDefault(); zoomBy(event.deltaY < 0 ? 1.15 : 1 / 1.15); }, {passive: false});
+    panel.addEventListener("pointerdown", function (event) {
+      pointers[event.pointerId] = {x: event.clientX, y: event.clientY};
+      dragged = false;
+    });
+    panel.addEventListener("click", function (event) { if (dragged) event.stopPropagation(); }, true);  // a drag is not a click
+    viewerBar.querySelector("[data-close]").textContent = "\u00d7 " + (frame.close_text || "");
+    viewerBar.hidden = false;
+    return {zoomBy: zoomBy, frame: frame, move: move, release: function (event) { delete pointers[event.pointerId]; }};
+  }
+
+  document.addEventListener("pointermove", function (event) { if (viewer) viewer.move(event); });
+  document.addEventListener("pointerup", function (event) { if (viewer) viewer.release(event); });
+  document.addEventListener("pointercancel", function (event) { if (viewer) viewer.release(event); });
+
+  viewerBar.addEventListener("click", function (event) {
+    var button = event.target.closest("button");
+    if (!button || !viewer) return;
+    if (button.dataset.zoom) return viewer.zoomBy(Number(button.dataset.zoom));
+    viewerBar.hidden = true;
+    if (!state.previous) return;
+    log("choice", {frame: viewer.frame.name, element_id: null, component: "close", text: viewer.frame.close_text || null, target: state.previous});
+    showFrame(state.previous);
+  });
 
   // ------------------------------------------------------------- play-test robot
   var visits = {};
@@ -356,7 +423,8 @@
     if (window.location.protocol === "file:") notice("Opened from a file: logging is off. Serve /dist/ from a web server with PHP.");
 
     log("Loading IDN – started", {event_type: "loading_started"});
-    var minimum = new Promise(function (resolve) { window.setTimeout(resolve, 3000); });
+    loading.hidden = Boolean(forcedFrame);  // the studio jumps straight to a frame, without the bouncing logo
+    var minimum = new Promise(function (resolve) { window.setTimeout(resolve, forcedFrame ? 0 : 3000); });
     var images = preloadImages();
     Promise.all([images, minimum]).then(function (results) {
       var megabytes = (results[0] / 1048576).toFixed(2);
