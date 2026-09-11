@@ -136,10 +136,9 @@ def _frame_payload(
     images: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     close_row = content_by_id.get(frame.close_content_id) if frame.close_content_id else None
-    background: dict[str, Any] = {"type": frame.background_type}
-    if frame.background_type == Frame.BackgroundType.SOLID:
-        background["color"] = frame.background_color
-    elif frame.background_type == Frame.BackgroundType.IMAGE:
+    # The color is always sent: a zoomable frame paints the page with it, also behind a background image.
+    background: dict[str, Any] = {"type": frame.background_type, "color": frame.background_color}
+    if frame.background_type == Frame.BackgroundType.IMAGE:
         background["sources"] = images.get(frame.background_image, [])
         background["box"] = frame.background_box
 

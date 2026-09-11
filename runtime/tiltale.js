@@ -232,7 +232,10 @@
     if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page
     viewerBar.hidden = true;
     viewer = frame.zoomable && !inspect ? makeViewer(panel, frame) : null;
-    storyNode.className = viewer ? "document" : "";  // let the zoomed document spill past the frame's letterbox
+    // A zoomed document may be dragged past the frame's letterbox, so the page behind it takes the
+    // frame's own background color instead of showing the black around and under the frame.
+    storyNode.className = viewer ? "document" : "";
+    storyNode.style.background = document.body.style.background = viewer ? frame.background.color || "" : "";
     if (inspect) return;
     if (state.frame !== name) state.previous = state.frame;  // where "× Close" goes
     state.frame = name;
