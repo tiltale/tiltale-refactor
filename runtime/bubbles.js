@@ -86,14 +86,18 @@ var TilTaleBubbles = (function () {
     return [[inset, inset], [width - inset, inset], [width - inset, height - inset], [inset, height - inset]];
   }
 
-  /* Calls `step(edge, i, x, y, chord)` for an even number of evenly spaced points along each edge. */
-  function walk(width, height, inset, spacing, step) {
+  /* Calls `step(edge, i, x, y, chord, room)` for an even number of evenly spaced points along each edge,
+     starting at the corner, or `shift` steps (0–1) past it. `room` is the distance to the nearest corner. */
+  function walk(width, height, inset, spacing, step, shift) {
     var box = corners(width, height, inset);
     box.forEach(function (from, edge) {
       var to = box[(edge + 1) % 4];
       var length = Math.abs(to[0] - from[0] + to[1] - from[1]);
       var n = 2 * Math.max(1, Math.round(length / spacing / 2));
-      for (var i = 0; i < n; i += 1) step(edge, i, from[0] + (to[0] - from[0]) * i / n, from[1] + (to[1] - from[1]) * i / n, length / n);
+      for (var i = 0; i < n; i += 1) {
+        var t = (i + (shift || 0)) / n;
+        step(edge, i, from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t, length / n, Math.min(t, 1 - t) * length);
+      }
     });
   }
 
@@ -110,23 +114,39 @@ var TilTaleBubbles = (function () {
     return path + "A" + last.r + " " + last.r + " 0 0 1 " + point(inset, inset) + "Z";
   }
 
-  /* A box whose outline zigzags between the edge and 22px inside it. */
-  function burst(width, height) {
+  /* A box whose outline zigzags in sharp, slightly uneven spikes: odd points go 30–42px inward, even
+     points sit on the edge or a little inside it. Unlike the cloud, the spikes do not grow with the
+     bubble, so the component's fixed --text-padding always keeps the text clear of them. The points
+     start half a step past each corner, which cuts the corners diagonally instead of ending in a
+     needle-thin spike; near a corner a point goes no deeper than its distance to that corner, or the
+     outline would cross itself. The tail is part of the outline: the edge point nearest the tip
+     becomes a narrow spike that reaches the tip. */
+  function burst(width, height, tip) {
     var points = [];
-    walk(width, height, 2, 16, function (edge, i, x, y) {
-      var depth = i % 2 ? 16 + ((i * 7 + edge * 3) % 5) * 2 : 0;  // odd points go inward, unevenly
+    walk(width, height, 2, 44, function (edge, i, x, y, chord, room) {
+      var vary = (i * 7 + edge * 3) % 5;
+      var depth = Math.min(i % 2 ? 30 + vary * 3 : vary, room);
       var inward = [[0, 1], [-1, 0], [0, -1], [1, 0]][edge];
-      points.push(point(x + inward[0] * depth, y + inward[1] * depth));
-    });
-    return "M" + points.join("L") + "Z";
+      points.push({x: x + inward[0] * depth, y: y + inward[1] * depth, edge: {x: x, y: y, along: inward[1], across: -inward[0]}, outward: !(i % 2)});
+    }, 0.5);
+    var exit = edgePoint(width, height, tip);
+    if (exit) {
+      var nearest = points.filter(function (item) { return item.outward; }).reduce(function (best, item) {
+        return Math.abs(item.edge.x - exit.x) + Math.abs(item.edge.y - exit.y) < Math.abs(best.edge.x - exit.x) + Math.abs(best.edge.y - exit.y) ? item : best;
+      });
+      var half = 16;  // less than half a step, so the base stays on this edge
+      var edge = nearest.edge;
+      points.splice(points.indexOf(nearest), 1,
+        {x: edge.x - edge.along * half, y: edge.y - edge.across * half}, tip, {x: edge.x + edge.along * half, y: edge.y + edge.across * half});
+    }
+    return "M" + points.map(function (item) { return point(item.x, item.y); }).join("L") + "Z";
   }
 
   var BODIES = {thought: cloud, scream: burst};
   var TAILS = {  // each returns {fill, line}: the .bubble-tail path and, when the SVG has one, the .bubble-tail-line path
     speech: function (w, h, tip, stroke) { return pointer(w, h, tip, 20 * unit(w, h), 30, stroke); },
-    thought: function (w, h, tip) { return {fill: dots(w, h, tip), line: ""}; },
-    scream: function (w, h, tip, stroke) { return pointer(w, h, tip, 8 * unit(w, h), 12, stroke); }
-  };
+    thought: function (w, h, tip) { return {fill: dots(w, h, tip), line: ""}; }
+  };  // scream: the tail is one of the burst's spikes
 
   function tailOf(node, width, height) {
     var x = parseFloat(node.style.getPropertyValue("--tail-x"));
@@ -145,10 +165,11 @@ var TilTaleBubbles = (function () {
     var body = svg.querySelector(".bubble-body");
     var tail = svg.querySelector(".bubble-tail");
     var line = svg.querySelector(".bubble-tail-line");
-    if (body && BODIES[kind]) body.setAttribute("d", BODIES[kind](width, height));
+    var tip = tailOf(node, width, height);
+    if (body && BODIES[kind]) body.setAttribute("d", BODIES[kind](width, height, tip));
     if (!tail || !TAILS[kind]) return;
     var stroke = parseFloat(window.getComputedStyle(body).strokeWidth) || 0;
-    var shapes = TAILS[kind](width, height, tailOf(node, width, height), stroke);
+    var shapes = TAILS[kind](width, height, tip, stroke);
     tail.setAttribute("d", shapes.fill);
     if (line) line.setAttribute("d", shapes.line);
   }

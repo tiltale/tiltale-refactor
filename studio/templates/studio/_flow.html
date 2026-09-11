@@ -9,7 +9,7 @@
     <div class="flow-node{% if node.picker %} is-picker{% endif %}{% if node.start %} is-start{% endif %}" tabindex="0"
          data-node="{{ node.id }}" data-name="{{ node.name }}" data-key="{{ node.key }}" data-x="{{ node.x|stringformat:'g' }}" data-y="{{ node.y|stringformat:'g' }}"
          data-edit-url="{{ node.edit_url }}" data-preview-url="{{ node.preview_url }}">
-      <strong>{{ node.name }}</strong> <code class="frame-id">{{ node.key }}</code>
+      <strong>{{ node.name }}</strong>
       <span class="node-badges">
         {% if node.start %}<span class="badge start">{% if node.picker %}Start page{% else %}Story start{% endif %}</span>{% endif %}
         {% if node.picker %}<span class="badge picker">Picker</span>{% endif %}
