@@ -1,38 +1,115 @@
 {% extends 'studio/base.html' %}
 {% block title %}TilTale | Settings{% endblock %}
 {% block body %}
-<main class="page narrow">
+<main class="page narrow" data-tabs data-tab="{{ tab }}">
+  <p class="eyebrow">Project</p>
+  <h1>Settings</h1>
+  <p class="muted">These apply to every frame and language. Press <strong>Regenerate</strong> afterwards to see the change in the preview.</p>
+  <div class="tab-bar" role="tablist">
+    <button type="button" class="tab" role="tab" data-tab-button="basic">Basic</button>
+    <button type="button" class="tab" role="tab" data-tab-button="advanced">Advanced</button>
+  </div>
+
   <form method="post" class="card form" data-unsaved-guard>
     {% csrf_token %}
-    <p class="eyebrow">Project</p>
-    <h1>Settings</h1>
-    <p class="muted">These apply to every frame and language. Press <strong>Regenerate</strong> afterwards to see the change in the preview.</p>
     {% for error in form.non_field_errors %}<div class="alert error">{{ error }}</div>{% endfor %}
-
-    <fieldset><legend>Story</legend>
-      {% include 'studio/_field.html' with field=form.name %}
-      {% include 'studio/_field.html' with field=form.letterbox_color %}
-    </fieldset>
-    <fieldset><legend>Canvas and timing</legend>
-      <div class="grid-2">
-        {% include 'studio/_field.html' with field=form.frame_width %}
-        {% include 'studio/_field.html' with field=form.frame_height %}
-      </div>
-      {% include 'studio/_field.html' with field=form.default_delay_seconds %}
-    </fieldset>
-    <fieldset><legend>Participants (e.g. Qualtrics or Prolific)</legend>
-      {% include 'studio/_field.html' with field=form.participant_parameter %}
-      {% include 'studio/_field.html' with field=form.finish_redirect_url %}
-      <p class="field-help" data-redirect-example hidden>Example for participant <code>R_example123</code>: <code data-redirect-result></code></p>
-    </fieldset>
+    <div data-panel="basic" class="form">
+      <fieldset><legend>Story</legend>
+        {% include 'studio/_field.html' with field=form.name %}
+        {% include 'studio/_field.html' with field=form.letterbox_color %}
+      </fieldset>
+      <fieldset><legend>Canvas and timing</legend>
+        <div class="grid-2">
+          {% include 'studio/_field.html' with field=form.frame_width %}
+          {% include 'studio/_field.html' with field=form.frame_height %}
+        </div>
+        {% include 'studio/_field.html' with field=form.default_delay_seconds %}
+      </fieldset>
+    </div>
+    <div data-panel="advanced" class="form">
+      <fieldset><legend>Participants (e.g. Qualtrics or Prolific)</legend>
+        {% include 'studio/_field.html' with field=form.participant_parameter %}
+        {% include 'studio/_field.html' with field=form.finish_redirect_url %}
+        <p class="field-help" data-redirect-example hidden>Example for participant <code>R_example123</code>: <code data-redirect-result></code></p>
+      </fieldset>
+    </div>
     <div class="form-actions"><button class="button primary" type="submit">Save settings</button></div>
   </form>
 
-  <section class="card">
+  <section class="card" data-panel="basic">
     <h2>Languages</h2>
     {% if content.error %}<div class="alert error">{{ content.error }}</div>{% endif %}
     <p>{% for language in content.languages %}<span class="badge">{{ language }}{% if language == project.base_language %} · base{% endif %}</span> {% endfor %}</p>
     <p class="muted">Languages are the columns after <code>content_id</code> and <code>note</code> in <code>/project/content.xlsx</code>. To add one, type its code (e.g. <code>de-DE</code>) in the next empty column, save the workbook and reload this page. No restart needed.</p>
+  </section>
+
+  <section class="card" data-panel="advanced">
+    <h2>Global variables <span class="count">{{ variables|length }}</span></h2>
+    <p class="muted">A variable remembers something about the reader while the story runs: points they collect, or which path they took. Every button can change one (<em>set it to</em> a value or <em>add</em> to it), a <strong>validation point</strong> can send readers on according to them, and any element text can show one by writing its name in curly braces, e.g. <code>Score: {score}</code>. Every change is written to the log.</p>
+    <p class="muted">The <strong>initial value</strong> decides the type once and for all: <code>0</code>, <code>2.5</code> or <code>-1</code> make a <em>number</em> (buttons can add to it); anything else, or a value in quotes like <code>"start"</code>, makes <em>text</em>. Updates and rules that do not match the type are refused, so the story never crashes on a mismatch.</p>
+    <form method="post" action="{% url 'studio:save_variables' %}" class="form" data-unsaved-guard>
+      {% csrf_token %}
+      <div class="table-wrap"><table class="table variables">
+        <thead><tr><th>Name</th><th>Initial value</th><th>Type</th><th>Used by</th><th></th></tr></thead>
+        <tbody>
+          {% for item in variables %}{% with variable=item.variable %}
+          <tr>
+            <td><input name="name.{{ variable.id }}" value="{{ variable.name }}" required aria-label="Name"></td>
+            <td><input name="initial.{{ variable.id }}" value="{{ variable.initial_value }}" required aria-label="Initial value"></td>
+            <td class="muted">{{ variable.kind }}</td>
+            <td class="muted">{{ item.uses }} button{{ item.uses|pluralize }}/rule{{ item.uses|pluralize }}</td>
+            <td><button class="icon" form="delete-variable-{{ variable.id }}" title="Delete this variable" aria-label="Delete this variable"{% if item.uses %} disabled{% endif %}>×</button></td>
+          </tr>
+          {% endwith %}{% endfor %}
+          <tr>
+            <td><input name="name.new" placeholder="new variable, e.g. score" aria-label="New variable name"></td>
+            <td><input name="initial.new" placeholder='0 or "start"' aria-label="New variable initial value"></td>
+            <td class="muted" colspan="3">Names start with a letter and use letters, digits and _ only.</td>
+          </tr>
+        </tbody>
+      </table></div>
+      <div class="form-actions"><button class="button primary">Save variables</button></div>
+    </form>
+    {% for item in variables %}<form method="post" id="delete-variable-{{ item.variable.id }}" action="{% url 'studio:delete_variable' item.variable.id %}" data-confirm="Delete the variable {{ item.variable.name }}?">{% csrf_token %}</form>{% endfor %}
+  </section>
+
+  <section class="card" data-panel="advanced">
+    <h2>Scoreboard on every frame <span class="count">{{ scoreboards|length }}</span></h2>
+    <p class="muted">A scoreboard is a component whose text shows a variable, e.g. <code>Points: {score}</code>. Add one here to put it on <strong>every story frame</strong> at once (frames, minigames; not documents, validation points or the language start page), then open any frame to move it, size it and choose its text: changing it there changes it everywhere. Untick the frames where it should stay hidden. You can also add a scoreboard to a single frame like any other component.</p>
+    {% for item in scoreboards %}
+    <form method="post" action="{% url 'studio:save_scoreboard_frames' item.element.id %}" class="form scoreboard" data-unsaved-guard>
+      {% csrf_token %}
+      <h3>#{{ item.element.id }} {{ item.component.name|default:item.element.component }} <span class="muted">· {{ item.element.hidden_on.count }} frame{{ item.element.hidden_on.count|pluralize }} hidden</span></h3>
+      <details>
+        <summary>Shown on these frames</summary>
+        <div class="frame-checks">
+          {% for frame in story_frames %}<label class="check"><input type="checkbox" name="shown" value="{{ frame.id }}"{% if frame.id not in item.hidden %} checked{% endif %}> <span>{{ frame.name }}</span></label>{% endfor %}
+        </div>
+      </details>
+      <div class="row"><button class="button">Save frames</button><button class="button danger" form="delete-scoreboard-{{ item.element.id }}">Remove from every frame</button></div>
+    </form>
+    <form method="post" id="delete-scoreboard-{{ item.element.id }}" action="{% url 'studio:delete_element' item.element.id %}" data-confirm="Remove scoreboard #{{ item.element.id }} from every frame?">{% csrf_token %}<input type="hidden" name="frame" value="{{ story_frames.0.id }}"></form>
+    {% endfor %}
+    {% if story_frames %}
+    <form method="post" action="{% url 'studio:add_scoreboard' %}" class="row">
+      {% csrf_token %}
+      <select name="component" aria-label="Scoreboard component">{% for component in scoreboard_components %}<option value="{{ component.slug }}">{{ component.name }} — {{ component.description }}</option>{% endfor %}</select>
+      <button class="button">+ Add to every frame</button>
+    </form>
+    {% else %}<p class="muted">Add a frame first.</p>{% endif %}
+  </section>
+
+  <section class="card" data-panel="advanced">
+    <h2>Protect logs {% if project.logs_protected %}<span class="badge ok">on</span>{% endif %}</h2>
+    {% if project.logs_protected %}
+    <p>Every event that <code>log.php</code> receives on your web server is encrypted with this project's public key before it is written, so the files in <code>dist/logs/</code> can only be read with the <strong>key file</strong> you downloaded when the key was made. Results asks for that file every time you open it. The key was made on {{ project.log_key_created|date:"j M Y, H:i" }}; its fingerprint is <code>{{ fingerprint }}</code>. A project has one key for good: without the key file, the logs are lost.</p>
+    {% else %}
+    <p class="muted">Generate a key pair for this project <strong>once</strong>. The public half is stored here and copied into <code>/dist/</code>; <code>log.php</code> on your web server then encrypts every log line as it arrives. The private half is handed to you a single time as a file and is not kept anywhere in TilTale: it is needed to open Results, so store it where your data management plan says (and never in <code>/project/</code> or the web server). Details in <code>ETHICS.md</code>.</p>
+    <form method="post" action="{% url 'studio:generate_log_key' %}" data-confirm="Generate the key for this project? This is done once and cannot be undone.">
+      {% csrf_token %}
+      <button class="button primary">Generate key</button>
+    </form>
+    {% endif %}
   </section>
 </main>
 {% endblock %}

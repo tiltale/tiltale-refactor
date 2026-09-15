@@ -1,0 +1,4 @@
+.component-scoreboard-ticket { --component-fill: var(--component-scoreboard-ticket-fill, #fff4dc); --component-border: var(--component-scoreboard-ticket-border, #a56300); --component-text: var(--component-scoreboard-ticket-text, #14203a); --shape-inset: 2px; font-weight: 700; letter-spacing: .02em; }
+.component-scoreboard-ticket .scoreboard-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 4; }
+.component-scoreboard-ticket .scoreboard-dash { stroke: var(--element-border, var(--component-border)); stroke-width: 3; stroke-dasharray: 10 8; }
+.component-scoreboard-ticket .component-text { inset: 8% 12% 24%; }

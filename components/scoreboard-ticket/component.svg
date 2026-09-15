@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <mask id="scoreboard-ticket-notches" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+      <rect width="100%" height="100%" fill="#fff"/>
+      <circle cx="0" cy="50%" r="14" fill="#000"/>
+      <circle cx="100%" cy="50%" r="14" fill="#000"/>
+    </mask>
+  </defs>
+  <rect class="scoreboard-box" width="100%" height="100%" rx="12" mask="url(#scoreboard-ticket-notches)"/>
+  <line class="scoreboard-dash" x1="8%" y1="82%" x2="92%" y2="82%"/>
+</svg>

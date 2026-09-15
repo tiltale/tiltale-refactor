@@ -6,7 +6,10 @@ button.story-element:disabled { cursor: default; }
 /* The shape fills the element. A component whose SVG draws in pixels (no viewBox) sets --shape-inset to half its stroke width, so the stroke ends exactly at the element's edge. */
 .story-element .component-shape { position: absolute; inset: var(--shape-inset, 0); }
 .story-element .component-shape > svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.story-element .component-text { position: absolute; inset: 14% 12%; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.1; color: var(--element-text, var(--component-text, #111)); overflow: hidden; pointer-events: none; }
+.story-element .component-text { position: absolute; inset: 14% 12%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.1; color: var(--element-text, var(--component-text, #111)); overflow: hidden; pointer-events: none; }
+/* One <span> per line of the text: a line break in content.xlsx (Alt+Enter) becomes a new line with a little space. */
+.story-element .component-text > span { display: block; max-width: 100%; }
+.story-element .component-text > span + span { margin-top: .35em; }
 .story-element.break-words .component-text { overflow-wrap: anywhere; }
 /* Components with "auto_height": the text sits in the flow, so the element grows with it; the stored height is its minimum. */
 .story-element.auto-height { display: flex; align-items: center; justify-content: center; height: auto; }

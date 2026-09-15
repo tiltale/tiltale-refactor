@@ -1,0 +1,10 @@
+{
+  "name": "Scoreboard panel",
+  "description": "Boxed panel with a colored stripe on the left; put the variable in its text: “Score {score} / 10”.",
+  "accepts_content": true,
+  "clickable": false,
+  "scoreboard": true,
+  "default_size": {"width": 420, "height": 120},
+  "default_font_size": 40,
+  "colors": {"fill": "#FFFFFF", "border": "#1E88E5", "text": "#14203A"}
+}

@@ -1,0 +1,3 @@
+.component-scoreboard-star { --component-fill: var(--component-scoreboard-star-fill, #eecf5a); --component-border: var(--component-scoreboard-star-border, #b8860b); --component-text: var(--component-scoreboard-star-text, #14203a); font-weight: 800; }
+.component-scoreboard-star .scoreboard-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 6; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.component-scoreboard-star .component-text { inset: 32% 26%; }

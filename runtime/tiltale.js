@@ -13,6 +13,10 @@
  *   ?inspect     static thumbnail: no splash, no logging, no clicks
  *   ?element=ID  highlight one element (studio flowchart)
  *   ?autoplay    play-test robot: clicks through and reports to the studio
+ *
+ * Frame kinds (STORY.frames[].kind): "frame", "picker" and "minigame" show their elements;
+ * "document" shows one zoomable image; "validation" is never shown: its rules on the global
+ * variables (STORY.variables, kept in state.variables) decide the next frame.
  */
 (function () {
   "use strict";
@@ -68,9 +72,13 @@
     write(local, participantKey, participantId);
   }
 
-  var stateKey = prefix + "state:" + participantId;  // {language, frame, previous}: resume after a crash
+  var stateKey = prefix + "state:" + participantId;  // {language, frame, previous, variables}: resume after a crash
   if (restart) forget(local, stateKey);
   var state = read(local, stateKey) || {};
+  state.variables = state.variables || {};
+  for (var name in STORY.variables) {  // a variable added after this reader started gets its initial value
+    if (Object.prototype.hasOwnProperty.call(STORY.variables, name) && !(name in state.variables)) state.variables[name] = STORY.variables[name];
+  }
   if (restart && window.history.replaceState) {
     params["delete"]("restart");
     window.history.replaceState(null, "", window.location.pathname + (params.toString() ? "?" + params : ""));
@@ -87,6 +95,26 @@
 
   function saveState() {
     if (!inspect) write(local, stateKey, state);
+  }
+
+  /* What the header of a log file records about the device (see ETHICS.md): the local time, the screen
+     and window size, and what the browser says about itself. No IP address is ever recorded. */
+  function visitHeader() {
+    var now = new Date();
+    var offset = -now.getTimezoneOffset();
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    var data = navigator.userAgentData || {};
+    return {
+      local_time: now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) + "T" + pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds())
+        + (offset < 0 ? "-" : "+") + pad(Math.floor(Math.abs(offset) / 60)) + ":" + pad(Math.abs(offset) % 60),
+      screen: {width: window.screen.width, height: window.screen.height, pixel_ratio: window.devicePixelRatio || 1},
+      window: {width: window.innerWidth, height: window.innerHeight},
+      touch: "ontouchstart" in window || navigator.maxTouchPoints > 0,
+      user_agent: navigator.userAgent,
+      platform: data.platform || navigator.platform || null,
+      mobile: typeof data.mobile === "boolean" ? data.mobile : null,
+      brands: data.brands ? data.brands.map(function (b) { return b.brand + " " + b.version; }) : null
+    };
   }
 
   // ------------------------------------------------------------- logging
@@ -197,11 +225,34 @@
     return shape;
   }
 
+  /* {score} in a text becomes the variable's current value; unknown names stay as written. */
+  function fillText(value) {
+    return value.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function (match, name) {
+      return name in state.variables ? String(state.variables[name]) : match;
+    });
+  }
+
+  /* One <span> per line, so a line break typed in content.xlsx becomes a line break with some space. */
   function makeText(value) {
     var text = document.createElement("span");
     text.className = "component-text";
-    text.textContent = value;
+    text.setAttribute("data-template", value);
+    fillText(value).split("\n").forEach(function (line) {
+      var span = document.createElement("span");
+      span.textContent = line;
+      text.appendChild(span);
+    });
     return text;
+  }
+
+  /* Re-render every text with a placeholder after a variable changed (scoreboards update at once). */
+  function refreshTexts() {
+    var texts = storyNode.querySelectorAll(".component-text[data-template]");
+    Array.prototype.forEach.call(texts, function (text) {
+      if (text.getAttribute("data-template").indexOf("{") === -1) return;
+      text.parentNode.replaceChild(makeText(text.getAttribute("data-template")), text);
+    });
+    if (window.TilTaleBubbles && storyNode.firstChild) TilTaleBubbles.draw(storyNode.firstChild);
   }
 
   function makeImage(sources) {
@@ -212,9 +263,7 @@
     return image;
   }
 
-  function showFrame(name, details) {
-    var frame = frames[name];
-    if (!frame) return;
+  function makePanel(frame) {
     var panel = document.createElement("section");
     panel.className = "story-frame" + (frame.fade_in ? " frame-fade" : "");
     panel.id = frame.name;
@@ -227,11 +276,46 @@
       panel.style.backgroundPosition = (box.x - box.width / 2) + "px " + (box.y - box.height / 2) + "px";
     }
     frame.elements.forEach(function (element) { panel.appendChild(makeElement(frame, element)); });
+    return panel;
+  }
+
+  /* A document is its image, as sharp as available, fitted into the frame; makeViewer then zooms it to the screen. */
+  function makeDocumentPanel(frame) {
+    var panel = document.createElement("section");
+    panel.className = "story-frame document-image" + (frame.fade_in ? " frame-fade" : "");
+    panel.id = frame.name;
+    var sources = frame.background.sources || [];
+    var source = sources[sources.length - 1];
+    var image = document.createElement("img");
+    image.alt = "";
+    if (source) {
+      image.src = STORY.root + source.path;
+      var scale = Math.min(STORY.frame_width / source.width, STORY.frame_height / source.height);
+      image.style.width = (source.width * scale) + "px";
+      image.style.height = (source.height * scale) + "px";
+    }
+    panel.appendChild(image);
+    return panel;
+  }
+
+  function makeValidationPanel(frame) {  // only the studio's thumbnails ever see this
+    var panel = document.createElement("section");
+    panel.className = "story-frame validation-point";
+    panel.id = frame.name;
+    panel.textContent = "Validation point: " + frame.rules.map(function (rule) { return rule.label; }).join(" · ");
+    return panel;
+  }
+
+  function showFrame(name, details) {
+    var frame = frames[name];
+    if (!frame) return;
+    if (frame.kind === "validation" && !inspect) return decide(frame);
+    var panel = frame.kind === "validation" ? makeValidationPanel(frame) : frame.kind === "document" ? makeDocumentPanel(frame) : makePanel(frame);
     storyNode.innerHTML = "";
     storyNode.appendChild(panel);
     if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page
     viewerBar.hidden = true;
-    viewer = frame.zoomable && !inspect ? makeViewer(panel, frame) : null;
+    viewer = frame.kind === "document" && !inspect ? makeViewer(panel, frame) : null;
     // A zoomed document may be dragged past the frame's letterbox, so the page behind it takes the
     // frame's own background color instead of showing the black around and under the frame.
     storyNode.className = viewer ? "document" : "";
@@ -248,18 +332,67 @@
 
   // ------------------------------------------------------------- what a click does
   function activate(frame, element) {
-    if (!element.target && !element.language && !element.ends_story) return;
+    var leads = element.target || element.language || element.ends_story || element.restarts_story;
+    if (!leads && !element.update) return;
     log("choice", {
       frame: frame.name,
       element_id: element.id,
       component: element.component,
       content_id: element.content_id,
       text: element.text || null,
-      target: element.ends_story ? "end" : (element.target || element.language)
+      target: element.ends_story ? "end" : element.restarts_story ? "restart" : (element.target || element.language || null)
     });
+    if (element.update) applyUpdate(frame, element);
     if (element.ends_story) finish(frame);
+    else if (element.restarts_story) restartStory();
     else if (element.language) openLanguage(element.language);
-    else showFrame(element.target);
+    else if (element.target) showFrame(element.target);
+  }
+
+  /* "set" replaces the value, "add" adds to it (numbers only; the studio refuses anything else). */
+  function applyUpdate(frame, element) {
+    var update = element.update;
+    var before = state.variables[update.variable];
+    var after = update.operation === "add" ? before + update.value : update.value;
+    state.variables[update.variable] = after;
+    saveState();
+    log("variable", {frame: frame.name, element_id: element.id, variable: update.variable, from: before, to: after});
+    refreshTexts();
+  }
+
+  var COMPARE = {
+    "==": function (a, b) { return a === b; }, "!=": function (a, b) { return a !== b; },
+    "<": function (a, b) { return a < b; }, "<=": function (a, b) { return a <= b; },
+    ">": function (a, b) { return a > b; }, ">=": function (a, b) { return a >= b; }
+  };
+
+  /* A validation point: the first rule that matches decides; a rule without a variable ("otherwise") always matches. */
+  function decide(frame) {
+    var chosen = null;
+    for (var i = 0; i < frame.rules.length && !chosen; i += 1) {
+      var rule = frame.rules[i];
+      if (!rule.variable || COMPARE[rule.comparator](state.variables[rule.variable], rule.value)) chosen = rule;
+    }
+    var snapshot = {};
+    for (var name in state.variables) if (Object.prototype.hasOwnProperty.call(state.variables, name)) snapshot[name] = state.variables[name];
+    log("decision", {
+      frame: frame.name, element_id: chosen ? chosen.id : null, rule: chosen ? chosen.label : null,
+      target: chosen ? chosen.target : null, variables: snapshot
+    });
+    if (!chosen || !chosen.target || !frames[chosen.target]) {
+      var problem = frame.name + " has no rule for these values" + (chosen ? " that leads to a frame in this build." : ".");
+      return autoplay ? report(false, problem) : notice(problem);
+    }
+    showFrame(chosen.target);
+  }
+
+  /* Forget this browser's progress (also the variables) and open the story's first page again. */
+  function restartStory() {
+    if (autoplay) return report(true, "Reached a “Restart the story” element.");
+    var forward = new URLSearchParams(window.location.search);
+    forward["delete"]("frame");
+    forward.set("restart", "");
+    window.location.href = STORY.start_page + "?" + forward.toString();
   }
 
   function openLanguage(language) {
@@ -298,8 +431,8 @@
     var dragged = false;
     function apply() { panel.style.transform = "translate(" + view.x + "px, " + view.y + "px) scale(" + view.zoom + ")"; }
     function zoomBy(factor) { view.zoom = Math.min(Math.max(8, fit * 4), Math.max(1, view.zoom * factor)); apply(); }
-    // Start with the document (everything placed on the frame) as large as the screen allows, fully visible:
-    // a portrait poster on a phone then fills the height instead of sitting small inside the landscape frame.
+    // Start with the document as large as the screen allows, fully visible: a portrait poster on a
+    // phone then fills the height instead of sitting small inside the landscape frame.
     var box = contentBox(panel);
     var fit = box ? Math.min(window.innerWidth / (box.width * storyScale), window.innerHeight / (box.height * storyScale)) : 1;
     if (box) {
@@ -337,8 +470,12 @@
     return {zoomBy: zoomBy, frame: frame, move: move, release: function (event) { delete pointers[event.pointerId]; }};
   }
 
-  /* The smallest box around the frame's elements, in frame pixels (elements are positioned by their centre). */
+  /* The box around the document image (or, on an older frame, its elements), in frame pixels. */
   function contentBox(panel) {
+    var image = panel.querySelector("img");
+    if (image && image.offsetWidth) {
+      return {x: STORY.frame_width / 2, y: STORY.frame_height / 2, width: image.offsetWidth, height: image.offsetHeight};
+    }
     var items = panel.querySelectorAll(".story-element");
     if (!items.length) return null;
     var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
@@ -382,18 +519,27 @@
     }, "*");
   }
 
-  /* Prefer unvisited frames, then "End story", then the least visited frame. */
+  /* Prefer buttons it has not clicked whose frame it has not seen, then "End story", then the least
+     visited; ties are broken at random, so every run may take another route. Documents are closed again. */
+  var clicks = {};
+
   function robotStep(frame) {
     window.parent.postMessage({tiltale: "playtest", progress: frame.name}, "*");  // the studio's stall timer restarts
     visits[frame.name] = (visits[frame.name] || 0) + 1;
     steps += 1;
     if (steps > 400) return report(false, "Stopped after 400 frames: the story seems to loop without an end.");
-    var options = frame.elements.filter(function (e) { return e.clickable && (e.target || e.language || e.ends_story); });
+    if (frame.kind === "document") return window.setTimeout(function () { viewerBar.querySelector("[data-close]").click(); }, 400);
+    var options = frame.elements.filter(function (e) { return e.clickable && (e.target || e.language || e.ends_story || e.restarts_story); });
     if (!options.length) return report(true, "Stopped at " + frame.name + ": nothing on it leads further (treated as the end).");
-    var score = function (e) { return e.language ? 0 : e.target ? (visits[e.target] || 0) * 2 : 1; };
+    var score = function (e) {
+      if (e.language) return 0;
+      if (e.restarts_story) return 1000 + (clicks[e.id] || 0);  // a restart ends the run: only when nothing else is left
+      return (e.target ? (visits[e.target] || 0) * 2 : 1) + (clicks[e.id] || 0) * 3 + Math.random();
+    };
     var pick = options.slice().sort(function (a, b) { return score(a) - score(b); })[0];
     var target = pick.target && !frames[pick.target] ? pick.target : null;
     if (target) return report(false, frame.name + " links to a frame that is not in this build: " + target + ".");
+    clicks[pick.id] = (clicks[pick.id] || 0) + 1;
     window.setTimeout(function () {
       var node = document.getElementById(frame.name + "--" + pick.id);
       if (node) { node.disabled = false; node.click(); }
@@ -411,7 +557,7 @@
       var lists = frame.elements.map(function (element) { return element.image; });  // undefined for components
       if (frame.background.type === "image") lists.push(frame.background.sources);
       lists.forEach(function (sources) {
-        var source = chooseSource(sources);
+        var source = frame.kind === "document" ? sources[sources.length - 1] : chooseSource(sources);  // documents: the sharpest
         if (source) chosen[source.path] = source;
       });
     });
@@ -431,7 +577,9 @@
     var loading = document.getElementById("loading");
     scaleStory();
     window.addEventListener("resize", scaleStory);
-    window.addEventListener("orientationchange", function () { window.setTimeout(scaleStory, 100); });
+    // Rotating the device: iOS reports the old size for a moment, so rescale twice.
+    window.addEventListener("orientationchange", function () { window.setTimeout(scaleStory, 100); window.setTimeout(scaleStory, 500); });
+    if (window.screen && window.screen.orientation) window.screen.orientation.addEventListener("change", scaleStory);
     document.addEventListener("gesturestart", function (event) { event.preventDefault(); });
 
     if (inspect) {
@@ -451,6 +599,7 @@
     }
     if (window.location.protocol === "file:") notice("Opened from a file: logging is off. Serve /dist/ from a web server with PHP.");
 
+    if (!handoff) log("visit", visitHeader());  // the first line of every log file: when, on what, in which browser
     log("Loading IDN – started", {event_type: "loading_started"});
     loading.hidden = Boolean(forcedFrame);  // the studio jumps straight to a frame, without the bouncing logo
     var minimum = new Promise(function (resolve) { window.setTimeout(resolve, forcedFrame ? 0 : 3000); });

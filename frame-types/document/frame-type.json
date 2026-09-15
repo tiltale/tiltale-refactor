@@ -1,0 +1,5 @@
+{
+  "name": "Document",
+  "description": "One image (a poster, leaflet or form) shown as large as the screen allows; readers zoom, drag and close it.",
+  "help": "A document has no elements: it is one image from /project/materials/, shown at the largest size that fits the screen while keeping its proportions. Readers pinch or scroll to zoom, drag to pan, and press × Close to return to the frame they came from. The play-test robot closes it too."
+}

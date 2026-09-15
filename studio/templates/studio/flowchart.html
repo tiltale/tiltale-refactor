@@ -9,10 +9,6 @@
         <select name="lang" data-autosubmit>{% for language in content.languages %}<option value="{{ language }}"{% if language == content.language %} selected{% endif %}>{{ language }}</option>{% endfor %}</select>
       </label></form>
       {% endif %}
-      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><button class="button">+ Frame</button></form>
-      {% if content.multilingual %}
-      <form method="post" action="{% url 'studio:new_frame' %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="picker" value="1"><button class="button picker-button">+ Picker frame</button></form>
-      {% endif %}
       <span class="divider"></span>
       <button type="button" class="icon" title="Zoom out" data-zoom-step="-1">−</button>
       <span class="muted zoom" data-zoom></span>
@@ -26,10 +22,14 @@
     </div>
     {% include 'studio/_flow.html' %}
     <div class="legend">
-      <span><i class="swatch story"></i> Story frame</span>
-      {% if content.multilingual %}<span><i class="swatch picker"></i> Language-picker frame (start page, not in content.xlsx)</span><span><i class="line dashed"></i> Opens a language</span>{% endif %}
+      <span><i class="swatch story"></i> Frame</span>
+      {% if content.multilingual %}<span><i class="swatch picker"></i> Picker (start page, not in content.xlsx)</span><span><i class="line dashed"></i> Opens a language</span>{% endif %}
       <span><i class="line"></i> Goes to frame</span>
-      <span><i class="swatch document"></i> Document frame (blue): optional, sits above the frame that opens it; readers close it and return</span>
+      <span><i class="line end"></i> Ends the story</span>
+      <span><i class="line restart"></i> Restarts the story</span>
+      <span><i class="swatch document"></i> Document: one zoomable image, sits above the frame that opens it; readers close it and return</span>
+      <span><i class="swatch validation"></i> Validation point: invisible, each rule is an arrow (<i class="line rule"></i>)</span>
+      <span><i class="swatch minigame"></i> Minigame</span>
     </div>
   </section>
 

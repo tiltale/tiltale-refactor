@@ -15,6 +15,8 @@ import unicodedata
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
+from studio.services.variables import kind_of, parse_value  # pure helpers, no models: safe to import here
+
 
 def name_key(name: str) -> str:
     """How frame names are compared: "Scene 2_b", "scene-2-b" and "Scene 2 B" are the same name."""
@@ -43,17 +45,33 @@ class ProjectSettings(models.Model):
         validators=[RegexValidator(r"^[A-Za-z0-9_.-]+$", "Use letters, digits, '.', '_' or '-'.")],
     )
     finish_redirect_url = models.URLField(max_length=1000, blank=True, default="")
+    # Protecting logs (see ETHICS.md): the public key goes into /dist/, the private key is handed out
+    # once and never stored. ``log_key_pending`` holds it only between generating and confirming the download.
+    log_public_key = models.TextField(blank=True, default="")
+    log_key_created = models.DateTimeField(null=True, blank=True)
+    log_key_pending = models.TextField(blank=True, default="")
 
     def __str__(self) -> str:
         return self.name
 
+    @property
+    def logs_protected(self) -> bool:
+        return bool(self.log_public_key)
+
 
 class Frame(models.Model):
-    """One story panel. Language-picker frames only exist in multi-language projects.
+    """One node of the story. Its ``kind`` decides what readers get (see /frame-types/README.md).
 
     ``key`` (``fnr-12``) identifies the frame in code, logs and preview links and never
     changes; SQLite never reuses the number. ``name`` is only for people.
     """
+
+    class Kind(models.TextChoices):
+        FRAME = "frame", "Frame"
+        PICKER = "picker", "Picker"  # start page of a multi-language project
+        DOCUMENT = "document", "Document"  # one zoomable image, closed to return
+        VALIDATION = "validation", "Validation point"  # invisible: rules on the variables decide the next frame
+        MINIGAME = "minigame", "Minigame"  # like a frame, reserved for later
 
     class BackgroundType(models.TextChoices):
         NONE = "none", "None"
@@ -61,7 +79,7 @@ class Frame(models.Model):
         IMAGE = "image", "Image"
 
     name = models.CharField(max_length=80, unique=True)
-    is_language_picker = models.BooleanField(default=False)
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.FRAME)
     background_type = models.CharField(
         max_length=10,
         choices=BackgroundType.choices,
@@ -75,9 +93,8 @@ class Frame(models.Model):
     background_width = models.FloatField(null=True, blank=True)
     background_height = models.FloatField(null=True, blank=True)
     fade_in = models.BooleanField(default=False)
-    # Document frames: readers may zoom and drag the frame, and a fixed "× Close" button
-    # returns to the previous frame. Its label is a row of content.xlsx (empty: just "×").
-    zoomable = models.BooleanField(default=False)
+    # Documents: ``background_image`` is the document; the fixed "× Close" button returns to the
+    # previous frame and its label is a row of content.xlsx (empty: just "×").
     close_content_id = models.PositiveIntegerField(null=True, blank=True)
     flow_x = models.FloatField(default=0.0)
     flow_y = models.FloatField(default=0.0)
@@ -93,6 +110,19 @@ class Frame(models.Model):
         return f"fnr-{self.pk}"
 
     @property
+    def is_language_picker(self) -> bool:
+        return self.kind == self.Kind.PICKER
+
+    @property
+    def is_document(self) -> bool:
+        return self.kind == self.Kind.DOCUMENT
+
+    @property
+    def has_canvas(self) -> bool:
+        """Frames whose elements readers see; documents show one image and validation points nothing."""
+        return self.kind in (self.Kind.FRAME, self.Kind.PICKER, self.Kind.MINIGAME)
+
+    @property
     def background_box(self) -> dict[str, float] | None:
         """Where the background image was dragged to, or ``None`` while it covers the frame."""
         if self.background_width is None:
@@ -100,8 +130,60 @@ class Frame(models.Model):
         return {"x": self.background_x, "y": self.background_y, "width": self.background_width, "height": self.background_height}
 
 
+class Variable(models.Model):
+    """A global variable of the story, e.g. ``score`` starting at ``0`` (see services/variables.py)."""
+
+    name = models.CharField(max_length=40, unique=True)
+    initial_value = models.CharField(max_length=200)
+
+    class Meta:
+        ordering: list[str] = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def kind(self) -> str:
+        """``"number"`` or ``"text"``, decided by the initial value."""
+        return kind_of(parse_value(self.initial_value))
+
+
+class Rule(models.Model):
+    """One row of a validation point: ``if <variable> <comparator> <value> go to <target>``.
+
+    Rules are checked in ``order``; a rule without a variable is the "otherwise" row that always matches.
+    """
+
+    frame = models.ForeignKey(Frame, on_delete=models.CASCADE, related_name="rules")
+    order = models.PositiveIntegerField(default=0)
+    variable = models.ForeignKey(Variable, on_delete=models.PROTECT, null=True, blank=True, related_name="rules")
+    comparator = models.CharField(max_length=2, default="==")
+    value = models.CharField(max_length=200, blank=True, default="")
+    target_frame = models.ForeignKey(Frame, on_delete=models.SET_NULL, null=True, blank=True, related_name="incoming_rules")
+
+    class Meta:
+        ordering: list[str] = ["order", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.frame.name}: rule #{self.pk}"
+
+    @property
+    def key(self) -> str:
+        """Identifies the rule in logs and the flowchart, like an element's id: ``rule-7``."""
+        return f"rule-{self.pk}"
+
+    @property
+    def target_value(self) -> str:
+        """The rule's target as the frame editor's dropdown value (``frame:12`` or empty)."""
+        return f"frame:{self.target_frame_id}" if self.target_frame_id else ""
+
+
 class Element(models.Model):
-    """One placed component instance, or one image from /project/materials/, on a frame."""
+    """One placed component instance, or one image from /project/materials/, on a frame.
+
+    Without a frame, an element (a scoreboard from Settings → Advanced) is shown on every story
+    frame except those in ``hidden_on``.
+    """
 
     class DelayMode(models.TextChoices):
         NONE = "none", "No delay behavior"
@@ -109,7 +191,8 @@ class Element(models.Model):
         DISABLE = "disable", "Disable click"
         BOTH = "both", "Fade + disable click"
 
-    frame = models.ForeignKey(Frame, on_delete=models.CASCADE, related_name="elements")
+    frame = models.ForeignKey(Frame, on_delete=models.CASCADE, null=True, blank=True, related_name="elements")
+    hidden_on = models.ManyToManyField(Frame, blank=True, related_name="hidden_global_elements")
     component = models.CharField(max_length=100)  # empty for image elements
     image = models.CharField(max_length=500, blank=True, default="")  # path in /project/materials/
     # Story frames take text from content.xlsx. Language-picker frames are shown
@@ -131,7 +214,7 @@ class Element(models.Model):
     tail_y = models.FloatField(null=True, blank=True)
 
     font_size = models.FloatField(default=44.0)
-    break_long_words = models.BooleanField(default=True)
+    break_long_words = models.BooleanField(default=False)
     delay_mode = models.CharField(max_length=10, choices=DelayMode.choices, default=DelayMode.NONE)
     order = models.PositiveIntegerField(default=0)  # stacking on the frame: higher is in front; ties by id
 
@@ -145,12 +228,22 @@ class Element(models.Model):
     )
     target_language = models.CharField(max_length=40, blank=True, default="")
     ends_story = models.BooleanField(default=False)
+    restarts_story = models.BooleanField(default=False)
+
+    # Optionally, a click also changes one global variable: set it to ``update_value`` or add ``update_value`` to it.
+    update_variable = models.ForeignKey(Variable, on_delete=models.PROTECT, null=True, blank=True, related_name="updates")
+    update_operation = models.CharField(max_length=3, default="set")
+    update_value = models.CharField(max_length=200, blank=True, default="")
 
     class Meta:
         ordering: list[str] = ["order", "id"]
 
     def __str__(self) -> str:
-        return f"{self.frame.name}: {self.component} #{self.pk}"
+        return f"{self.frame.name if self.frame else 'every frame'}: {self.component} #{self.pk}"
+
+    @property
+    def leads_somewhere(self) -> bool:
+        return bool(self.target_frame_id or self.target_language or self.ends_story or self.restarts_story)
 
     def save(self, *args: object, **kwargs: object) -> None:
         if self._state.adding and not self.order:  # a new element goes in front of the others

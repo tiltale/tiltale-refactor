@@ -1,0 +1,5 @@
+{
+  "name": "Frame",
+  "description": "A normal story screen: background, speech bubbles, images and buttons.",
+  "help": "Readers see this frame as designed on the canvas. Buttons lead to another frame, end the story, restart it, or update a global variable."
+}

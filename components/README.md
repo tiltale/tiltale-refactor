@@ -6,7 +6,7 @@ Each component is one folder. **The folder name is the slug**: it must match the
 
 | File | Purpose |
 |---|---|
-| `component.json` | Name, description, whether it shows text (`accepts_content`), whether it is clickable (`clickable`), default size/font and default colors. Optional: `auto_height` and `tail` (below). |
+| `component.json` | Name, description, whether it shows text (`accepts_content`), whether it is clickable (`clickable`), default size/font and default colors. Optional: `auto_height`, `tail` and `scoreboard` (below). |
 | `component.svg` | The vector shape. Give shapes CSS classes instead of hard-coded colors. |
 | `component.css` | Colors and hover behavior through CSS custom properties. |
 
@@ -22,6 +22,22 @@ Two optional keys in `component.json`:
 | `"tail": "speech"`, `"thought"` or `"scream"` | `runtime/bubbles.js` draws the tail (and, for thought and scream, the whole outline) into `<path class="bubble-body">` and `<path class="bubble-tail">`. In the editor, drag the black dot to point the tail at a mouth or head; the body does not move. The tip is saved per element (`tail_x`, `tail_y`, relative to the element's center). |
 
 Colors, borders and text colors of every `laura-*` component are in `/project/default-colors.css`, like any other component.
+
+## Scoreboards and global variables (the `scoreboard-*` components)
+
+Any element text may contain the name of a global variable in curly braces: `Score: {score}`. The story player replaces it with the variable's current value and re-renders the text the moment the variable changes, so a reader who clicks a button that adds a point sees the new number at once. Unknown names stay as written (the dashboard warns about them). Variables are defined under **Settings → Advanced**; see `frame-types/README.md` for how buttons change them and how validation points use them.
+
+The four `scoreboard-*` components (pill, panel, star, ticket) are ordinary components with one extra key in `component.json`:
+
+| Key | Effect |
+|---|---|
+| `"scoreboard": true` | The component is listed under **Settings → Advanced → Scoreboard on every frame**, where one click puts it on every story frame at once (stored as an element without a frame, plus the list of frames where it is hidden). It can still be added to a single frame like any other component. |
+
+A scoreboard's text is a row of `content.xlsx` like any other text, so it is translated per language: `Score: {score}` in one column, `Punte: {score}` in another. Give the star a short text such as `{score}` and keep it square.
+
+## Line breaks
+
+A line break inside a cell of `content.xlsx` (Alt+Enter in Excel, or Enter in the studio's text editor) is kept: the player renders one line per `<span>` inside `.component-text`, with a little space between lines (`elements.css`). Components that grow with their text (`auto_height`) grow accordingly.
 
 Color resolution, from strongest to weakest: per-element override (right-click an element) → `/project/default-colors.css` (created from the `colors` in each `component.json` when a project is created) → the fallback in `component.css`.
 

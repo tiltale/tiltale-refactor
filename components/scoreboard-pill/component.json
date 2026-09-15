@@ -1,0 +1,10 @@
+{
+  "name": "Scoreboard pill",
+  "description": "Rounded pill that shows a global variable, e.g. “Points: {score}”. Updates the moment the variable changes.",
+  "accepts_content": true,
+  "clickable": false,
+  "scoreboard": true,
+  "default_size": {"width": 360, "height": 96},
+  "default_font_size": 40,
+  "colors": {"fill": "#FFFFFF", "border": "#000000", "text": "#000000"}
+}

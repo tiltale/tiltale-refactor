@@ -7,16 +7,16 @@
       <h2>Frames <span class="count">{{ frames|length }}</span></h2>
       <input type="search" placeholder="Filter frames" aria-label="Filter frames" data-frame-filter>
     </div>
-    {% if not frames %}<p class="muted">No frames yet. Create the first one with <strong>+ Frame</strong>.</p>{% endif %}
+    {% if not frames %}<p class="muted">No frames yet. Create the first one with <strong>+ Add</strong> at the top right.</p>{% endif %}
     <div class="thumb-grid">
       {% for frame in frames %}
-      <article class="thumb{% if frame.is_language_picker %} is-picker{% endif %}" data-frame-name="{{ frame.name|lower }}" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}" title="Click to show this frame in the preview">
+      <article class="thumb is-{{ frame.kind }}" data-frame-name="{{ frame.name|lower }}" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}" title="Click to show this frame in the preview">
         <div class="thumb-screen">
           {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ frame.name }}" src="{{ frame.preview_url }}?inspect=1&amp;frame={{ frame.key }}"></iframe>{% endif %}
         </div>
         <div class="thumb-foot">
           <strong>{{ frame.name }}</strong> <code class="frame-id">{{ frame.key }}</code>
-          {% if frame.is_language_picker %}<span class="badge picker" title="Language-picker frame: part of the start page /dist/index.html">Picker</span>{% endif %}
+          {% if frame.kind != 'frame' %}<span class="badge {{ frame.kind }}">{{ frame.get_kind_display }}</span>{% endif %}
           <a class="button small thumb-edit" href="{% url 'studio:frame_editor' frame.id %}?lang={{ content.language }}">Edit</a>
         </div>
       </article>
@@ -52,16 +52,6 @@
       <button type="button" class="button" title="Start again as a new visit" data-restart>Restart</button>
       <span class="muted zoom" data-zoom></span>
       <span class="spacer"></span>
-      <form method="post" action="{% url 'studio:new_frame' %}">
-        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
-        <button class="button">+ Frame</button>
-      </form>
-      {% if content.multilingual %}
-      <form method="post" action="{% url 'studio:new_frame' %}">
-        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="picker" value="1">
-        <button class="button picker-button" title="A start-page frame shown before a language is chosen">+ Picker frame</button>
-      </form>
-      {% endif %}
     </div>
 
     {% if content.error %}<div class="alert error">{{ content.error }}</div>{% endif %}

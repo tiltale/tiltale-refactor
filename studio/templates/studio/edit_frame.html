@@ -6,12 +6,11 @@
   <aside class="panel editor-panel">
     <div class="panel-head">
       <a class="back" href="{% url 'studio:flowchart' %}?lang={{ content.language }}&amp;selected={{ frame.id }}">← Flowchart</a>
-      <h1>{{ frame.name }} <code class="frame-id">{{ frame.key }}</code> {% if frame.is_language_picker %}<span class="badge picker">Picker</span>{% endif %}</h1>
+      <h1>{{ frame.name }} <code class="frame-id">{{ frame.key }}</code> {% if frame.kind != 'frame' %}<span class="badge {{ frame.kind }}">{{ frame_type.name }}</span>{% endif %}</h1>
     </div>
 
-    {% if frame.is_language_picker %}
-    <div class="alert picker-note">This frame belongs to the start page <code>/dist/index.html</code>, shown before a language is chosen. Type its texts directly (they are not in <code>content.xlsx</code>) and point at least one button to a language.</div>
-    {% elif content.multilingual %}
+    <div class="alert kind-note {{ frame.kind }}"><strong>{{ frame_type.name }}.</strong> {{ frame_type.help }}{% if frame.kind != 'frame' %} <span class="muted">A frame's kind is chosen when it is created; to change it, add a new frame.</span>{% endif %}</div>
+    {% if not frame.is_language_picker and content.multilingual and frame.kind != 'validation' %}
     <form method="get" class="field">
       <span class="field-label">Language</span>
       <select name="lang" data-autosubmit>{% for item in content.languages %}<option value="{{ item }}"{% if item == language %} selected{% endif %}>{{ item }}{% if item == project.base_language %} (base){% endif %}</option>{% endfor %}</select>
@@ -21,10 +20,34 @@
 
     <form method="post" class="form" data-unsaved-guard>
       {% csrf_token %}
-      <h2>Frame</h2>
+      <h2>{{ frame_type.name }}</h2>
       {% for error in form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
       {% include 'studio/_field.html' with field=form.name %}
       <p class="field-help">ID <code>{{ frame.key }}</code> never changes, so logs stay readable after renaming.</p>
+      {% if frame.kind == 'validation' %}
+      <input type="hidden" name="background_type" value="none"><input type="hidden" name="background_color" value="{{ frame.background_color }}">
+      {% elif frame.kind == 'document' %}
+      {% include 'studio/_field.html' with field=form.fade_in %}
+      <input type="hidden" name="background_type" value="image">
+      <label class="field"><span class="field-label">The document: an image from /project/materials/</span>
+        <select name="background_image">
+          <option value="">Choose an image…</option>
+          {% for name in materials %}<option value="{{ name }}"{% if name == form.background_image.value %} selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+        <small class="field-help">Shown as large as the screen allows, keeping its proportions. Use a sharp image (a poster scan of 2000–4000 px): readers zoom into it.</small>
+      </label>
+      {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      {% include 'studio/_field.html' with field=form.background_color %}
+      <p class="field-help">Fills the screen around the image.</p>
+      <label class="field"><span class="field-label">Text of the “× Close” button <em>(from content.xlsx)</em></span>
+        <select name="close_content_id">
+          <option value="">× only</option>
+          {% for row in content_rows %}<option value="{{ row.id }}"{% if row.id == frame.close_content_id %} selected{% endif %}>{{ row.id }} · {{ row.text|truncatechars:40 }}</option>{% endfor %}
+        </select>
+      </label>
+      {% for error in form.close_content_id.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+      <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the frame the reader came from. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
+      {% else %}
       {% include 'studio/_field.html' with field=form.fade_in %}
       {% include 'studio/_field.html' with field=form.background_type %}
       <div data-show-when="solid">{% include 'studio/_field.html' with field=form.background_color %}</div>
@@ -38,38 +61,49 @@
         {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
         {% if frame.background_box %}<button class="button" name="fill_frame" value="1">Fill the frame again</button>{% endif %}
       </div>
-      {% if not frame.is_language_picker %}
-      <fieldset><legend>Document viewer</legend>
-        {% include 'studio/_field.html' with field=form.zoomable %}
-        <label class="field"><span class="field-label">Text of the “× Close” button <em>(from content.xlsx)</em></span>
-          <select name="close_content_id">
-            <option value="">× only</option>
-            {% for row in content_rows %}<option value="{{ row.id }}"{% if row.id == frame.close_content_id %} selected{% endif %}>{{ row.id }} · {{ row.text|truncatechars:40 }}</option>{% endfor %}
-          </select>
-        </label>
-        {% for error in form.close_content_id.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-        <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the previous frame. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
-      </fieldset>
       {% endif %}
       <div class="row">
-        <button class="button primary">Save frame</button>
-        <button class="button danger" form="delete-frame">Delete frame</button>
+        <button class="button primary">Save {{ frame_type.name|lower }}</button>
+        <button class="button danger" form="delete-frame">Delete</button>
       </div>
     </form>
     <form method="post" id="delete-frame" action="{% url 'studio:delete_frame' frame.id %}"
-          data-confirm="Delete {{ frame.name }} and its {{ elements|length }} element(s)?{% if incoming %} {{ incoming }} button(s) that lead here will lead nowhere.{% endif %}">
+          data-confirm="Delete {{ frame.name }}{% if elements %} and its {{ elements|length }} element(s){% endif %}?{% if incoming %} {{ incoming }} button(s) or rule(s) that lead here will lead nowhere.{% endif %}">
       {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
     </form>
 
+    {% if frame.kind == 'validation' %}
+    <form method="post" action="{% url 'studio:save_rules' frame.id %}" class="form" data-rules data-unsaved-guard>
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+      <h2>Rules <span class="count">{{ conditions|length }}</span> <span class="muted">checked from top to bottom</span></h2>
+      {% if not variables %}<div class="alert warning">There are no global variables yet. Define one under <a href="{% url 'studio:config' %}?tab=advanced">Settings → Advanced</a> first, then add rules here.</div>{% endif %}
+      <ol class="rule-list" data-rule-list>
+        {% for rule in conditions %}{% include 'studio/_rule.html' with index=forloop.counter0 %}{% endfor %}
+      </ol>
+      <template data-rule-template>{% include 'studio/_rule.html' with index='IDX' rule=None %}</template>
+      <button type="button" class="button" data-add-rule{% if not variables %} disabled{% endif %}>+ Add rule</button>
+      <label class="field"><span class="field-label">Otherwise, go to</span>
+        <input type="hidden" name="else.id" value="{{ otherwise.id|default:'' }}">
+        <select name="else.target">{% for value, label in rule_targets %}<option value="{{ value }}"{% if value == otherwise.target_value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <small class="field-help">Readers whose values match none of the rules go here. Every validation point needs this, or those readers get stuck.</small>
+      </label>
+      <p class="field-help">Values are checked against the variable's type: a number variable (initial value such as 0 or 2.5) is compared with numbers, a text variable with text. The first matching rule wins, so put the most specific rule first.</p>
+      <button class="button primary">Save rules</button>
+    </form>
+    {% endif %}
+
+    {% if frame.has_canvas %}
     <section>
       <h2>Elements <span class="count">{{ elements|length }}</span> <span class="muted">back to front</span></h2>
       {% if not elements %}<p class="muted">Add a component below.</p>{% endif %}
       <ul class="element-list">
         {% for item in elements %}
-        <li><button type="button" class="link" data-open-dialog="element-{{ item.element.id }}">#{{ item.element.id }} {{ item.component.name|default:item.element.image }}{% if item.has_override %} ◆{% endif %}</button>
+        <li><button type="button" class="link" data-open-dialog="element-{{ item.element.id }}">#{{ item.element.id }} {{ item.component.name|default:item.element.image }}{% if item.has_override %} ◆{% endif %}{% if not item.element.frame_id %} <span class="badge" title="Added under Settings → Advanced; shown on every frame">every frame</span>{% endif %}</button>
           <span class="element-order">
+            {% if item.element.frame_id %}
             {% if not forloop.first %}<button class="icon" form="move-{{ item.element.id }}" name="direction" value="backward" title="Send backward (the background always stays behind)">▼</button>{% endif %}
             {% if not forloop.last %}<button class="icon" form="move-{{ item.element.id }}" name="direction" value="forward" title="Bring forward">▲</button>{% endif %}
+            {% endif %}
           </span>
           {% if item.component %}<span class="muted">{{ item.text|truncatechars:40|default:"(no text)" }}</span>{% endif %}</li>
         {% endfor %}
@@ -109,9 +143,11 @@
       </form>
     </details>
     {% endif %}
+    {% endif %}
   </aside>
 
   <section class="stage-area">
+    {% if frame.has_canvas %}
     <p class="hint">Drag to move (<kbd>Shift</kbd> keeps it straight); edges stick to other elements' edges. Drag a corner dot to resize (<kbd>Shift</kbd> flips whether the proportions are kept), the black dot to point a bubble's tail. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes. Click an element for its settings.</p>
     <div class="stage" data-canvas-stage>
       <div class="canvas" data-canvas data-width="{{ project.frame_width|stringformat:'g' }}" data-height="{{ project.frame_height|stringformat:'g' }}"
@@ -128,7 +164,7 @@
              data-dialog="element-{{ element.id }}" data-box-url="{% url 'studio:element_position_api' element.id %}"{% if element.image %} data-keep-ratio{% endif %}{% if item.component.auto_height %} data-auto-height{% endif %}{% if item.component.tail %} data-tail="{{ item.component.tail }}"{% endif %}
              style="left: {{ g.x|stringformat:'g' }}px; top: {{ g.y|stringformat:'g' }}px; width: {{ g.width|stringformat:'g' }}px; {% if item.component.auto_height %}min-height{% else %}height{% endif %}: {{ g.height|stringformat:'g' }}px; font-size: {{ g.font_size|stringformat:'g' }}px;{% if element.tail_x is not None %} --tail-x: {{ element.tail_x|stringformat:'g' }}px; --tail-y: {{ element.tail_y|stringformat:'g' }}px;{% endif %}{% if element.fill_color %} --element-fill: {{ element.fill_color }};{% endif %}{% if element.border_color %} --element-border: {{ element.border_color }};{% endif %}{% if element.text_color %} --element-text: {{ element.text_color }};{% endif %}">
           {% if element.image %}<img src="{% url 'studio:material_file' element.image %}" alt="">
-          {% else %}<div class="component-shape">{{ item.component.svg|safe }}</div>{% if item.component.accepts_content %}<div class="component-text">{{ item.text }}</div>{% endif %}{% endif %}
+          {% else %}<div class="component-shape">{{ item.component.svg|safe }}</div>{% if item.component.accepts_content %}<div class="component-text">{% for line in item.text.splitlines %}<span>{{ line }}</span>{% endfor %}</div>{% endif %}{% endif %}
           <span class="resize-handle" data-resize="nw"></span><span class="resize-handle" data-resize="ne"></span><span class="resize-handle" data-resize="se"></span><span class="resize-handle" data-resize="sw"></span>
           {% if item.component.tail %}<span class="tail-handle" data-tail-handle title="Drag to point the tail"></span>{% endif %}
         </div>
@@ -138,14 +174,25 @@
         <div class="snap-guide" data-snap-guide="y" hidden></div>
       </div>
     </div>
+    {% elif frame.kind == 'document' %}
+    <p class="hint">What readers see: the image as large as the screen allows, on the chosen color. Readers zoom and drag it themselves.</p>
+    <div class="stage document-stage" style="background: {{ frame.background_color }};">
+      {% if background %}<img class="document-preview" src="{{ background.url }}" alt="{{ frame.background_image }}">{% else %}<div class="empty-state"><p>No image yet.</p><p class="muted">Choose one on the left.</p></div>{% endif %}
+    </div>
+    {% else %}
+    <div class="stage">
+      <div class="empty-state"><p>Readers never see this frame.</p><p class="muted">It only decides where they go next, using the rules on the left. The flowchart shows every rule as an arrow.</p></div>
+    </div>
+    {% endif %}
   </section>
 
   {% for item in elements %}
   {% with element=item.element g=item.geometry %}
   <dialog class="dialog" id="element-{{ element.id }}">
     <form method="post" action="{% url 'studio:save_element' element.id %}" class="form">
-      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}">
       <header class="dialog-head"><h2>#{{ element.id }} {{ item.component.name|default:element.image }}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
+      {% if not element.frame_id %}<div class="alert">This scoreboard is on <strong>every frame</strong> (Settings → Advanced, where you can hide it on some frames). Moving or changing it here changes it everywhere.</div>{% endif %}
 
       {% if item.component.accepts_content %}
         {% if frame.is_language_picker %}
@@ -155,7 +202,8 @@
           <span class="field-label">Text from content.xlsx</span>
           <div class="row"><input name="content_id" value="{{ element.content_id|default_if_none:'' }}" inputmode="numeric" placeholder="content_id" class="short" data-content-input>
             <button type="button" class="button" data-pick-content>Choose…</button></div>
-          <small class="field-help">{{ item.text|default:"No text selected." }}{% if item.note %} · {{ item.note }}{% endif %}</small>
+          <small class="field-help">{{ item.text|default:"No text selected."|linebreaksbr }}{% if item.row.note %} · {{ item.row.note }}{% endif %}</small>
+          {% if variables or item.component.scoreboard %}<small class="field-help">Write a variable's name in curly braces to show its current value, e.g. <code>Score: {{ '{' }}{{ variables.0.name|default:'score' }}{{ '}' }}</code>. It updates the moment the variable changes.</small>{% endif %}
         </div>
         {% endif %}
       {% endif %}
@@ -163,7 +211,24 @@
       {% if item.component.clickable %}
       <label class="field"><span class="field-label">When clicked</span>
         <select name="target">{% for value, label in target_options %}<option value="{{ value }}"{% if value == item.target %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        {% if not frame.is_language_picker %}<small class="field-help">“Restart” forgets the reader's progress and variables and opens the story's first frame again (the language start page if there is one).</small>{% endif %}
       </label>
+      {% if not frame.is_language_picker %}
+      <fieldset><legend>Also change a global variable</legend>
+        {% if variables %}
+        <div class="grid-3">
+          <label class="field"><span class="field-label">Variable</span>
+            <select name="update_variable"><option value="">None</option>{% for variable in variables %}<option value="{{ variable.id }}"{% if variable.id == element.update_variable_id %} selected{% endif %}>{{ variable.name }} ({{ variable.kind }})</option>{% endfor %}</select></label>
+          <label class="field"><span class="field-label">Do</span>
+            <select name="update_operation">{% for value, label in operations %}<option value="{{ value }}"{% if value == element.update_operation %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+          <label class="field"><span class="field-label">Value</span><input name="update_value" value="{{ element.update_value }}" placeholder='1 or "path A"'></label>
+        </div>
+        <small class="field-help">Happens on the click, before the next frame opens, and is written to the log. “Add” only works for number variables (use −1 to subtract); the value must match the variable's type.</small>
+        {% else %}
+        <small class="field-help">No global variables yet. Define them under <a href="{% url 'studio:config' %}?tab=advanced">Settings → Advanced</a> to count points or remember a path.</small>
+        {% endif %}
+      </fieldset>
+      {% endif %}
       {% endif %}
 
       <fieldset><legend>Size and position{% if language != project.base_language %} in {{ language }}{% endif %}</legend>
@@ -182,7 +247,7 @@
         <label class="field"><span class="field-label">Delay ({{ project.default_delay_seconds }} s, see Settings)</span>
           <select name="delay_mode">{% for value, label in delay_choices %}<option value="{{ value }}"{% if value == element.delay_mode %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
         </label>
-        {% if item.component %}<label class="check"><input type="checkbox" name="break_long_words"{% if element.break_long_words %} checked{% endif %}> <span>Break long words that do not fit</span></label>{% endif %}
+        {% if item.component %}<label class="check"><input type="checkbox" name="break_long_words"{% if element.break_long_words %} checked{% endif %}> <span>Break long words that do not fit (off: the word overflows instead of being cut in two)</span></label>{% endif %}
       </fieldset>
 
       {% if item.component %}
@@ -205,10 +270,24 @@
     </form>
 
     {% if item.component.accepts_content and not frame.is_language_picker %}
+    {% if item.row %}
+    <details class="add-content">
+      <summary>Edit text #{{ item.row.content_id }} in content.xlsx</summary>
+      <form method="post" action="{% url 'studio:edit_content_row' item.row.content_id %}" class="form">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}">
+        {% for item_language, item_text in item.texts %}
+        <label class="field"><span class="field-label">{{ item_language }}</span><textarea name="text.{{ item_language }}" rows="3">{{ item_text }}</textarea></label>
+        {% endfor %}
+        <label class="field"><span class="field-label">Note (for translators)</span><input name="note" value="{{ item.row.note }}"></label>
+        <small class="field-help">Changes the row for every element that uses it. Press Enter for a new line; it is kept in content.xlsx and shown as a line break.</small>
+        <button class="button">Save text #{{ item.row.content_id }}</button>
+      </form>
+    </details>
+    {% endif %}
     <details class="add-content">
       <summary>Add a new text to content.xlsx</summary>
       <form method="post" action="{% url 'studio:add_content_for_element' element.id %}" class="form">
-        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}">
         {% for item_language in content.languages %}
         <label class="field"><span class="field-label">{{ item_language }}</span><textarea name="text.{{ item_language }}" rows="2"></textarea></label>
         {% endfor %}
@@ -217,10 +296,10 @@
       </form>
     </details>
     {% endif %}
-    {% if item.has_override %}<form method="post" id="reset-{{ element.id }}" action="{% url 'studio:save_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="reset_language" value="1"></form>{% endif %}
-    <form method="post" id="duplicate-{{ element.id }}" action="{% url 'studio:duplicate_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
-    <form method="post" id="move-{{ element.id }}" action="{% url 'studio:move_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
-    <form method="post" id="delete-{{ element.id }}" action="{% url 'studio:delete_element' element.id %}" data-confirm="Delete element #{{ element.id }}?">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"></form>
+    {% if item.has_override %}<form method="post" id="reset-{{ element.id }}" action="{% url 'studio:save_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"><input type="hidden" name="reset_language" value="1"></form>{% endif %}
+    <form method="post" id="duplicate-{{ element.id }}" action="{% url 'studio:duplicate_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"></form>
+    <form method="post" id="move-{{ element.id }}" action="{% url 'studio:move_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"></form>
+    <form method="post" id="delete-{{ element.id }}" action="{% url 'studio:delete_element' element.id %}" data-confirm="Delete element #{{ element.id }}{% if not element.frame_id %} from every frame{% endif %}?">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"></form>
   </dialog>
   {% endwith %}
   {% endfor %}
@@ -255,7 +334,7 @@
     <input type="search" placeholder="Search text, note or id" aria-label="Search content" data-content-filter>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>id</th><th>Text</th><th>Note</th></tr></thead>
-      <tbody>{% for row in content_rows %}<tr data-content-id="{{ row.id }}" tabindex="0"><td>{{ row.id }}</td><td>{{ row.text|default:"—" }}</td><td class="muted">{{ row.note }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for row in content_rows %}<tr data-content-id="{{ row.id }}" tabindex="0"><td>{{ row.id }}</td><td class="content-text">{{ row.text|default:"—" }}</td><td class="muted">{{ row.note }}</td></tr>{% endfor %}</tbody>
     </table></div>
   </dialog>
 </main>

@@ -1,0 +1,10 @@
+{
+  "name": "Scoreboard ticket",
+  "description": "Ticket with notched sides and a dashed line; shows a variable in its text, e.g. “Path: {path}”.",
+  "accepts_content": true,
+  "clickable": false,
+  "scoreboard": true,
+  "default_size": {"width": 400, "height": 110},
+  "default_font_size": 38,
+  "colors": {"fill": "#FFF4DC", "border": "#A56300", "text": "#14203A"}
+}

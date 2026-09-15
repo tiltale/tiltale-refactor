@@ -1,0 +1,5 @@
+{
+  "name": "Validation point",
+  "description": "Invisible: sends readers on according to the global variables (if score is at least 3 go here, otherwise go there).",
+  "help": "Readers never see a validation point. When a button leads here, its rules are checked from top to bottom and the reader is sent to the frame of the first rule that matches; the last row, “otherwise”, catches everything else. The decision and the variable values are written to the log."
+}

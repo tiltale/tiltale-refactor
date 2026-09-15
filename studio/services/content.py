@@ -1,9 +1,10 @@
-"""Create, read and append to the project's ``content.xlsx``.
+"""Create, read, append to and update rows of the project's ``content.xlsx``.
 
 Layout: column A ``content_id``, column B ``note``, then one column per language.
 ``content_id`` is a stable integer, deliberately not the Excel row number, so
 authors can sort or insert rows freely. A typed row without an ID gets the
 next free ID, which is written back to the workbook. Existing IDs never change.
+Line breaks inside a cell (Alt+Enter in Excel) are kept and shown as line breaks in the story.
 """
 
 from dataclasses import dataclass
@@ -51,7 +52,8 @@ def create_content_workbook(path: Path, languages: list[str]) -> None:
 
 
 def _text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
+    """Trim the ends; keep line breaks inside (browser forms send them as CRLF, Excel as LF)."""
+    return "" if value is None else str(value).replace("\r\n", "\n").strip()
 
 
 def _content_id(value: Any, excel_row: int) -> int:
@@ -134,19 +136,43 @@ def load_content_table(path: Path) -> ContentTable:
     return ContentTable(languages=languages, rows=tuple(rows))
 
 
-def append_content_row(path: Path, note: str, values: dict[str, str]) -> ContentRow:
-    """Append one author-created row and return it with its new stable ID."""
-    table: ContentTable = load_content_table(path)
-    cleaned: dict[str, str] = {language: values.get(language, "").strip() for language in table.languages}
-    note = note.strip()
+def _cleaned(table: ContentTable, note: str, values: dict[str, str]) -> tuple[str, dict[str, str]]:
+    cleaned: dict[str, str] = {language: _text(values.get(language, "")) for language in table.languages}
+    note = _text(note)
     if not note and not any(cleaned.values()):
         raise ValueError("Add a note or text in at least one language.")
-    next_id: int = max((row.content_id for row in table.rows), default=0) + 1
+    return note, cleaned
+
+
+def _save(workbook: Workbook, path: Path) -> None:
     try:
-        workbook = load_workbook(path)
-        sheet: Worksheet = workbook.active
-        sheet.append([next_id, note, *cleaned.values()])
         workbook.save(path)
     except PermissionError:
         raise ValueError(LOCKED_MESSAGE) from None
+
+
+def append_content_row(path: Path, note: str, values: dict[str, str]) -> ContentRow:
+    """Append one author-created row and return it with its new stable ID."""
+    table: ContentTable = load_content_table(path)
+    note, cleaned = _cleaned(table, note, values)
+    next_id: int = max((row.content_id for row in table.rows), default=0) + 1
+    workbook = load_workbook(path)
+    sheet: Worksheet = workbook.active
+    sheet.append([next_id, note, *cleaned.values()])
+    _save(workbook, path)
     return ContentRow(content_id=next_id, excel_row=sheet.max_row, values=cleaned, note=note)
+
+
+def update_content_row(path: Path, content_id: int, note: str, values: dict[str, str]) -> ContentRow:
+    """Overwrite the note and texts of an existing row; its ID and Excel row stay."""
+    table: ContentTable = load_content_table(path)
+    row: ContentRow | None = table.by_id().get(content_id)
+    if row is None:
+        raise ValueError(f"content_id {content_id} is not in content.xlsx.")
+    note, cleaned = _cleaned(table, note, values)
+    workbook = load_workbook(path)
+    sheet: Worksheet = workbook.active
+    for column, value in enumerate([note, *cleaned.values()], start=2):
+        sheet.cell(row.excel_row, column).value = value
+    _save(workbook, path)
+    return ContentRow(content_id=content_id, excel_row=row.excel_row, values=cleaned, note=note)

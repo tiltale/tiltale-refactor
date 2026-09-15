@@ -1,0 +1,3 @@
+.component-scoreboard-pill { --component-fill: var(--component-scoreboard-pill-fill, #fff); --component-border: var(--component-scoreboard-pill-border, #000); --component-text: var(--component-scoreboard-pill-text, #000); --shape-inset: 2px; font-weight: 700; }
+.component-scoreboard-pill .scoreboard-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 4; }
+.component-scoreboard-pill .component-text { inset: 10% 14%; }

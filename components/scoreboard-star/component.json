@@ -1,0 +1,10 @@
+{
+  "name": "Scoreboard star",
+  "description": "Star badge for a short number: give it a text such as “{score}” and keep it square.",
+  "accepts_content": true,
+  "clickable": false,
+  "scoreboard": true,
+  "default_size": {"width": 180, "height": 180},
+  "default_font_size": 48,
+  "colors": {"fill": "#EECF5A", "border": "#B8860B", "text": "#14203A"}
+}

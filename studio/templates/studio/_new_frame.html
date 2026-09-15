@@ -1,0 +1,10 @@
+{# "+ Add": one button that opens the kinds from /frame-types/, in the legend's colors; clicking a kind creates it. Picker frames need two languages. #}
+<details class="new-frame" data-menu>
+  <summary class="button" title="Add a frame">+ Add</summary>
+  <form method="post" action="{% url 'studio:new_frame' %}" class="menu">
+    {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+    {% for type in frame_types %}{% if type.slug != 'picker' or content.multilingual %}
+    <button name="kind" value="{{ type.slug }}" class="menu-item is-{{ type.slug }}"><span class="swatch {{ type.slug }}"></span><span><strong>{{ type.name }}</strong><small>{{ type.description }}</small></span></button>
+    {% endif %}{% endfor %}
+  </form>
+</details>

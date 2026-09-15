@@ -1,0 +1,5 @@
+{
+  "name": "Picker",
+  "description": "A start-page screen where readers choose their language (only with two or more languages).",
+  "help": "Picker frames form /dist/index.html and are shown before a language is chosen, so their texts are typed directly instead of coming from content.xlsx, and their buttons open a language."
+}

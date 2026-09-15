@@ -1,0 +1,4 @@
+.component-scoreboard-panel { --component-fill: var(--component-scoreboard-panel-fill, #fff); --component-border: var(--component-scoreboard-panel-border, #1e88e5); --component-text: var(--component-scoreboard-panel-text, #14203a); --shape-inset: 2px; font-weight: 600; }
+.component-scoreboard-panel .scoreboard-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 4; }
+.component-scoreboard-panel .scoreboard-stripe { fill: var(--element-border, var(--component-border)); }
+.component-scoreboard-panel .component-text { inset: 12% 8% 12% 12%; }

@@ -9,11 +9,12 @@ from typing import Literal
 
 from django.conf import settings
 
-from studio.models import Element, Frame, ProjectSettings
+from studio.models import Element, Frame, ProjectSettings, Rule, Variable
 
 from .components import ComponentDefinition, component_map
 from .content import ContentRow, ContentTable
 from .flow import distances, frame_edges
+from .variables import check_value, unknown_placeholders
 
 Severity = Literal["warning", "error"]
 MIN_TEXT_PX: float = 12.0
@@ -69,22 +70,28 @@ class _Checks:
     rows: dict[int, ContentRow]
     components: dict[str, ComponentDefinition]
     scale: float
+    variables: set[str]
 
 
 def validate_project(project: ProjectSettings, content: ContentTable) -> list[ValidationIssue]:
     """Everything worth checking before publishing, most general first."""
-    frames: list[Frame] = list(Frame.objects.prefetch_related("elements__language_overrides"))
+    frames: list[Frame] = list(Frame.objects.prefetch_related(
+        "elements__language_overrides", "elements__update_variable", "rules__variable",
+    ))
     story: list[Frame] = [frame for frame in frames if not frame.is_language_picker]
     pickers: list[Frame] = [frame for frame in frames if frame.is_language_picker]
     issues: list[ValidationIssue] = list(_project_issues(project, content, pickers))
     if not story:
-        picker_note: str = " Picker frames only make the start page; add story frames with “+ Frame”." if pickers else ""
+        picker_note: str = " Picker frames only make the start page; add story frames with “+ Add frame”." if pickers else ""
         return [*issues, _issue("warning", "The story has no frames yet." + picker_note)]
-    checks = _Checks(project, content.languages, content.by_id(), component_map(), smallest_scale(project))
+    variables: set[str] = set(Variable.objects.values_list("name", flat=True))
+    checks = _Checks(project, content.languages, content.by_id(), component_map(), smallest_scale(project), variables)
     for frame in frames:
-        issues += _background_issues(frame)
+        issues += _kind_issues(frame)
         for element in frame.elements.all():
             issues += _element_issues(element, frame, checks)
+    for element in Element.objects.filter(frame=None).prefetch_related("language_overrides", "update_variable"):
+        issues += _element_issues(element, None, checks)
     edges: dict[str, list[str]] = frame_edges(frames)
     issues += _reach_issues(story, edges)
     if len(content.languages) > 1:
@@ -101,7 +108,14 @@ def _project_issues(project: ProjectSettings, content: ContentTable, pickers: li
         yield _issue("warning", "Language-picker frames are ignored: content.xlsx has only one language.", pickers[0])
 
 
-def _background_issues(frame: Frame) -> Iterator[ValidationIssue]:
+def _kind_issues(frame: Frame) -> Iterator[ValidationIssue]:
+    """What each kind of frame needs: an image for a document, rules for a validation point, a background otherwise."""
+    if frame.kind == Frame.Kind.VALIDATION:
+        yield from _rule_issues(frame)
+        return
+    if frame.is_document and not frame.background_image:
+        yield _issue("error", "Document has no image yet.", frame)
+        return
     if frame.background_type == Frame.BackgroundType.NONE:
         yield _issue("warning", "Frame has no background yet.", frame)
         return
@@ -111,7 +125,25 @@ def _background_issues(frame: Frame) -> Iterator[ValidationIssue]:
         yield _issue("error", f"Background image '{frame.background_image}' cannot be found.", frame)
 
 
-def _element_issues(element: Element, frame: Frame, checks: _Checks) -> Iterator[ValidationIssue]:
+def _rule_issues(frame: Frame) -> Iterator[ValidationIssue]:
+    rules: list[Rule] = list(frame.rules.all())
+    if not rules:
+        yield _issue("error", "Validation point has no rules: readers who arrive here get stuck.", frame)
+        return
+    if rules[-1].variable is not None:
+        yield _issue("error", "Validation point has no “otherwise” row: readers whose values match no rule get stuck.", frame)
+    for number, rule in enumerate(rules, start=1):
+        if rule.target_frame_id is None:
+            yield _issue("error", f"Rule {number} leads nowhere.", frame)
+        if rule.variable is None:
+            continue
+        try:
+            check_value(rule.variable.kind, rule.value, rule.comparator)
+        except ValueError as error:
+            yield _issue("error", f"Rule {number} ({rule.variable.name}): {error}", frame)
+
+
+def _element_issues(element: Element, frame: Frame | None, checks: _Checks) -> Iterator[ValidationIssue]:
     if element.image:
         if not (settings.PROJECT_DIR / "materials" / element.image).is_file():
             yield _issue("error", f"Image #{element.id} '{element.image}' cannot be found.", frame)
@@ -120,11 +152,16 @@ def _element_issues(element: Element, frame: Frame, checks: _Checks) -> Iterator
     if component is None:
         yield _issue("error", f"Element #{element.id} uses unknown component '{element.component}'.", frame)
         return
-    label: str = f"{component.name} #{element.id}"
-    if component.clickable and not (element.target_frame_id or element.target_language or element.ends_story):
+    label: str = f"{component.name} #{element.id}" if frame else f"{component.name} #{element.id} (on every frame)"
+    if component.clickable and not element.leads_somewhere and not element.update_variable_id:
         yield _issue("warning", f"{label} is clickable but leads nowhere.", frame)
     if not (0 <= element.x <= checks.project.frame_width and 0 <= element.y <= checks.project.frame_height):
         yield _issue("warning", f"{label} has its center outside the frame.", frame)
+    if element.update_variable_id:
+        try:
+            check_value(element.update_variable.kind, element.update_value, element.update_operation)
+        except ValueError as error:
+            yield _issue("error", f"{label} updates {element.update_variable.name}: {error}", frame)
     if not component.accepts_content:
         return
     for severity, problem in _text_problems(element, frame, checks):
@@ -137,8 +174,8 @@ def _element_issues(element: Element, frame: Frame, checks: _Checks) -> Iterator
         ), frame)
 
 
-def _text_problems(element: Element, frame: Frame, checks: _Checks) -> Iterator[tuple[Severity, str]]:
-    if frame.is_language_picker:
+def _text_problems(element: Element, frame: Frame | None, checks: _Checks) -> Iterator[tuple[Severity, str]]:
+    if frame is not None and frame.is_language_picker:
         if not element.text.strip():
             yield "warning", "has no text."
         return
@@ -152,6 +189,9 @@ def _text_problems(element: Element, frame: Frame, checks: _Checks) -> Iterator[
     missing: list[str] = [language for language in checks.languages if not row.values.get(language)]
     if missing:
         yield "warning", f"(content_id {element.content_id}) has no text in {', '.join(missing)}."
+    typos: list[str] = [name for text in row.values.values() for name in unknown_placeholders(text, checks.variables)]
+    if typos:
+        yield "warning", f"(content_id {element.content_id}) mentions {{{typos[0]}}}, which is not a global variable, so it stays as written."
 
 
 def _reach_issues(group: list[Frame], edges: dict[str, list[str]]) -> Iterator[ValidationIssue]:

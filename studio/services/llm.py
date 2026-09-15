@@ -28,7 +28,7 @@ def frame_prompt(project: ProjectSettings, frame: Frame, content: ContentTable) 
         f"{row.content_id}\t{row.note}\t{row.values.get(project.base_language, '')}" for row in content.rows
     )
     targets: list[str] = [
-        f"`{item.key}` ({item.name})" for item in Frame.objects.filter(is_language_picker=False).exclude(pk=frame.pk)
+        f"`{item.key}` ({item.name})" for item in Frame.objects.exclude(kind=Frame.Kind.PICKER).exclude(pk=frame.pk)
     ]
     return template.substitute(
         frame_id=frame.key,

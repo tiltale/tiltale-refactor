@@ -20,9 +20,14 @@ import re
 import threading
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from django.conf import settings
 
+from .log_keys import LockedLog, decrypt_event, is_encrypted
+
 FINISHED_EVENT: str = "Story finished"
+DECISION_EVENT: str = "decision"  # a validation point chose a path (frame, element_id "rule-7", target, variables)
+VARIABLE_EVENT: str = "variable"  # a global variable changed (variable, from, to)
 _UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
 _lock = threading.Lock()
 
@@ -38,6 +43,8 @@ class SessionSummary:
     last_frame: str
     finished: bool
     kind: str  # "study", "preview" or "play-test"
+    device: str  # "iPhone · Safari · 390×844", from the visit header
+    local_time: str  # the participant's own clock at the start, with UTC offset
     events: tuple[dict[str, Any], ...]
 
 
@@ -67,7 +74,8 @@ def append_event(event: dict[str, Any]) -> None:
         handle.write(line + "\n")
 
 
-def parse_events(text: str, source: str) -> list[dict[str, Any]]:
+def parse_events(text: str, source: str, key: RSAPrivateKey | None = None) -> list[dict[str, Any]]:
+    """The events in a log file. Lines written by ``log.php`` with a key are decrypted with ``key``."""
     events: list[dict[str, Any]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
@@ -78,12 +86,39 @@ def parse_events(text: str, source: str) -> list[dict[str, Any]]:
             raise ValueError(f"{source}, line {number}: not valid JSON.") from None
         if not isinstance(value, dict):
             raise ValueError(f"{source}, line {number}: each line must be a JSON object.")
-        events.append(value)
+        if is_encrypted(value) and key is None:
+            raise LockedLog(f"{source} is encrypted: provide the project's key file first.")
+        events.append(decrypt_event(value, key) if is_encrypted(value) and key else value)
     return events
 
 
-def read_events(path: Path) -> list[dict[str, Any]]:
-    return parse_events(path.read_text(encoding="utf-8-sig"), path.name)
+def read_events(path: Path, key: RSAPrivateKey | None = None) -> list[dict[str, Any]]:
+    return parse_events(path.read_text(encoding="utf-8-sig"), path.name, key)
+
+
+VISIT_EVENT: str = "visit"  # the header line tiltale.js writes first: local time, screen, browser
+
+_BROWSERS: tuple[tuple[str, str], ...] = (  # order matters: Edge and Samsung say "Chrome" too, Chrome says "Safari"
+    ("Edg/", "Edge"), ("SamsungBrowser/", "Samsung Internet"), ("OPR/", "Opera"), ("Firefox/", "Firefox"),
+    ("FxiOS/", "Firefox"), ("CriOS/", "Chrome"), ("Chrome/", "Chrome"), ("Safari/", "Safari"),
+)
+_DEVICES: tuple[tuple[str, str], ...] = (
+    ("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"), ("Windows", "Windows"),
+    ("Macintosh", "Mac"), ("CrOS", "Chromebook"), ("Linux", "Linux"),
+)
+
+
+def describe_visit(header: dict[str, Any]) -> str:
+    """``iPhone · Safari · 390×844`` from the visit header, as far as the browser told us."""
+    agent: str = str(header.get("user_agent", ""))
+    device: str = next((name for needle, name in _DEVICES if needle in agent), "")
+    model = re.search(r"Android [^;]*; ([^;)]+?)(?: Build|\))", agent)  # "SM-G991B" on most Android phones
+    if device == "Android" and model:
+        device = f"Android ({model.group(1).strip()})"
+    browser: str = next((name for needle, name in _BROWSERS if needle in agent), "")
+    screen: Any = header.get("screen") or {}
+    size: str = f"{screen.get('width')}×{screen.get('height')}" if screen.get("width") else ""
+    return " · ".join(part for part in (device, browser, size) if part)
 
 
 def session_kind(participant_id: str) -> str:
@@ -93,18 +128,19 @@ def session_kind(participant_id: str) -> str:
     return "study"
 
 
-def session_summaries() -> list[SessionSummary]:
+def session_summaries(key: RSAPrivateKey | None = None) -> list[SessionSummary]:
     summaries: list[SessionSummary] = []
     for path in logs_dir().glob("*.jsonl"):
         try:
-            events = read_events(path)
-        except ValueError:
+            events = read_events(path, key)
+        except ValueError:  # damaged, or encrypted while no key is given
             continue
         if not events:
             continue
         first: dict[str, Any] = events[0]
         participant: str = str(first.get("participant_id", ""))
         frames: list[str] = [str(event["frame"]) for event in events if event.get("frame")]
+        header: dict[str, Any] = next((event for event in events if event.get("event") == VISIT_EVENT), {})
         summaries.append(SessionSummary(
             file_name=path.name,
             participant_id=participant,
@@ -115,6 +151,8 @@ def session_summaries() -> list[SessionSummary]:
             last_frame=frames[-1] if frames else "",
             finished=any(event.get("event") == FINISHED_EVENT for event in events),
             kind=session_kind(participant),
+            device=describe_visit(header),
+            local_time=str(header.get("local_time", "")),
             events=tuple(events),
         ))
     return sorted(summaries, key=lambda item: item.started, reverse=True)
@@ -125,15 +163,24 @@ def _time(value: object) -> datetime:
 
 
 def frame_visits(events: list[dict[str, Any]]) -> list[tuple[str, float | None]]:
-    """Frames in the order shown, each with the seconds until the next frame (``None`` for the last one)."""
-    stops = [event for event in events if event.get("event") in ("frame", FINISHED_EVENT)]
+    """Frames in the order shown, each with the seconds until the next frame (``None`` for the last one).
+
+    A validation point is passed through in no time, so it is listed with ``None`` seconds.
+    """
+    stops = [event for event in events if event.get("event") in ("frame", DECISION_EVENT, FINISHED_EVENT)]
     visits: list[tuple[str, float | None]] = []
     for current, following in zip(stops, [*stops[1:], None]):
-        if current["event"] != "frame":
+        if current["event"] == FINISHED_EVENT:
             continue
-        seconds = None if following is None else (_time(following["timestamp"]) - _time(current["timestamp"])).total_seconds()
+        instant: bool = current["event"] == DECISION_EVENT or following is None
+        seconds = None if instant else (_time(following["timestamp"]) - _time(current["timestamp"])).total_seconds()
         visits.append((str(current.get("frame", "")), seconds))
     return visits
+
+
+def final_variables(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """The last value each global variable had in this visit, from the variable events."""
+    return {str(event["variable"]): event.get("to") for event in events if event.get("event") == VARIABLE_EVENT}
 
 
 def readable_events(events: list[dict[str, Any]], frame_names: dict[str, str], element_labels: dict[int, str]) -> list[str]:
@@ -148,11 +195,20 @@ def readable_events(events: list[dict[str, Any]], frame_names: dict[str, str], e
             if event.get("how") == "resumed":
                 lines.append("IDN refreshed")
             lines.append(f"{frame}: visited (last frame)" if seconds is None else f"{frame}: visited for {seconds:.0f} s")
+        elif kind == DECISION_EVENT:
+            next(durations)
+            label = element_labels.get(event.get("element_id"), "no rule matched")
+            target: str = frame_names.get(str(event.get("target", "")), str(event.get("target", "")))
+            lines.append(f"{frame}: {label} → {target}")
+        elif kind == VARIABLE_EVENT:
+            lines.append(f"{event.get('variable')}: {event.get('from')} → {event.get('to')}")
         elif kind == "choice" and event.get("component") == "close":
             lines.append(f"{frame}: closed, back to the previous frame")
         elif kind == "choice":
             label = element_labels.get(event.get("element_id"), str(event.get("component", "element")))
             lines.append(f"{frame}: clicked '{label}'")
+        elif kind == VISIT_EVENT:
+            lines.append(f"Visit started at {event.get('local_time', '?')} on {describe_visit(event) or 'an unknown device'}")
         else:
             lines.append(kind)
     return lines
@@ -163,18 +219,26 @@ def session_record(summary: SessionSummary, frame_names: dict[str, str], element
     return {
         "file_name": summary.file_name, "participant_id": summary.participant_id, "kind": summary.kind,
         "language": summary.language, "event_count": summary.event_count, "finished": summary.finished,
-        "started": summary.started,
+        "started": summary.started, "device": summary.device, "local_time": summary.local_time,
         "started_label": _time(summary.started).strftime("%d %b %Y, %H:%M UTC") if summary.started else "",
         "frames": frame_visits(summary.events),
-        "choices": [event["element_id"] for event in summary.events if event.get("event") == "choice" and event.get("element_id") is not None],
+        "choices": [
+            event["element_id"] for event in summary.events
+            if event.get("event") in ("choice", DECISION_EVENT) and event.get("element_id") is not None
+        ],
+        "variables": final_variables(summary.events),
         "lines": readable_events(summary.events, frame_names, element_labels),
     }
 
 
-def import_jsonl(file_name: str, data: bytes) -> Path:
-    """Store one downloaded server log in /project/logs/ without overwriting anything."""
+def import_jsonl(file_name: str, data: bytes, key: RSAPrivateKey | None = None) -> Path:
+    """Store one downloaded server log in /project/logs/ without overwriting anything.
+
+    An encrypted file is checked with ``key`` and stored as it is, still encrypted.
+    """
     try:
-        events = parse_events(data.decode("utf-8-sig"), file_name)
+        text: str = data.decode("utf-8-sig")
+        events = parse_events(text, file_name, key)
     except UnicodeDecodeError:
         raise ValueError(f"{file_name} is not a UTF-8 text file.") from None
     if not events:
@@ -185,5 +249,6 @@ def import_jsonl(file_name: str, data: bytes) -> Path:
     destination: Path = logs_dir() / names.pop()
     if destination.exists():
         raise ValueError(f"{destination.name} is already in /project/logs/.")
-    destination.write_text("".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events), encoding="utf-8")
+    lines: list[str] = [line for line in text.splitlines() if line.strip()]
+    destination.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
     return destination

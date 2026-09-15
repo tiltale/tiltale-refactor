@@ -1,0 +1,16 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | Results{% endblock %}
+{% block body %}
+<main class="page narrow">
+  <section class="card">
+    <p class="eyebrow">Results</p>
+    <h1>Provide the key file</h1>
+    <p>The logs of <strong>{{ project.name }}</strong> are encrypted. Choose the key file that was downloaded when the key was made (fingerprint <code>{{ fingerprint }}</code>). It is used in this browser session only and is not stored; close the browser or restart the studio and Results locks again.</p>
+    <form method="post" action="{% url 'studio:unlock_results' %}" enctype="multipart/form-data" class="form">
+      {% csrf_token %}
+      <input type="file" name="key_file" accept=".pem" required aria-label="Key file">
+      <div class="form-actions"><button class="button primary">Open Results</button></div>
+    </form>
+  </section>
+</main>
+{% endblock %}

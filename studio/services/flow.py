@@ -16,11 +16,14 @@ STEP_Y: float = 130.0
 
 
 def frame_edges(frames: Iterable[Frame]) -> dict[str, list[str]]:
-    """``{frame name: [target frame names]}``. Elements must be prefetched."""
+    """``{frame name: [target frame names]}`` through elements and rules. Both must be prefetched."""
     frames = list(frames)
     names: dict[int, str] = {frame.id: frame.name for frame in frames}
     return {
-        frame.name: [names[e.target_frame_id] for e in frame.elements.all() if e.target_frame_id in names]
+        frame.name: [
+            names[link.target_frame_id]
+            for link in (*frame.elements.all(), *frame.rules.all()) if link.target_frame_id in names
+        ]
         for frame in frames
     }
 
@@ -47,25 +50,27 @@ def _free_slot(x: float, y: float) -> tuple[float, float]:
     return x, y + 200 * STEP_Y
 
 
-def create_frame(is_picker: bool = False, linked_from: Frame | None = None) -> Frame:
-    """Create a frame and place it sensibly in the flowchart.
+def create_frame(kind: str = Frame.Kind.FRAME, linked_from: Frame | None = None) -> Frame:
+    """Create a frame of ``kind`` and place it sensibly in the flowchart.
 
-    ``linked_from`` is the frame whose element will point to the new frame. Without
-    it, the new frame continues after the most recent frame of the same kind.
+    ``linked_from`` is the frame whose element or rule will point to the new frame. Without
+    it, the new frame continues after the most recent frame of the same page (start page or story).
     """
-    anchor: Frame | None = linked_from or Frame.objects.filter(is_language_picker=is_picker).order_by("-id").first()
+    picker: bool = kind == Frame.Kind.PICKER
+    same_page = Frame.objects.filter(kind=Frame.Kind.PICKER) if picker else Frame.objects.exclude(kind=Frame.Kind.PICKER)
+    anchor: Frame | None = linked_from or same_page.order_by("-id").first()
     if anchor is not None:
         x, y = _free_slot(anchor.flow_x + STEP_X, anchor.flow_y)
-    elif is_picker:  # first picker frame: left of the story's first frame
+    elif picker:  # first picker frame: left of the story's first frame
         first: Frame | None = Frame.objects.first()
         x, y = _free_slot((first.flow_x if first else 160.0) - STEP_X, first.flow_y if first else 240.0)
     else:
         x, y = _free_slot(160.0, 240.0)
     # The default name repeats the frame's number (fnr-12 is "Frame 12"), which exists only after saving.
     with transaction.atomic(using="project"):
-        frame: Frame = Frame.objects.create(is_language_picker=is_picker, flow_x=x, flow_y=y)
+        frame: Frame = Frame.objects.create(kind=kind, flow_x=x, flow_y=y)
         taken: set[str] = {name_key(name) for name in Frame.objects.values_list("name", flat=True)}
-        frame.name = default_name("Picker" if is_picker else "Frame", frame.pk, taken)
+        frame.name = default_name(Frame.Kind(kind).label.split()[0], frame.pk, taken)
         frame.save(update_fields=["name"])
     return frame
 
@@ -79,7 +84,7 @@ def default_name(word: str, number: int, taken: set[str]) -> str:
 
 def tidy_layout() -> None:
     """Arrange frames in columns by distance from the start, language pickers first."""
-    frames: list[Frame] = list(Frame.objects.prefetch_related("elements"))
+    frames: list[Frame] = list(Frame.objects.prefetch_related("elements", "rules"))
     edges = frame_edges(frames)
     pickers: list[Frame] = [frame for frame in frames if frame.is_language_picker]
     story: list[Frame] = [frame for frame in frames if not frame.is_language_picker]

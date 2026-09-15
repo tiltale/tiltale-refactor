@@ -1,0 +1,18 @@
+{# One rule row of a validation point. `index` numbers the form fields (rule.<index>.<field>); IDX is replaced by app.js for new rows. #}
+<li class="rule" data-rule>
+  <input type="hidden" name="rule.{{ index }}.id" value="{{ rule.id|default:'' }}">
+  <span class="rule-word">If</span>
+  <select name="rule.{{ index }}.variable" aria-label="Variable" required>
+    <option value="">variable…</option>
+    {% for variable in variables %}<option value="{{ variable.id }}"{% if variable.id == rule.variable_id %} selected{% endif %}>{{ variable.name }} ({{ variable.kind }})</option>{% endfor %}
+  </select>
+  <select name="rule.{{ index }}.comparator" aria-label="Comparison">
+    {% for symbol, words in comparators %}<option value="{{ symbol }}"{% if symbol == rule.comparator %} selected{% endif %}>{{ words }}</option>{% endfor %}
+  </select>
+  <input name="rule.{{ index }}.value" value="{{ rule.value|default:'' }}" placeholder='3 or "path A"' aria-label="Value" required>
+  <span class="rule-word">go to</span>
+  <select name="rule.{{ index }}.target" aria-label="Target frame">
+    {% for value, label in rule_targets %}<option value="{{ value }}"{% if value == rule.target_value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <button type="button" class="icon" data-remove-rule title="Remove this rule" aria-label="Remove this rule">×</button>
+</li>

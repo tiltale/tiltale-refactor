@@ -17,9 +17,12 @@ You do **not** need previous experience with Python, Django or command-line deve
 | [Useful commands](#useful-commands) | The commands you will use most often. |
 | [Daily workflow](#daily-workflow) | Building, checking, publishing and analysing a story. |
 | [Shortcuts](#shortcuts) | Mouse and keyboard in the frame editor and the flowchart. |
-| [Document frames](#document-frames-zoom-and-drag) | Posters and leaflets that readers zoom, drag and close. |
+| [Frame kinds](#frame-kinds) | Frames, pickers, documents, validation points and minigames. |
+| [Global variables, validation points and scoreboards](#global-variables-validation-points-and-scoreboards) | Counting choices and routing readers by what they did. |
+| [Editing texts](#editing-texts) | Changing a row of `content.xlsx` from the studio; line breaks. |
 | [Frame names](#frame-names), [Logo and favicon](#logo-and-favicon), [Building with a language model](#building-with-a-language-model) | Naming, branding and LLM prompts. |
 | [Participant IDs](#participant-ids-qualtrics-prolific-) | Links, logging, restarting and the finish redirect. |
+| [Protecting logs](#protecting-logs) | Encrypting study logs with a project key; see also `ETHICS.md`. |
 | [Several languages](#several-languages), [Publishing](#publishing) | Multilingual stories and uploading. |
 | [Tech stack](#tech-stack) | A short explanation of the technologies used. |
 | [Project structure](#project-structure) | Where the important files live. |
@@ -208,7 +211,7 @@ python manage.py test
 
 ## Daily workflow
 
-1. **Develop**: add frames (`+ Frame`), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. The preview only changes when you press **Regenerate**, which the status bar reminds you of. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
+1. **Develop**: add frames (**+ Add frame**, which explains each kind in one sentence), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. The preview only changes when you press **Regenerate**, which the status bar reminds you of. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
 2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
 4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.
@@ -246,9 +249,34 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 | Mouse wheel, or the `−` / `+` buttons | zoom. **Fit** shows every frame. |
 | Double-click a frame, or `Tab` to it and press `Enter` | open it in the frame editor. |
 
-## Document frames (zoom and drag)
+## Frame kinds
 
-Some frames are documents (a poster, a leaflet). In the frame editor, tick **Readers can zoom and drag this frame** under *Document viewer*. Readers then drag with a finger or the mouse, pinch on a phone, or use the mouse wheel and the **+** / **−** buttons on larger screens. A fixed **× Close** button in the top-right corner returns to the previous frame; its text is a row of `content.xlsx`, so it appears in the reader's language (leave it empty for a plain ×). In the story the document opens as large as the screen allows: the frame is zoomed so that everything placed on it just fits, so a portrait poster fills a phone's height instead of sitting small inside the landscape frame. In the flowchart, document frames are blue and sit right above the frame that opens them, joined by a two-way arrow, because readers always come back; Results counts how many visits opened one 0×, 1×, 2× and so on, instead of a percentage. The play-test robot ignores the Close button, so give a document frame a normal button that leads on, or the robot treats it as an end.
+A frame's kind is chosen when it is created (**+ Add frame**) and cannot change afterwards. Each kind has a folder in `/frame-types/` with its name, the one-sentence description shown in the dropdown and the help shown at the top of its editor; what a kind *does* lives in the code (see `frame-types/README.md`).
+
+| Kind | What it is |
+|---|---|
+| **Frame** | A normal page of the story: a background with elements. |
+| **Picker** | A page of the language start page, only for stories with several languages (see *Several languages*). |
+| **Document** | One image (a poster, a leaflet) that readers open, zoom, drag and close. Only its image and Close text are set; nothing is placed on it. Regenerate makes an extra 3840 px version so it stays sharp when zoomed. It opens as large as the screen allows: a portrait poster fills a phone's height. The Close text is a row of `content.xlsx` (empty for a plain ×). In the flowchart, documents are blue and sit right above the frame that opens them, joined by a two-way arrow; Results counts how often a visit opened one instead of a percentage. |
+| **Validation point** | Never shown to readers: its rules look at the global variables and send the reader on (below). Purple, rounded, in the flowchart. |
+| **Minigame** | A frame with a teal badge, reserved for embedded games. For now it behaves like a normal frame; the folder is there so a game can be built onto it later. |
+
+## Global variables, validation points and scoreboards
+
+Variables let a story remember what a reader did: count correct answers, remember which path was taken, and later route the reader accordingly.
+
+1. **Define** them under **Settings → Advanced**. A variable has a name (`score`, `path_taken`) and an initial value. The initial value decides its type once and for all: `0`, `2.5` or `-3` make a number, anything else makes a text; put a number in quotes (`"12"`) to make it a text.
+2. **Change** one from any clickable element: in its dialog, choose the variable and either *Set to* a value or *Add* a number to it. The click can also lead somewhere, or only change the variable and stay on the frame. The studio refuses updates that do not fit the type (adding to a text, setting a number to `lots`), and the preflight list on Develop repeats every such problem.
+3. **Route** readers with a **Validation point**: an ordered list of rules such as *score is at least 3 → Good ending*, ending in an *otherwise* row. The first rule that matches decides; readers never see the point itself. Comparisons `<`, `≤`, `>`, `≥` only exist for numbers.
+4. **Show** values with a scoreboard: any text may contain `{score}`, which is replaced by the current value and updated the moment it changes. The four `scoreboard-*` components exist for this; **Settings → Advanced → Scoreboard on every frame** puts one on all story frames at once, with a checklist to hide it on some, and the element is then moved and resized in any frame editor like an ordinary element. See `components/README.md`.
+
+Every variable change and every decision is logged as its own line, is readable in a visit's timeline under **Results** (`score: 0 → 1`, `Check: score is at least 1 → Good ending`), and Results shows the final values of each visit and how many readers took each rule.
+
+**Restart the story** is a target like *End story*: it forgets this browser's progress, including the variables, and opens the story's first page again (the language start page if there is one), keeping the participant ID.
+
+## Editing texts
+
+Texts still live in `/project/content.xlsx`, but a row can now be changed without leaving the studio: in an element's dialog, open **Edit text #N** and change any language or the note. The row keeps its id, so every element that uses it changes with it. Line breaks are kept: press Enter in the studio, or Alt+Enter in Excel, and the story shows the lines with a little space between them.
 
 ## Frame names
 
@@ -294,6 +322,12 @@ In Qualtrics, put this link in a *Text/Graphic* question or an *End of Survey* r
 | any story link with `&restart` added, e.g. `…/our-story---nl-NL/index.html?ppn=R_1abcDEF&restart` | The same, for one specific page. TilTale removes `restart` from the address once it has been handled, so a later refresh continues normally. |
 - **Finish redirect**: under Settings, enter a URL to open when a reader clicks an element set to *End story*. Write `{ID}` where the participant ID belongs. It is URL-encoded automatically. Example: `https://example.qualtrics.com/jfe/form/SV_abc?ppn={ID}` sends participant `R_1abcDEF` back to `…?ppn=R_1abcDEF`. `{ID}` was chosen because curly braces never appear in normal URLs, while `%` and `@` already mean something there.
 
+## Protecting logs
+
+`ETHICS.md` lists exactly what a story records (every log line, the participant ID, what stays on the reader's device) in the words an ethics or data-management application needs. Read it before you plan a study.
+
+Study logs are readable JSON on the web server unless you turn on **Settings → Advanced → Protect logs**. That generates a key pair for the project **once**: the public key goes into `/dist/log-key.pem` and `log.php` then encrypts every line it writes; the private key is offered to you a single time as `<project>-log-key.pem` and the studio stays closed until you confirm you have stored it. Results asks for that file every time you open it and keeps it only in memory for the browser session. There is no second chance and no replacement key: lose the file and the logs are gone. `log.php` needs PHP's `openssl` extension for this; without it, it refuses to write rather than writing readable lines.
+
 ## Several languages
 
 Languages are the columns after `content_id` and `note` in `/project/content.xlsx`. With **one** language, the story is `/dist/index.html` and none of the options below exist. With **two or more**:
@@ -305,7 +339,7 @@ dist/<slug>---nl-NL/index.html  the Dutch story
 dist/tiltale.js, style.css, assets/, log.php, logs/, restart/   shared by all pages
 ```
 
-**Language-picker frames** (`+ Picker frame`) are the frames of the start page. They are shown before a language is chosen, so their texts are typed directly instead of coming from `content.xlsx`, and their buttons open a language. They have an amber dashed border and a *Picker* badge everywhere in the studio. Without picker frames, no `dist/index.html` is generated and you link participants to a language folder directly. The participant ID and the visit carry over from the start page into the chosen language.
+**Picker frames** (**+ Add frame → Picker**) are the frames of the start page. They are shown before a language is chosen, so their texts are typed directly instead of coming from `content.xlsx`, and their buttons open a language. They have an amber dashed border and a *Picker* badge everywhere in the studio. Without picker frames, no `dist/index.html` is generated and you link participants to a language folder directly. The participant ID and the visit carry over from the start page into the chosen language.
 
 ## Publishing
 
@@ -338,6 +372,7 @@ Most changes start in one of these places:
 | I want to change… | Open |
 |---|---|
 | a studio page's behavior | `studio/views.py` (the function named in `studio/urls.py`) |
+| the wording of a frame kind | `frame-types/<kind>/frame-type.json` |
 | a studio page's layout | `studio/templates/studio/<page>.html` |
 | how the studio looks / reacts | `studio/static/studio/app.css`, `app.js` |
 | how the published story behaves | `runtime/tiltale.js` |
@@ -357,20 +392,23 @@ Most changes start in one of these places:
 
 | File | Purpose |
 |---|---|
-| `models.py` | Database tables: project settings, frames, elements, per-language layout overrides. |
+| `models.py` | Database tables: project settings, frames (with their kind), elements, rules of validation points, global variables, per-language layout overrides. |
 | `views.py` | One function per page or API call. Validates input, then calls a service. Also computes the status bar (`status_context`). |
 | `urls.py` | Maps each URL to a view. |
 | `forms.py` | Forms for new project, settings and frame settings, including their help texts. |
 | `db.py` | Routes all studio tables to `/project/project.sqlite3`. |
 | `tests.py` | Behavior tests (`python manage.py test`). |
-| `migrations/` | Generated by Django. Never edit by hand. |
+| `migrations/` | Generated by Django. Never edit by hand (`0006` is the one exception: it also converts old picker/zoomable frames into kinds; see *Changing models*). |
 | `services/project.py` | Creating, opening and checking the `/project/` folder; applies migrations automatically. |
-| `services/content.py` | Reading and appending `content.xlsx`. |
+| `services/content.py` | Reading, appending and changing rows of `content.xlsx`. |
+| `services/variables.py` | Pure rules for global variables: number or text, allowed operations and comparators, `{placeholder}` checks. |
+| `services/frame_types.py` | Loading `/frame-types/*`. |
 | `services/components.py` | Loading `components/*`. |
 | `services/flow.py` | Frame links, reachability, placing new frames, *Tidy up*. |
 | `services/validate.py` | Preflight checks and phone presets. |
 | `services/generate.py` | Regenerate: builds `/project/dist/`. |
-| `services/study_logs.py` | Writing, importing and summarizing visit logs; seconds per frame and readable event lines for Results. |
+| `services/study_logs.py` | Writing, importing and summarizing visit logs; seconds per frame, device summary and readable event lines for Results. |
+| `services/log_keys.py` | The project key pair: generating, encrypting (the same scheme as `log.php`), decrypting and unlocking Results. |
 | `templates/studio/` | One HTML template per page; `base.html` is the shared frame, `_field.html` renders a form field, `_flow.html` and `_flow_inspector.html` are the flowchart canvas shared by Flowchart and Results. |
 | `static/studio/app.css`, `app.js` | All studio styling and interactivity (no libraries). |
 
@@ -383,8 +421,10 @@ See `runtime/README.md` for the full table. `tiltale.js` is the story player, `l
 | File | Purpose |
 |---|---|
 | `logo-tiltale.png`, `favicon.ico` | Default startup logo and browser-tab icon of every story (see *Logo and favicon*). |
+| `frame-types/` | One folder per frame kind with its name, description and help (see *Frame kinds*). |
 | `manage.py` | Django's command-line entry point (`runserver`, `test`, `makemigrations`). |
-| `requirements.txt` | Python packages. |
+| `requirements.txt` | Python packages (Django, openpyxl, Pillow, cryptography). |
+| `ETHICS.md` | What a story records and where it goes, for ethics and data-management applications. |
 
 ### `components/`: reusable story elements
 
@@ -424,6 +464,8 @@ git add studio/migrations
 ```
 
 Django writes the migration; never write one by hand. TilTale applies pending migrations to `/project/project.sqlite3` automatically on the next request. CI fails if a model change has no committed migration.
+
+The one exception so far is `0006_frame_kinds_variables_rules`, which adds a `RunPython` step to the generated file: it turns the old *picker* and *zoomable* flags into a frame kind, makes each zoomable frame's image the document's image, and switches word-breaking off for every element. Projects made before 2.1 are converted the first time the studio opens them; there is no way back to 2.0.
 
 ## Tests and CI
 

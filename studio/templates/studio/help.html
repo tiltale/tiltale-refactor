@@ -10,11 +10,11 @@
   <section class="card">
     <h2>The workflow</h2>
     <ol class="steps">
-      <li><strong>Frames</strong> are the story's screens. Create them with <em>+ Frame</em>; each gets a background and <strong>elements</strong> (speech bubbles, buttons, images…).</li>
+      <li><strong>Frames</strong> are the story's screens. Create them with <em>+ Add frame</em>, choosing a kind: a normal <em>Frame</em> with a background and <strong>elements</strong> (speech bubbles, buttons, images…), a <em>Document</em> (one zoomable image), a <em>Validation point</em> (invisible: sends readers on according to the global variables), or a <em>Minigame</em>.</li>
       <li><strong>Text</strong> comes from <code>/project/content.xlsx</code>: one row per text, one column per language. Pick a row for an element, or add one from the element's settings.</li>
       <li><strong>Connections</strong>: set what a button does (go to a frame, end the story, or open a language). The <em>Flowchart</em> shows the result.</li>
       <li><strong>Regenerate</strong>, then check the preview on different phones and run the <em>Play-test</em>.</li>
-      <li>Upload <code>/project/dist/</code>; later download <code>dist/logs/</code> from the server and import it under <em>Results</em>.</li>
+      <li>Upload <code>/project/dist/</code>; later download <code>dist/logs/</code> from the server and import it under <em>Results</em>. What a story records, and how to encrypt the logs with a project key (<em>Settings → Advanced → Protect logs</em>), is in <code>ETHICS.md</code>.</li>
     </ol>
   </section>
   <section class="card">
@@ -22,8 +22,12 @@
     <p>Every page load writes a new log file <code>&lt;participant&gt;--&lt;visit&gt;.jsonl</code>. The participant ID comes from the URL (default parameter <code>ppn</code>, e.g. <code>index.html?ppn=R_abc123</code> from Qualtrics) or is generated. Readers who reload continue where they were; incognito windows start over.</p>
   </section>
   <section class="card">
+    <h2>Global variables and scoreboards</h2>
+    <p>Under <em>Settings → Advanced</em> you can define variables such as <code>score = 0</code>. Any button can change one when clicked, a validation point sends readers to different frames depending on them, and any text can show one by writing <code>{score}</code>. The four scoreboard components are made for this and can be put on every frame at once. Every change and decision is written to the log and shown under <em>Results</em>.</p>
+  </section>
+  <section class="card">
     <h2>More languages</h2>
-    <p>With two or more languages, each language gets its own folder in <code>/dist/</code>. Optional <strong>language-picker frames</strong> (<em>+ Picker frame</em>) form the start page <code>/dist/index.html</code>; their text is typed directly because no language has been chosen yet.</p>
+    <p>With two or more languages, each language gets its own folder in <code>/dist/</code>. Optional <strong>language-picker frames</strong> (<em>+ Add frame → Picker</em>) form the start page <code>/dist/index.html</code>; their text is typed directly because no language has been chosen yet.</p>
   </section>
   <section class="card">
     <h2>Keep data local</h2>

@@ -9,21 +9,25 @@ import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
 from PIL import Image
 
 from .forms import FrameForm, ProjectSettingsForm, normalize_language, parse_extra_languages
-from .models import Element, Frame, ProjectSettings, name_key
+from .models import Element, Frame, ProjectSettings, Rule, Variable, name_key
 from .services.components import component_map, default_color_css
-from .services.content import append_content_row, create_content_workbook, load_content_table
+from .services.content import append_content_row, create_content_workbook, load_content_table, update_content_row
 from .services.flow import STEP_X, create_frame, default_name, tidy_layout
+from .services.frame_types import load_frame_types
 from .services.generate import generate_dist, language_folder, reset_dist_directory
 from .services.llm import parse_elements
+from .services.log_keys import LockedLog, decrypt_event, encrypt_event, fingerprint, generate_key_pair, load_private_key
 from .services.project import image_size, project_health, safe_child
-from .services.study_logs import frame_visits, import_jsonl, log_file_name, readable_events, safe_name, session_kind
+from .services.study_logs import describe_visit, final_variables, frame_visits, import_jsonl, log_file_name, parse_events, readable_events, safe_name, session_kind
 from .services.validate import validate_project
+from .services.variables import check_name, check_value, kind_of, parse_value, rule_label, unknown_placeholders
 
 ANSWER: str = '{"elements": [{"component": "choice-button", "content_id": 1, "x": 960, "y": 540, "target": "fnr-2"}]}'
 EVENT: dict[str, object] = {"participant_id": "R_abc", "visit_id": "20260910T101530Z-a1b2", "event": "frame", "seq": 1}
@@ -115,6 +119,147 @@ class ContentWorkbookTests(SimpleTestCase):
         self.assertEqual(row.content_id, 2)
         self.assertEqual(table.by_id()[2].values["en-US"], "Hi")
 
+    def test_a_row_can_be_changed_and_keeps_its_id(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "content.xlsx"
+            create_content_workbook(path, ["en-US", "nl-NL"])
+            append_content_row(path, "greeting", {"en-US": "Hello"})
+            update_content_row(path, 1, "greeting (formal)", {"en-US": "Good day", "nl-NL": "Goedendag"})
+            row = load_content_table(path).by_id()[1]
+        self.assertEqual((row.note, row.values), ("greeting (formal)", {"en-US": "Good day", "nl-NL": "Goedendag"}))
+
+    def test_changing_an_unknown_row_is_refused(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "content.xlsx"
+            create_content_workbook(path, ["en-US"])
+            with self.assertRaisesRegex(ValueError, "content_id 9"):
+                update_content_row(path, 9, "", {"en-US": "x"})
+
+    def test_line_breaks_typed_in_a_browser_are_kept_as_excel_line_breaks(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "content.xlsx"
+            create_content_workbook(path, ["en-US"])
+            append_content_row(path, "", {"en-US": "First line\r\nSecond line"})
+            text = load_content_table(path).by_id()[1].values["en-US"]
+        self.assertEqual(text, "First line\nSecond line")
+
+
+class VariableRuleTests(SimpleTestCase):
+    """The type of a variable comes from its initial value and every update or rule must fit it."""
+
+    def test_numbers_and_text_are_told_apart(self) -> None:
+        self.assertEqual([parse_value(raw) for raw in ("0", "2.5", "-3", "path 1", '"12"')], [0, 2.5, -3, "path 1", "12"])
+
+    def test_the_kind_follows_the_value(self) -> None:
+        self.assertEqual((kind_of(2.5), kind_of("go")), ("number", "text"))
+
+    def test_adding_to_a_text_variable_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Only numbers can be added to"):
+            check_value("text", "1", "add")
+
+    def test_setting_a_number_variable_to_text_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be a number"):
+            check_value("number", "lots", "set")
+
+    def test_setting_a_text_variable_to_a_number_needs_quotes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "in quotes"):
+            check_value("text", "12", "set")
+
+    def test_quoted_numbers_are_text(self) -> None:
+        self.assertEqual(check_value("text", '"12"', "set"), "12")
+
+    def test_less_than_only_compares_numbers(self) -> None:
+        with self.assertRaisesRegex(ValueError, "only works with numbers"):
+            check_value("text", "a", "<")
+
+    def test_a_matching_rule_value_is_typed(self) -> None:
+        self.assertEqual(check_value("number", "3", ">="), 3)
+
+    def test_an_empty_value_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            check_value("number", "  ", "set")
+
+    def test_variable_names_are_identifiers(self) -> None:
+        with self.assertRaises(ValueError):
+            check_name("my score")
+
+    def test_placeholders_that_are_not_variables_are_reported(self) -> None:
+        self.assertEqual(unknown_placeholders("Score: {score} of {total}", {"score"}), ["total"])
+
+    def test_rules_read_as_a_sentence(self) -> None:
+        self.assertEqual((rule_label("score", ">=", "3"), rule_label(None, "==", "")), ("score is at least 3", "otherwise"))
+
+
+class VisitHeaderTests(SimpleTestCase):
+    """The first line of a log names the device and browser; the studio summarizes it."""
+
+    def test_iphone_safari(self) -> None:
+        header = {"user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", "screen": {"width": 390, "height": 844}}
+        self.assertEqual(describe_visit(header), "iPhone · Safari · 390×844")
+
+    def test_android_model_and_chrome(self) -> None:
+        header = {"user_agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", "screen": {"width": 360, "height": 800}}
+        self.assertEqual(describe_visit(header), "Android (SM-G991B) · Chrome · 360×800")
+
+    def test_edge_on_windows_is_not_chrome(self) -> None:
+        header = {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"}
+        self.assertEqual(describe_visit(header), "Windows · Edge")
+
+    def test_a_visit_line_in_the_timeline(self) -> None:
+        events = [{"event": "visit", "local_time": "2026-09-15T10:41:02+02:00", "user_agent": "iPad", "timestamp": "2026-09-15T08:41:02Z"}]
+        self.assertEqual(readable_events(events, {}, {}), ["Visit started at 2026-09-15T10:41:02+02:00 on iPad"])
+
+
+class LogKeyTests(SimpleTestCase):
+    """Encrypted log lines (as log.php writes them) can only be read with the project's private key."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.private_pem, cls.public_pem = generate_key_pair()
+
+    def test_a_line_round_trips(self) -> None:
+        event = {"participant_id": "R_1", "visit_id": "v1", "event": "frame", "frame": "fnr-1", "text": "héllo"}
+        line = encrypt_event(event, self.public_pem)
+        self.assertEqual(sorted(json.loads(line)), ["data", "enc", "iv", "tag"])
+        private = load_private_key(self.private_pem.encode(), self.public_pem)
+        self.assertEqual(parse_events(line, "x", private), [event])
+
+    def test_reading_without_the_key_is_refused(self) -> None:
+        line = encrypt_event({"event": "frame"}, self.public_pem)
+        with self.assertRaises(LockedLog):
+            parse_events(line, "x")
+
+    def test_the_wrong_key_is_refused(self) -> None:
+        other_private, _other_public = generate_key_pair()
+        with self.assertRaisesRegex(ValueError, "another project"):
+            load_private_key(other_private.encode(), self.public_pem)
+        with self.assertRaisesRegex(ValueError, "not a key file"):
+            load_private_key(b"hello", self.public_pem)
+
+    def test_a_tampered_line_is_refused(self) -> None:
+        record = json.loads(encrypt_event({"event": "frame"}, self.public_pem))
+        record["data"] = record["data"][:-4] + "AAAA"
+        private = load_private_key(self.private_pem.encode(), self.public_pem)
+        with self.assertRaises(ValueError):
+            decrypt_event(record, private)
+
+    def test_plain_and_encrypted_lines_can_share_a_file(self) -> None:
+        private = load_private_key(self.private_pem.encode(), self.public_pem)
+        text = json.dumps({"event": "a"}) + "\n" + encrypt_event({"event": "b"}, self.public_pem)
+        self.assertEqual([e["event"] for e in parse_events(text, "x", private)], ["a", "b"])
+
+    def test_fingerprints_are_short_and_stable(self) -> None:
+        self.assertEqual(fingerprint(self.public_pem), fingerprint(self.public_pem))
+        self.assertRegex(fingerprint(self.public_pem), r"^([0-9a-f]{4}:){7}[0-9a-f]{4}$")
+
+
+class FrameTypeTests(SimpleTestCase):
+    def test_every_kind_has_a_catalog_entry_with_words(self) -> None:
+        types = load_frame_types()
+        self.assertEqual(list(types), list(Frame.Kind.values))
+        self.assertTrue(all(item.name and item.description and item.help for item in types.values()))
+
 
 class SettingsFormTests(SimpleTestCase):
     def form(self, **changes: object) -> ProjectSettingsForm:
@@ -199,6 +344,19 @@ class StudyLogTests(SimpleTestCase):
         lines = readable_events(events, {"fnr-1": "Intro"}, {5: "Choice button (Go on)"})
         self.assertEqual(lines, ["IDN refreshed", "Intro: visited (last frame)", "Intro: clicked 'Choice button (Go on)'"])
 
+    def test_variable_changes_and_decisions_get_their_own_lines(self) -> None:
+        events = [
+            {"event": "frame", "frame": "fnr-1", "timestamp": "2026-09-10T10:00:00Z"},
+            {"event": "variable", "frame": "fnr-1", "variable": "score", "from": 0, "to": 1, "timestamp": "2026-09-10T10:00:05Z"},
+            {"event": "decision", "frame": "fnr-2", "element_id": "rule-7", "target": "fnr-3", "timestamp": "2026-09-10T10:00:05Z"},
+            {"event": "frame", "frame": "fnr-3", "timestamp": "2026-09-10T10:00:05Z"},
+        ]
+        names = {"fnr-1": "Intro", "fnr-2": "Check", "fnr-3": "Good end"}
+        lines = readable_events(events, names, {"rule-7": "score is at least 1"})
+        self.assertEqual(lines, ["Intro: visited for 5 s", "score: 0 → 1", "Check: score is at least 1 → Good end", "Good end: visited (last frame)"])
+        self.assertEqual(frame_visits(events), [("fnr-1", 5.0), ("fnr-2", None), ("fnr-3", None)])
+        self.assertEqual(final_variables(events), {"score": 1})
+
     def test_import_never_overwrites_an_existing_log(self) -> None:
         data = (json.dumps(EVENT) + "\n").encode()
         with TemporaryDirectory() as directory:
@@ -255,7 +413,7 @@ class FrameNameTests(TestCase):
         self.assertEqual((frame.key, frame.name), (f"fnr-{frame.pk}", f"Frame {frame.pk}"))
 
     def test_new_picker_frames_are_called_picker(self) -> None:
-        frame = create_frame(is_picker=True)
+        frame = create_frame("picker")
         self.assertEqual(frame.name, f"Picker {frame.pk}")
 
     def test_a_new_background_image_fills_the_frame_again(self) -> None:
@@ -340,8 +498,17 @@ class StudioViewTests(ProjectTestCase):
         self.assertNotIn("Go to Middle", html)
 
     def test_single_language_projects_cannot_create_picker_frames(self) -> None:
-        self.client.post(reverse("studio:new_frame"), {"picker": "1"})
-        self.assertFalse(Frame.objects.filter(is_language_picker=True).exists())
+        self.client.post(reverse("studio:new_frame"), {"kind": "picker"})
+        self.assertFalse(Frame.objects.filter(kind=Frame.Kind.PICKER).exists())
+
+    def test_new_frames_get_their_kind_and_a_matching_name(self) -> None:
+        self.client.post(reverse("studio:new_frame"), {"kind": "validation"})
+        frame = Frame.objects.get()
+        self.assertEqual((frame.kind, frame.name), ("validation", f"Validation {frame.pk}"))
+
+    def test_unknown_kinds_are_refused(self) -> None:
+        self.client.post(reverse("studio:new_frame"), {"kind": "poster"})
+        self.assertFalse(Frame.objects.exists())
 
     def test_regenerate_works_twice_in_a_row(self) -> None:
         Frame.objects.create(name="frame-1")
@@ -370,11 +537,145 @@ class StudioViewTests(ProjectTestCase):
         self.assertIn("Made with TilTale version", (self.root / "dist" / "index.html").read_text(encoding="utf-8"))
         self.assertTrue((self.root / "dist" / "restart" / "index.html").is_file())
 
-    def test_document_frames_get_a_close_text_in_the_story(self) -> None:
+    def test_documents_get_their_image_and_close_text_in_the_story(self) -> None:
         append_content_row(self.root / "project" / "content.xlsx", "", {"en-US": "Close"})
-        Frame.objects.create(name="frame-1", zoomable=True, close_content_id=1)
+        Image.new("RGB", (400, 200)).save(self.root / "project" / "materials" / "poster.png")
+        Frame.objects.create(name="frame-1")
+        Frame.objects.create(name="poster", kind="document", background_type="image", background_image="poster.png", close_content_id=1)
         generate_dist(self.project)
-        self.assertIn('"zoomable":true,"close_text":"Close"', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
+        story = (self.root / "dist" / "story.js").read_text(encoding="utf-8")
+        self.assertIn('"kind":"document"', story)
+        self.assertIn('"height":200,"path":"assets/poster-', story)
+        self.assertIn('"close_text":"Close"', story)
+
+    def test_variables_rules_updates_and_restarts_are_in_the_story(self) -> None:
+        score = Variable.objects.create(name="score", initial_value="0")
+        first = Frame.objects.create(name="frame-1")
+        check = Frame.objects.create(name="check", kind="validation")
+        good = Frame.objects.create(name="good")
+        Element.objects.create(frame=first, component="choice-button", target_frame=check, update_variable=score, update_operation="add", update_value="1")
+        Element.objects.create(frame=good, component="choice-button", restarts_story=True)
+        Rule.objects.create(frame=check, order=1, variable=score, comparator=">=", value="1", target_frame=good)
+        Rule.objects.create(frame=check, order=2, target_frame=first)
+        generate_dist(self.project)
+        story = (self.root / "dist" / "story.js").read_text(encoding="utf-8")
+        self.assertIn('"variables":{"score":0}', story)
+        self.assertIn('"update":{"variable":"score","operation":"add","value":1}', story)
+        self.assertIn(f'"label":"score is at least 1","variable":"score","comparator":">=","value":1,"target":"{good.key}"', story)
+        self.assertIn('"label":"otherwise","variable":null', story)
+        self.assertIn('"restarts_story":true', story)
+        self.assertIn('"start_page":"index.html"', story)
+
+    def test_a_scoreboard_on_every_frame_skips_the_frames_where_it_is_hidden(self) -> None:
+        shown = Frame.objects.create(name="frame-1")
+        hidden = Frame.objects.create(name="frame-2")
+        board = Element.objects.create(frame=None, component="scoreboard-pill")
+        board.hidden_on.add(hidden)
+        generate_dist(self.project)
+        story = json.loads((self.root / "dist" / "story.js").read_text(encoding="utf-8").split("var STORY = ")[1].rstrip(";\n"))
+        elements = {frame["name"]: [element["id"] for element in frame["elements"]] for frame in story["frames"]}
+        self.assertEqual((elements[shown.key], elements[hidden.key]), ([board.id], []))
+
+    def test_saving_a_type_mismatch_on_an_element_is_refused(self) -> None:
+        score = Variable.objects.create(name="score", initial_value="0")
+        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="choice-button")
+        data = {
+            "x": "1", "y": "1", "width": "100", "height": "50", "font_size": "30", "delay_mode": "none",
+            "update_variable": str(score.id), "update_operation": "set", "update_value": "lots",
+        }
+        self.client.post(reverse("studio:save_element", args=[element.id]), data)
+        self.assertIsNone(Element.objects.get(pk=element.id).update_variable)
+
+    def test_rules_are_saved_in_order_with_the_otherwise_row_last(self) -> None:
+        score = Variable.objects.create(name="score", initial_value="0")
+        check = Frame.objects.create(name="check", kind="validation")
+        good = Frame.objects.create(name="good")
+        data = {
+            "rule.0.id": "", "rule.0.variable": str(score.id), "rule.0.comparator": ">=", "rule.0.value": "3", "rule.0.target": f"frame:{good.id}",
+            "else.id": "", "else.target": "new",
+        }
+        self.client.post(reverse("studio:save_rules", args=[check.id]), data)
+        rules = list(check.rules.all())
+        self.assertEqual([(rule.variable_id, rule.comparator, rule.value) for rule in rules], [(score.id, ">=", "3"), (None, "==", "")])
+        self.assertEqual(rules[1].target_frame.name, f"Frame {rules[1].target_frame.pk}")
+
+    def test_a_rule_with_the_wrong_type_is_refused(self) -> None:
+        path = Variable.objects.create(name="path", initial_value="a")
+        check = Frame.objects.create(name="check", kind="validation")
+        data = {"rule.0.id": "", "rule.0.variable": str(path.id), "rule.0.comparator": "<", "rule.0.value": "b", "rule.0.target": "", "else.id": "", "else.target": ""}
+        self.client.post(reverse("studio:save_rules", args=[check.id]), data)
+        self.assertFalse(check.rules.exists())
+
+    def test_a_variable_cannot_change_type_while_a_rule_uses_the_old_one(self) -> None:
+        score = Variable.objects.create(name="score", initial_value="0")
+        Rule.objects.create(frame=Frame.objects.create(name="check", kind="validation"), variable=score, comparator=">=", value="3")
+        self.client.post(reverse("studio:save_variables"), {f"name.{score.id}": "score", f"initial.{score.id}": "none"})
+        self.assertEqual(Variable.objects.get(pk=score.id).initial_value, "0")
+
+    def test_a_used_variable_cannot_be_deleted(self) -> None:
+        score = Variable.objects.create(name="score", initial_value="0")
+        Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="choice-button", update_variable=score, update_value="1")
+        self.client.post(reverse("studio:delete_variable", args=[score.id]))
+        self.assertTrue(Variable.objects.filter(pk=score.id).exists())
+
+    def test_validation_points_without_an_otherwise_row_are_reported(self) -> None:
+        Frame.objects.create(name="frame-1")
+        score = Variable.objects.create(name="score", initial_value="0")
+        Rule.objects.create(frame=Frame.objects.create(name="check", kind="validation"), variable=score, comparator=">=", value="3")
+        issues = validate_project(self.project, load_content_table(self.root / "project" / "content.xlsx"))
+        self.assertTrue(any("otherwise" in issue.message for issue in issues))
+
+    def test_generating_a_key_closes_the_studio_until_the_key_is_saved(self) -> None:
+        self.client.post(reverse("studio:generate_log_key"))
+        project = ProjectSettings.objects.get()
+        self.assertTrue(project.logs_protected and project.log_key_pending.startswith("-----BEGIN PRIVATE KEY-----"))
+        self.assertRedirects(self.client.get(reverse("studio:develop")), reverse("studio:log_key"), fetch_redirect_response=False)
+        download = self.client.get(reverse("studio:download_log_key"))
+        self.assertIn(f'filename="{project.slug}-log-key.pem"', download["Content-Disposition"])
+        self.client.post(reverse("studio:confirm_log_key"), {})  # without the tick: still pending
+        self.assertTrue(ProjectSettings.objects.get().log_key_pending)
+        self.client.post(reverse("studio:confirm_log_key"), {"saved": "yes"})
+        self.assertEqual(ProjectSettings.objects.get().log_key_pending, "")
+        self.assertEqual(self.client.get(reverse("studio:develop")).status_code, 200)
+        self.assertEqual(self.client.post(reverse("studio:generate_log_key")).status_code, 302)  # once: the key stays
+        self.assertEqual(ProjectSettings.objects.get().log_public_key, project.log_public_key)
+
+    def test_the_public_key_goes_into_dist_and_the_private_key_opens_results(self) -> None:
+        Frame.objects.create(name="frame-1")
+        private_pem, public_pem = generate_key_pair()
+        ProjectSettings.objects.update(log_public_key=public_pem)
+        generate_dist(ProjectSettings.objects.get())
+        self.assertEqual((self.root / "dist" / "log-key.pem").read_text(encoding="utf-8"), public_pem)
+        self.assertTemplateUsed(self.client.get(reverse("studio:results")), "studio/unlock.html")
+        # a server log, encrypted as log.php writes it, is imported as it is and only readable once unlocked
+        event = {"participant_id": "R_1", "visit_id": "v1", "seq": 1, "event": "frame", "frame": "fnr-1", "timestamp": "2026-09-15T08:00:00Z"}
+        upload = SimpleUploadedFile("R_1--v1.jsonl", encrypt_event(event, public_pem).encode())
+        self.client.post(reverse("studio:import_logs"), {"log_files": upload})
+        self.assertFalse((self.root / "project" / "logs" / "R_1--v1.jsonl").exists())
+        key_file = SimpleUploadedFile("key.pem", private_pem.encode())
+        self.client.post(reverse("studio:unlock_results"), {"key_file": key_file})
+        upload = SimpleUploadedFile("R_1--v1.jsonl", encrypt_event(event, public_pem).encode())
+        self.client.post(reverse("studio:import_logs"), {"log_files": upload})
+        stored = (self.root / "project" / "logs" / "R_1--v1.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"enc"', stored)
+        page = self.client.get(reverse("studio:results"))
+        self.assertTemplateUsed(page, "studio/results.html")
+        self.assertContains(page, "R_1")
+        self.assertEqual(self.client.get(reverse("studio:log_api", args=["R_1--v1.jsonl"])).json()["events"][0]["frame"], "fnr-1")
+
+    def test_a_key_file_of_another_project_does_not_unlock(self) -> None:
+        _private, public_pem = generate_key_pair()
+        other_private, _public = generate_key_pair()
+        ProjectSettings.objects.update(log_public_key=public_pem)
+        self.client.post(reverse("studio:unlock_results"), {"key_file": SimpleUploadedFile("key.pem", other_private.encode())})
+        self.assertTemplateUsed(self.client.get(reverse("studio:results")), "studio/unlock.html")
+
+    def test_editing_a_content_row_from_the_frame_editor_writes_the_workbook(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        append_content_row(self.root / "project" / "content.xlsx", "", {"en-US": "Hello"})
+        self.client.post(reverse("studio:edit_content_row", args=[1]), {"frame": str(frame.id), "text.en-US": "Hello there", "note": "greeting"})
+        row = load_content_table(self.root / "project" / "content.xlsx").by_id()[1]
+        self.assertEqual((row.values["en-US"], row.note), ("Hello there", "greeting"))
 
     def test_results_page_lists_visits_with_readable_events(self) -> None:
         Frame.objects.create(name="Intro")
@@ -441,7 +742,7 @@ class MultiLanguageTests(ProjectTestCase):
     def setUp(self) -> None:
         super().setUp()
         Frame.objects.create(name="frame-1")
-        self.picker = Frame.objects.create(name="picker-1", is_language_picker=True)
+        self.picker = Frame.objects.create(name="picker-1", kind="picker")
         Element.objects.create(frame=self.picker, component="choice-button", text="Nederlands", target_language="nl-NL")
 
     def test_picker_page_comes_first_then_one_folder_per_language(self) -> None:
@@ -462,7 +763,7 @@ class MultiLanguageTests(ProjectTestCase):
         self.assertIn("No language-picker button leads to en-US.", [issue.message for issue in issues])
 
     def test_picker_frames_alone_do_not_count_as_story_frames(self) -> None:
-        Frame.objects.filter(is_language_picker=False).delete()
+        Frame.objects.exclude(kind="picker").delete()
         issues = validate_project(self.project, load_content_table(self.root / "project" / "content.xlsx"))
         self.assertIn("Picker frames only make the start page", issues[-1].message)
 

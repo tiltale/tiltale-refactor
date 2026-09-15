@@ -98,15 +98,12 @@ class ProjectSettingsForm(forms.ModelForm):
 
 
 class FrameForm(forms.ModelForm):
-    """Frame-level settings: name, background and fade-in."""
+    """Frame-level settings: name, background and fade-in. A document's background image is the document."""
 
     class Meta:
         model = Frame
-        fields = ["name", "fade_in", "background_type", "background_color", "background_image", "zoomable", "close_content_id"]
-        labels = {
-            "fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image",
-            "zoomable": "Readers can zoom and drag this frame (for documents)",
-        }
+        fields = ["name", "fade_in", "background_type", "background_color", "background_image", "close_content_id"]
+        labels = {"fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image"}
         help_texts = {"name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below."}
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
 
@@ -137,6 +134,8 @@ class FrameForm(forms.ModelForm):
 
     def clean(self) -> dict[str, object]:
         cleaned: dict[str, object] = super().clean()
+        if self.instance.is_document:  # the image is the document; the color fills the screen around it
+            cleaned["background_type"] = Frame.BackgroundType.IMAGE
         kind = cleaned.get("background_type")
         if kind == Frame.BackgroundType.IMAGE and cleaned.get("background_image") not in self.materials:
             self.add_error("background_image", "Choose an image that exists in /project/materials/.")

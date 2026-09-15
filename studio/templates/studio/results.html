@@ -17,9 +17,10 @@
     <details class="session" data-session="{{ forloop.counter0 }}">
       <summary>
         <strong>{{ session.participant_id }}</strong>
-        <span class="muted">{{ session.started_label }} · <span class="badge {{ session.kind }}">{{ session.kind }}</span> · {{ session.language|default:"—" }} · {{ session.event_count }} events ({{ session.finished|yesno:"finished,incomplete" }})</span>
+        <span class="muted">{{ session.started_label }} · <span class="badge {{ session.kind }}">{{ session.kind }}</span> · {{ session.language|default:"—" }} · {{ session.event_count }} events ({{ session.finished|yesno:"finished,incomplete" }}){% if session.device %} · {{ session.device }}{% endif %}</span>
       </summary>
       <ol class="timeline">{% for line in session.lines %}<li>{{ line }}</li>{% endfor %}</ol>
+      {% if session.variables %}<p class="muted">Final values: {% for name, value in session.variables.items %}<code>{{ name }} = {{ value }}</code> {% endfor %}</p>{% endif %}
       <a class="muted" href="{% url 'studio:session_detail' session.file_name %}">Raw log</a>
     </details>
     {% empty %}
@@ -48,7 +49,7 @@
     </div>
     {% include 'studio/_flow.html' %}
     <div class="legend">
-      <span>Per frame: <em>n</em> visits and seconds on screen (avg, min, max) for the visits listed on the left · on each line: how many of those visits continued that way · document frames: how many visits opened them 0×, 1×, 2×…</span>
+      <span>Per frame: <em>n</em> visits and seconds on screen (avg, min, max) for the visits listed on the left · on each line: how many of those visits continued that way (for a validation point: which rule decided) · documents: how many visits opened them 0×, 1×, 2×… · a visit's timeline lists every decision and variable change</span>
       <span><i class="line selected"></i> Path of the selected visit</span>
     </div>
   </section>

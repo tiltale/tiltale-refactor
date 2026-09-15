@@ -22,6 +22,7 @@
         <a href="{% url 'studio:results' %}" {% if here == 'results' or here == 'session_detail' %}aria-current="page"{% endif %}>Results</a>
       </nav>
     {% endif %}
+    {% if frame_types %}{% include 'studio/_new_frame.html' %}{% endif %}
     <a class="help-link" href="{% url 'studio:help' %}" title="How TilTale works" {% if here == 'help' %}aria-current="page"{% endif %}>?</a>
   </header>
 {% endwith %}

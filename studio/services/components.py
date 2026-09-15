@@ -24,6 +24,7 @@ class ComponentDefinition:
     clickable: bool
     auto_height: bool  # the element grows with its text; the stored height is the minimum
     tail: str  # "", or the kind of tail bubbles.js draws: speech, thought or scream
+    scoreboard: bool  # shows global variables ({score} in its text); may be put on every frame from Settings
     default_width: float
     default_height: float
     default_font_size: float
@@ -66,6 +67,7 @@ def load_component(folder: Path) -> ComponentDefinition:
         clickable=_field(data, "clickable", bool, manifest),
         auto_height=data.get("auto_height") is True,
         tail=str(tail),
+        scoreboard=data.get("scoreboard") is True,
         default_width=float(_field(size, "width", number, manifest)),
         default_height=float(_field(size, "height", number, manifest)),
         default_font_size=float(_field(data, "default_font_size", number, manifest)),

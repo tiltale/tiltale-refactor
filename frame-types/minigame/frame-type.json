@@ -1,0 +1,5 @@
+{
+  "name": "Minigame",
+  "description": "Reserved for a future interactive mini-game; for now it works exactly like a Frame.",
+  "help": "Use it to mark frames that will become a mini-game later. Everything works as on a normal Frame; the flowchart shows it in its own color."
+}

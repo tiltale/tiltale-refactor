@@ -15,13 +15,14 @@ So the absence of ``/project/`` simply means "no active project".
 from pathlib import Path
 import os
 
-TILTALE_VERSION: str = "2.0.13"  # bump on every release; CI checks this on pull requests
+TILTALE_VERSION: str = "2.2.0"  # bump on every release; CI checks this on pull requests
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 PROJECT_DIR: Path = BASE_DIR / "project"
 PROJECT_DB: Path = PROJECT_DIR / "project.sqlite3"
 DIST_DIR: Path = PROJECT_DIR / "dist"  # the generated website lives with the project it belongs to
 COMPONENTS_DIR: Path = BASE_DIR / "components"
+FRAME_TYPES_DIR: Path = BASE_DIR / "frame-types"  # names and help texts of the frame kinds
 RUNTIME_DIR: Path = BASE_DIR / "runtime"
 BRANDING_DIR: Path = BASE_DIR  # default logo-tiltale.png and favicon.ico for every project
 PROMPTS_DIR: Path = BASE_DIR / "docs" / "llm-prompts"

@@ -1,0 +1,22 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | Save your key{% endblock %}
+{% block body %}
+<main class="page narrow">
+  <section class="card">
+    <p class="eyebrow">Protect logs</p>
+    <h1>Save your key file now</h1>
+    <p>This is the only moment TilTale can give you the private key for <strong>{{ project.name }}</strong>. It is not stored in the project, the database or the website; once you confirm below, it is gone from here. From then on, this file is the only way to read the study logs.</p>
+    <ol class="steps">
+      <li><a class="button primary" href="{% url 'studio:download_log_key' %}" download="{{ file_name }}">Download {{ file_name }}</a></li>
+      <li>Store it where your data management plan says: a location only the researchers with access to raw data can reach (for example the university's protected network drive). Never put it in <code>/project/</code>, in Git, or on the web server next to the logs.</li>
+      <li>Open the file once to check that it begins with <code>-----BEGIN PRIVATE KEY-----</code>. Its fingerprint is <code>{{ fingerprint }}</code>; Results shows the same fingerprint when it asks for the file.</li>
+    </ol>
+    <form method="post" action="{% url 'studio:confirm_log_key' %}" class="form">
+      {% csrf_token %}
+      <label class="check"><input type="checkbox" name="saved" value="yes" required> <span>I have saved <code>{{ file_name }}</code> in a safe place and understand that it cannot be downloaded again.</span></label>
+      <div class="form-actions"><button class="button primary">Continue</button></div>
+    </form>
+    <p class="muted">The rest of the studio is closed until you continue.</p>
+  </section>
+</main>
+{% endblock %}

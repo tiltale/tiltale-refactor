@@ -70,6 +70,27 @@ function setupDialogs() {
   });
 }
 
+// Settings: a Basic and an Advanced tab. The URL's ?tab= opens the right one after a save.
+function setupTabs() {
+  const page = document.querySelector("[data-tabs]");
+  if (!page) return;
+  const show = (name) => {
+    for (const panel of page.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== name;
+    for (const button of page.querySelectorAll("[data-tab-button]")) button.setAttribute("aria-selected", button.dataset.tabButton === name);
+  };
+  for (const button of page.querySelectorAll("[data-tab-button]")) button.addEventListener("click", () => show(button.dataset.tabButton));
+  show(page.dataset.tab || "basic");
+}
+
+// "+ Add" and other <details data-menu>: close when clicking elsewhere or pressing Escape.
+function setupMenus() {
+  const menus = document.querySelectorAll("details[data-menu]");
+  if (!menus.length) return;
+  const closeAll = (except) => { for (const menu of menus) if (menu !== except) menu.open = false; };
+  document.addEventListener("click", (event) => closeAll(event.target.closest("details[data-menu]")));
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeAll(); });
+}
+
 function setupConfig() {
   const input = document.querySelector("[name=finish_redirect_url]");
   const example = document.querySelector("[data-redirect-example]");
@@ -126,7 +147,7 @@ function setupResults() {
     for (const edge of edges) {
       const total = edge.classList.contains("document") ? 0 : stats.frames[edge.dataset.source]?.n; // documents: see the node
       edge.querySelector("text").textContent = total ? `${Math.round((stats.choices[edge.dataset.element] ?? 0) / total * 100)}%` : "";
-      edge.classList.toggle("is-path", Boolean(person?.choices.includes(Number(edge.dataset.element))));
+      edge.classList.toggle("is-path", Boolean(person?.choices.map(String).includes(edge.dataset.element)));
     }
   };
 
@@ -217,11 +238,13 @@ function setupDevelop() {
 function setupEditor() {
   const page = document.querySelector("[data-editor]");
   if (!page) return;
+  setupRules(page);
   const stage = page.querySelector("[data-canvas-stage]");
   const canvas = page.querySelector("[data-canvas]");
   const picker = document.getElementById("content-picker");
   const view = { scale: 1 };
   let contentInput = null;
+  if (!canvas) return; // documents and validation points have no canvas
 
   const fitCanvas = () => {
     view.scale = Math.min(
@@ -297,6 +320,29 @@ function setupEditor() {
   picker.querySelector("[data-content-filter]").addEventListener("input", (event) => {
     const query = event.target.value.trim().toLowerCase();
     for (const row of picker.querySelectorAll("[data-content-id]")) row.hidden = !row.textContent.toLowerCase().includes(query);
+  });
+}
+
+// Validation points: add and remove rule rows; the rows are numbered rule.0, rule.1, … for the view.
+function setupRules(page) {
+  const form = page.querySelector("[data-rules]");
+  if (!form) return;
+  const list = form.querySelector("[data-rule-list]");
+  const template = form.querySelector("[data-rule-template]");
+  const renumber = () => {
+    for (const [index, row] of [...list.querySelectorAll("[data-rule]")].entries()) {
+      for (const field of row.querySelectorAll("[name]")) field.name = field.name.replace(/rule\.[^.]+\./, `rule.${index}.`);
+    }
+  };
+  form.querySelector("[data-add-rule]").addEventListener("click", () => {
+    list.append(template.content.cloneNode(true));
+    renumber();
+  });
+  form.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-rule]");
+    if (!button) return;
+    button.closest("[data-rule]").remove();
+    renumber();
   });
 }
 
@@ -587,14 +633,14 @@ function trackPointer(surface, event, onMove, onUp) {
 function edgeGroup(edge, nodes, position) {
   const source = nodes.get(String(edge.source));
   const target = nodes.get(String(edge.target));
-  if (!source || (!target && !edge.end)) return null;
+  if (!source || (!target && !edge.end && !edge.restart)) return null;
   const start = position(source);
   const x1 = start.x + source.offsetWidth;
   const y1 = start.y + source.offsetHeight / 2;
   const group = svgElement("g", { class: `edge ${edgeKind(edge)}`, "data-element": edge.element_id, "data-source": source.dataset.key });
   group.append(svgElement("title", {}));
   group.firstChild.textContent = `${edgeLabel(edge)} → ${edgeDestination(edge)}`;
-  if (!target) {
+  if (!target) { // "End story" and "Restart": a short stub with a dot instead of a target frame
     group.append(svgElement("path", { d: `M${x1} ${y1} h36`, "marker-end": "url(#flow-arrow)" }));
     group.append(svgElement("circle", { cx: x1 + 46, cy: y1, r: 8 }));
     group.append(svgElement("text", { class: "edge-label", x: x1 + 18, y: y1 - 10 })); // filled in by the Results page
@@ -623,12 +669,16 @@ function edgeLabel(edge) {
 
 function edgeKind(edge) {
   if (edge.end) return "end";
+  if (edge.restart) return "restart";
   if (edge.language) return "language";
-  return edge.document ? "frame document" : "frame";
+  const kind = edge.rule ? "frame rule" : "frame";
+  return edge.document ? `${kind} document` : kind;
 }
 
 function edgeDestination(edge) {
-  return { end: "End story", language: `${edge.language} story`, frame: edge.target_name }[edgeKind(edge)];
+  if (edge.end) return "End story";
+  if (edge.restart) return "Restart the story";
+  return edge.language ? `${edge.language} story` : edge.target_name;
 }
 
 function showInspector(page, node, edges) {
@@ -646,7 +696,7 @@ function showInspector(page, node, edges) {
     item.addEventListener("mouseenter", () => { if (frame) frame.src = `${frameUrl}&element=${edge.element_id}`; });
     return item;
   });
-  if (!items.length) items.push(Object.assign(document.createElement("li"), { className: "muted", textContent: "No buttons lead anywhere yet." }));
+  if (!items.length) items.push(Object.assign(document.createElement("li"), { className: "muted", textContent: "No buttons or rules lead anywhere yet." }));
   inspector.querySelector("[data-inspector-links]").replaceChildren(...items);
 }
 
@@ -654,9 +704,20 @@ function setupPlaytest() {
   const grid = document.querySelector("[data-playtest]");
   const runButton = document.querySelector("[data-run-all]");
   if (!grid || !runButton) return;
+  // Leaving the page ends the robot's run: ask first (links in the studio get our own words,
+  // closing or reloading the tab gets the browser's generic dialog).
+  const question = "Leave this page? That ends the play-test.";
+  let running = false;
+  window.addEventListener("beforeunload", (event) => { if (running) event.preventDefault(); });
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("a[href]");
+    if (running && link && !link.target && !confirm(question)) event.preventDefault();
+  });
   runButton.addEventListener("click", async () => {
     runButton.disabled = true;
+    running = true;
     for (const card of grid.querySelectorAll("[data-build-url]")) await runPlaytest(card, grid.dataset);
+    running = false;
     runButton.disabled = false;
   });
 }
@@ -727,6 +788,8 @@ async function showPlaytestLog(card, settings, fileName) {
 setupToasts();
 setupForms();
 setupDialogs();
+setupTabs();
+setupMenus();
 setupConfig();
 setupDevelop();
 setupEditor();
