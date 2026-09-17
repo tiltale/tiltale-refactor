@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
@@ -17,7 +18,7 @@ from PIL import Image
 
 from .forms import FrameForm, ProjectSettingsForm, normalize_language, parse_extra_languages
 from .models import Element, Frame, ProjectSettings, Rule, Variable, name_key
-from .services.components import component_map, default_color_css
+from .services.components import component_map, default_color_css, default_font_css
 from .services.content import append_content_row, create_content_workbook, load_content_table, update_content_row
 from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.frame_types import load_frame_types
@@ -190,6 +191,13 @@ class VariableRuleTests(SimpleTestCase):
         self.assertEqual((rule_label("score", ">=", "3"), rule_label(None, "==", "")), ("score is at least 3", "otherwise"))
 
 
+class FontCssTests(SimpleTestCase):
+    def test_every_component_gets_one_font_line(self) -> None:
+        css = default_font_css()
+        self.assertEqual(css.count("\n.component-"), len(component_map()))
+        self.assertIn('.component-laura-narrator       { font-family: "Chalkboard SE"', css)
+
+
 class VisitHeaderTests(SimpleTestCase):
     """The first line of a log names the device and browser; the studio summarizes it."""
 
@@ -208,6 +216,10 @@ class VisitHeaderTests(SimpleTestCase):
     def test_a_visit_line_in_the_timeline(self) -> None:
         events = [{"event": "visit", "local_time": "2026-09-15T10:41:02+02:00", "user_agent": "iPad", "timestamp": "2026-09-15T08:41:02Z"}]
         self.assertEqual(readable_events(events, {}, {}), ["Visit started at 2026-09-15T10:41:02+02:00 on iPad"])
+
+    def test_the_visit_line_names_the_tiltale_version_when_logged(self) -> None:
+        events = [{"event": "visit", "local_time": "2026-09-17T10:41:02+02:00", "user_agent": "iPad", "tiltale_version": "2.3.0"}]
+        self.assertEqual(readable_events(events, {}, {}), ["Visit started at 2026-09-17T10:41:02+02:00 on iPad (story made with TilTale 2.3.0)"])
 
 
 class LogKeyTests(SimpleTestCase):
@@ -532,9 +544,12 @@ class StudioViewTests(ProjectTestCase):
         self.assertIn(f'"start_frame":"{frame.key}"', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
 
     def test_generated_pages_carry_the_version_and_a_restart_route(self) -> None:
-        Frame.objects.create(name="frame-1")
+        Frame.objects.create(name="frame-1", fade_in=True, fade_from_black=True)
         generate_dist(self.project)
         self.assertIn("Made with TilTale version", (self.root / "dist" / "index.html").read_text(encoding="utf-8"))
+        story = (self.root / "dist" / "story.js").read_text(encoding="utf-8")
+        self.assertIn(f'"version":"{settings.TILTALE_VERSION}"', story)  # tiltale.js logs it in every visit header
+        self.assertIn('"fade_in":true,"fade_from_black":true', story)
         self.assertTrue((self.root / "dist" / "restart" / "index.html").is_file())
 
     def test_documents_get_their_image_and_close_text_in_the_story(self) -> None:

@@ -7,5 +7,6 @@
   "tail": "speech",
   "default_size": {"width": 560, "height": 110},
   "default_font_size": 40,
+  "font": "Georgia, \"Times New Roman\", serif",
   "colors": {"fill": "#FFFFFF", "border": "#000000", "text": "#000000"}
 }

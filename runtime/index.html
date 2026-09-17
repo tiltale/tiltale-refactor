@@ -13,6 +13,8 @@
   <main id="viewport">
     <div id="loading">
       <img src="__ROOT__logo-tiltale.png" alt="">
+      <div id="progress"><i></i></div>
+      <p id="progress-text">Loading story… 0%</p>
     </div>
     <div id="story" hidden></div>
     <div id="viewer" hidden>
@@ -20,6 +22,7 @@
       <button type="button" data-zoom="0.8" aria-label="Zoom out">−</button>
       <button type="button" data-close></button>
     </div>
+    <button type="button" id="fullscreen" aria-label="Full screen">⛶</button>
     <div id="notice" role="status" hidden></div>
   </main>
   <noscript>This interactive story requires JavaScript.</noscript>

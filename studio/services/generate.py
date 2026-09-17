@@ -12,7 +12,7 @@ Multi-language project::
     dist/tiltale.js, style.css, ...     shared by every page
 
 Shared by every page: ``tiltale.js``, ``bubbles.js``, ``style.css``, ``logo-tiltale.png``,
-``favicon.ico``, ``assets/`` (responsive images), ``log.php``, ``logs/`` and ``restart/``.
+``favicon.ico``, ``assets/`` (responsive images), ``fonts/`` (if the project has one), ``log.php``, ``logs/`` and ``restart/``.
 Frames are identified by their fixed ID (``Frame.key``, e.g. ``fnr-12``) in everything generated.
 """
 
@@ -203,7 +203,8 @@ def _frame_payload(
         row = content_by_id.get(element.content_id) if element.content_id else None
         elements.append(_element_payload(element, frame, language, row, component))
     return {
-        "name": frame.key, "kind": frame.kind, "fade_in": frame.fade_in, "background": background, "elements": elements,
+        "name": frame.key, "kind": frame.kind, "fade_in": frame.fade_in, "fade_from_black": frame.fade_from_black,
+        "background": background, "elements": elements,
         "rules": [_rule_payload(rule) for rule in frame.rules.all()],
         "close_text": close_row.values.get(language, "") if close_row else "",
     }
@@ -244,6 +245,8 @@ def _write_shared_files(project: ProjectSettings) -> None:
     shutil.copy2(runtime / "restart.html", dist / "restart" / "index.html")
     for name in BRANDING_FILES:
         shutil.copy2(branding_file(name), dist / name)
+    if (settings.PROJECT_DIR / "fonts").is_dir():  # a project's own font files, used by @font-face in style-overrides.css
+        shutil.copytree(settings.PROJECT_DIR / "fonts", dist / "fonts")
     for name in ("tiltale.js", "bubbles.js"):
         (dist / name).write_text(f"/* {GENERATED_NOTE} */\n" + (runtime / name).read_text(encoding="utf-8"), encoding="utf-8")
     page_css: str = (runtime / "style.css").read_text(encoding="utf-8")
@@ -285,6 +288,7 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
 
     def story(page_frames: list[Frame], language: str, root: str) -> dict[str, Any]:
         return {
+            "version": settings.TILTALE_VERSION,  # logged in every visit header, so a log tells which TilTale made the story
             "project": project.slug,
             "language": language,
             "root": root,

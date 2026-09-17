@@ -208,7 +208,8 @@ def readable_events(events: list[dict[str, Any]], frame_names: dict[str, str], e
             label = element_labels.get(event.get("element_id"), str(event.get("component", "element")))
             lines.append(f"{frame}: clicked '{label}'")
         elif kind == VISIT_EVENT:
-            lines.append(f"Visit started at {event.get('local_time', '?')} on {describe_visit(event) or 'an unknown device'}")
+            made_with: str = f" (story made with TilTale {event['tiltale_version']})" if event.get("tiltale_version") else ""
+            lines.append(f"Visit started at {event.get('local_time', '?')} on {describe_visit(event) or 'an unknown device'}{made_with}")
         else:
             lines.append(kind)
     return lines

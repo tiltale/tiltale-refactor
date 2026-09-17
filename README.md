@@ -20,8 +20,9 @@ You do **not** need previous experience with Python, Django or command-line deve
 | [Frame kinds](#frame-kinds) | Frames, pickers, documents, validation points and minigames. |
 | [Global variables, validation points and scoreboards](#global-variables-validation-points-and-scoreboards) | Counting choices and routing readers by what they did. |
 | [Editing texts](#editing-texts) | Changing a row of `content.xlsx` from the studio; line breaks. |
-| [Frame names](#frame-names), [Logo and favicon](#logo-and-favicon), [Building with a language model](#building-with-a-language-model) | Naming, branding and LLM prompts. |
+| [Frame names](#frame-names), [Logo and favicon](#logo-and-favicon), [Fonts](#fonts), [Building with a language model](#building-with-a-language-model) | Naming, branding, fonts and LLM prompts. |
 | [Participant IDs](#participant-ids-qualtrics-prolific-) | Links, logging, restarting and the finish redirect. |
+| [Loading, full screen and a lost connection](#loading-full-screen-and-a-lost-connection) | What a reader sees while the story downloads, and what happens when the wifi drops. |
 | [Protecting logs](#protecting-logs) | Encrypting study logs with a project key; see also `ETHICS.md`. |
 | [Several languages](#several-languages), [Publishing](#publishing) | Multilingual stories and uploading. |
 | [Tech stack](#tech-stack) | A short explanation of the technologies used. |
@@ -255,7 +256,7 @@ A frame's kind is chosen when it is created (**+ Add frame**) and cannot change 
 
 | Kind | What it is |
 |---|---|
-| **Frame** | A normal page of the story: a background with elements. |
+| **Frame** | A normal page of the story: a background with elements. **Fade this frame in** crossfades it from the previous frame, taking the *Element delay* from Settings; **Fade in from black** makes the previous frame disappear first. Documents can fade too. |
 | **Picker** | A page of the language start page, only for stories with several languages (see *Several languages*). |
 | **Document** | One image (a poster, a leaflet) that readers open, zoom, drag and close. Only its image and Close text are set; nothing is placed on it. Regenerate makes an extra 3840 px version so it stays sharp when zoomed. It opens as large as the screen allows: a portrait poster fills a phone's height. The Close text is a row of `content.xlsx` (empty for a plain ×). In the flowchart, documents are blue and sit right above the frame that opens them, joined by a two-way arrow; Results counts how often a visit opened one instead of a percentage. |
 | **Validation point** | Never shown to readers: its rules look at the global variables and send the reader on (below). Purple, rounded, in the flowchart. |
@@ -293,6 +294,12 @@ A new frame's default name repeats its ID number. Names must be unique, ignoring
 
 `logo-tiltale.png` (startup screen) and `favicon.ico` (browser tab) in the repository root are used for every generated story. To use a different one for **one project**, put a file with the same name in `/project/`, for example `/project/logo-tiltale.png`, and press Regenerate. Delete it to go back to the default. The studio itself always shows the TilTale files from the repository root.
 
+## Fonts
+
+The top of `/project/style-overrides.css` is a **Fonts** block with one line per component (`.component-laura-narrator { font-family: … }`). Change the names between the braces; to give two components the same font, give them the same line. The block is written when a project is created (from the optional `"font"` in each `component.json`); a project made before 2.3 does not have it yet: add the lines you need in the same form.
+
+A browser uses the first font in the list that the device has installed, and phones, tablets and computers have different fonts installed. A story only looks the same everywhere with its **own font file**: put a `.woff2` (or `.ttf`) in `/project/fonts/`, uncomment the `@font-face` example line in the block, and use its name in the component lines. Regenerate copies `/project/fonts/` into `/dist/fonts/`. (The studio's frame editor keeps showing installed fonts; the generated story uses the file.)
+
 ## Building with a language model
 
 `docs/llm-prompts/` has two ready prompts:
@@ -320,11 +327,21 @@ In Qualtrics, put this link in a *Text/Graphic* question or an *End of Survey* r
 | `…/index.html?ppn=R_1abcDEF` | Starts the story. Opening the same link again, or refreshing, continues where the reader was. |
 | `…/restart/?ppn=R_1abcDEF` | Forgets this browser's progress and starts over, keeping the parameters. For experimenters who reuse a device; no incognito window needed. Only at the site root: with several languages it opens the start page again. |
 | any story link with `&restart` added, e.g. `…/our-story---nl-NL/index.html?ppn=R_1abcDEF&restart` | The same, for one specific page. TilTale removes `restart` from the address once it has been handled, so a later refresh continues normally. |
-- **Finish redirect**: under Settings, enter a URL to open when a reader clicks an element set to *End story*. Write `{ID}` where the participant ID belongs. It is URL-encoded automatically. Example: `https://example.qualtrics.com/jfe/form/SV_abc?ppn={ID}` sends participant `R_1abcDEF` back to `…?ppn=R_1abcDEF`. `{ID}` was chosen because curly braces never appear in normal URLs, while `%` and `@` already mean something there.
+
+A restart (also the *Restart the story* element) is a new page load, so it starts a new visit with its own log file, but it does not download the story again: images already on the device are reused (see the next section).
+- **Finish redirect**: under Settings, enter a URL to open when a reader clicks an element set to *End story*. Write `{ID}` where the participant ID belongs. It is URL-encoded automatically. Example: `https://example.qualtrics.com/jfe/form/SV_abc?ppn={ID}` sends participant `R_1abcDEF` back to `…?ppn=R_1abcDEF`. `{ID}` was chosen because curly braces never appear in normal URLs, while `%` and `@` already mean something there. The redirect waits until every log line of the visit is on the server (the survey needs a connection anyway); after two seconds of waiting the reader sees *Saving… please keep this page open*.
+
+## Loading, full screen and a lost connection
+
+**Loading.** Before the first frame, the story downloads every image it will show (the size that fits the reader's screen) and keeps them in memory. The startup screen shows the bouncing logo with a progress bar and percentage underneath (*Loading story… 42%*; the text is in `runtime/index.html`). On HTTPS the browser also keeps the images in its cache storage, so a restart, a second language chosen later, or a returning reader does not download them again; the log line `Loading IDN – completed (12.3 MB, 12.3 MB already on this device)` shows how much was reused. A multilingual story downloads one language at a time: the one the reader picks.
+
+**Full screen.** A small ⛶ button in the top-right corner puts the story in full screen. It fades away after four seconds and comes back when the reader taps the area *beside* the frame (the letterbox), not the frame itself, so it does not flash up at every click in the story. Turning the device keeps full screen; a restart or choosing a language loads a new page, which every browser leaves full screen for, so the story re-enters it at the reader's first tap. iPhones do not offer full screen to web pages, so the button is not shown there (iPads and Android phones are fine). The studio's preview has no button.
+
+**A lost connection.** Because everything is in memory, the reader can keep playing. Every log event is first written to a queue on the device (kept in the browser's local storage), then sent one by one in the background; a failed send is retried a few seconds later, at the next event, when the browser reports it is online again, and at the next visit in that browser. Nothing is lost as long as the reader either reaches *End story* with a connection (the redirect waits for the upload) or opens the story again on that device. A restart while offline still needs the connection for the (small) page itself.
 
 ## Protecting logs
 
-`ETHICS.md` lists exactly what a story records (every log line, the participant ID, what stays on the reader's device) in the words an ethics or data-management application needs. Read it before you plan a study.
+`ETHICS.md` lists exactly what a story records (every log line, the participant ID, what stays on the reader's device, including the story's own images) in the words an ethics or data-management application needs. Read it before you plan a study. The first line of every log also names the TilTale version that made the story (`tiltale_version`), so a log can always be traced to a build.
 
 Study logs are readable JSON on the web server unless you turn on **Settings → Advanced → Protect logs**. That generates a key pair for the project **once**: the public key goes into `/dist/log-key.pem` and `log.php` then encrypts every line it writes; the private key is offered to you a single time as `<project>-log-key.pem` and the studio stays closed until you confirm you have stored it. Results asks for that file every time you open it and keeps it only in memory for the browser session. There is no second chance and no replacement key: lose the file and the logs are gone. `log.php` needs PHP's `openssl` extension for this; without it, it refuses to write rather than writing readable lines.
 
@@ -375,7 +392,7 @@ Most changes start in one of these places:
 | the wording of a frame kind | `frame-types/<kind>/frame-type.json` |
 | a studio page's layout | `studio/templates/studio/<page>.html` |
 | how the studio looks / reacts | `studio/static/studio/app.css`, `app.js` |
-| how the published story behaves | `runtime/tiltale.js` |
+| how the published story behaves (loading, full screen, logging, fades) | `runtime/tiltale.js` |
 | how story elements look | `components/<name>/` and `runtime/elements.css` |
 | what is stored in the database | `studio/models.py` (then see *Changing models*) |
 | what Regenerate produces | `studio/services/generate.py` |
@@ -438,7 +455,7 @@ The two prompts described in *Building with a language model*, plus `content-tem
 
 | Folder | Contents |
 |---|---|
-| `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css`, and optionally your own `logo-tiltale.png` / `favicon.ico`. Back this up. |
+| `project/` | Everything you make: `project.sqlite3`, `content.xlsx`, `materials/` (images), `logs/` (visits), `default-colors.css`, `style-overrides.css` (starts with the Fonts block), optionally `fonts/` (your own font files) and your own `logo-tiltale.png` / `favicon.ico`. Back this up. |
 | `project/dist/` | The website produced by Regenerate. Safe to delete except `dist/logs/` on the server. (Before v2.0.10 this was `/dist/` in the repository root; that folder can be deleted.) |
 
 ## Development conventions

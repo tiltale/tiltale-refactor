@@ -6,7 +6,7 @@ Each component is one folder. **The folder name is the slug**: it must match the
 
 | File | Purpose |
 |---|---|
-| `component.json` | Name, description, whether it shows text (`accepts_content`), whether it is clickable (`clickable`), default size/font and default colors. Optional: `auto_height`, `tail` and `scoreboard` (below). |
+| `component.json` | Name, description, whether it shows text (`accepts_content`), whether it is clickable (`clickable`), default size/font size and default colors. Optional: `font` (its own `font-family` list; without it the page font), `auto_height`, `tail` and `scoreboard` (below). |
 | `component.svg` | The vector shape. Give shapes CSS classes instead of hard-coded colors. |
 | `component.css` | Colors and hover behavior through CSS custom properties. |
 
@@ -40,5 +40,7 @@ A scoreboard's text is a row of `content.xlsx` like any other text, so it is tra
 A line break inside a cell of `content.xlsx` (Alt+Enter in Excel, or Enter in the studio's text editor) is kept: the player renders one line per `<span>` inside `.component-text`, with a little space between lines (`elements.css`). Components that grow with their text (`auto_height`) grow accordingly.
 
 Color resolution, from strongest to weakest: per-element override (right-click an element) → `/project/default-colors.css` (created from the `colors` in each `component.json` when a project is created) → the fallback in `component.css`.
+
+Fonts: the **Fonts block** at the top of `/project/style-overrides.css` (one `.component-<slug> { font-family: … }` line per component, created from `font` in each `component.json`) → the `font-family` in `component.css` → the page font. See *Fonts* in the main README for shipping a font file.
 
 Keep component folders declarative (no JavaScript). After adding a component, reload the frame editor; it appears under **Add component**.

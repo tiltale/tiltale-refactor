@@ -17,6 +17,11 @@
  * Frame kinds (STORY.frames[].kind): "frame", "picker" and "minigame" show their elements;
  * "document" shows one zoomable image; "validation" is never shown: its rules on the global
  * variables (STORY.variables, kept in state.variables) decide the next frame.
+ *
+ * Offline: every image of the story is downloaded before the first frame (progress bar), kept in
+ * memory while playing and, where the browser allows (HTTPS), in its Cache Storage so a restart
+ * does not download it again. Log events are queued on the device and sent one by one; a lost
+ * connection only delays them (see the logging section).
  */
 (function () {
   "use strict";
@@ -111,6 +116,7 @@
       window: {width: window.innerWidth, height: window.innerHeight},
       touch: "ontouchstart" in window || navigator.maxTouchPoints > 0,
       user_agent: navigator.userAgent,
+      tiltale_version: STORY.version,
       platform: data.platform || navigator.platform || null,
       mobile: typeof data.mobile === "boolean" ? data.mobile : null,
       brands: data.brands ? data.brands.map(function (b) { return b.brand + " " + b.version; }) : null
@@ -118,33 +124,31 @@
   }
 
   // ------------------------------------------------------------- logging
+  /* Every event first goes into a queue on the device (mirrored to localStorage, so it survives a
+     closed browser), then the queue is sent to log.php one event at a time, oldest first. A failed
+     send (offline, slow, server error) is retried a few seconds later, at every next event and when
+     the device reports it is online again; whatever is left is sent the next time the story is opened
+     in this browser. Sending is a background request, so the story never waits for it. */
   var queueKey = prefix + "unsent";
+  var unsent = read(local, queueKey) || [];
+  var sending = false;
+  var offline = window.location.protocol === "file:";
 
-  function send(payload) {
-    if (window.location.protocol === "file:") return keep(payload);
-    return fetch(STORY.root + "log.php", {
+  function flushUnsent() {
+    if (sending || offline || !unsent.length) return;
+    sending = true;
+    fetch(STORY.root + "log.php", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload),
+      body: JSON.stringify(unsent[0]),
       keepalive: true
-    }).then(function (response) {
-      if (!response.ok) keep(payload);
-      else flushUnsent();
-    }, function () { keep(payload); });
-  }
-
-  /* Events that could not be sent (offline, server error) wait in localStorage
-     and are retried after the next successful send or when the device is online. */
-  function keep(payload) {
-    var unsent = read(local, queueKey) || [];
-    unsent.push(payload);
-    write(local, queueKey, unsent.slice(-2000));
-  }
-  function flushUnsent() {
-    var unsent = read(local, queueKey);
-    if (!unsent || !unsent.length) return;
-    forget(local, queueKey);
-    unsent.forEach(send);
+    }).then(function (response) { return response.ok; }, function () { return false; }).then(function (sent) {
+      sending = false;
+      if (!sent) return window.setTimeout(flushUnsent, 5000);
+      unsent.shift();
+      write(local, queueKey, unsent);
+      flushUnsent();
+    });
   }
   window.addEventListener("online", flushUnsent);
 
@@ -161,7 +165,17 @@
       event: event
     };
     for (var key in details) if (Object.prototype.hasOwnProperty.call(details, key)) payload[key] = details[key];
-    send(payload);
+    unsent.push(payload);
+    write(local, queueKey, unsent.slice(-2000));
+    flushUnsent();
+  }
+
+  /* Calls back once every event is on the server. Used before the finish redirect: the survey behind
+     it needs a connection anyway, so waiting for one costs the reader nothing. */
+  function whenLogged(then, waited) {
+    if (!unsent.length || offline) return then();
+    if (waited >= 2000) notice("Saving\u2026 please keep this page open.");
+    window.setTimeout(function () { whenLogged(then, (waited || 0) + 500); }, 500);
   }
 
   // ------------------------------------------------------------- rendering
@@ -252,24 +266,29 @@
       if (text.getAttribute("data-template").indexOf("{") === -1) return;
       text.parentNode.replaceChild(makeText(text.getAttribute("data-template")), text);
     });
-    if (window.TilTaleBubbles && storyNode.firstChild) TilTaleBubbles.draw(storyNode.firstChild);
+    if (window.TilTaleBubbles && storyNode.lastChild) TilTaleBubbles.draw(storyNode.lastChild);
+  }
+
+  /* The downloaded copy in memory (see preloadImages), else the file on the server. */
+  function imageUrl(source) {
+    return loaded[source.path] || STORY.root + source.path;
   }
 
   function makeImage(sources) {
     var image = document.createElement("img");
     var source = chooseSource(sources);
     image.alt = "";
-    if (source) image.src = STORY.root + source.path;
+    if (source) image.src = imageUrl(source);
     return image;
   }
 
   function makePanel(frame) {
     var panel = document.createElement("section");
-    panel.className = "story-frame" + (frame.fade_in ? " frame-fade" : "");
+    panel.className = "story-frame";
     panel.id = frame.name;
     if (frame.background.type === "solid") panel.style.backgroundColor = frame.background.color;
     var source = frame.background.type === "image" ? chooseSource(frame.background.sources) : null;
-    if (source) panel.style.backgroundImage = "url(\"" + STORY.root + source.path + "\")";
+    if (source) panel.style.backgroundImage = "url(\"" + imageUrl(source) + "\")";
     var box = frame.background.box;  // without one, style.css makes the image cover the frame
     if (box) {
       panel.style.backgroundSize = box.width + "px " + box.height + "px";
@@ -282,14 +301,14 @@
   /* A document is its image, as sharp as available, fitted into the frame; makeViewer then zooms it to the screen. */
   function makeDocumentPanel(frame) {
     var panel = document.createElement("section");
-    panel.className = "story-frame document-image" + (frame.fade_in ? " frame-fade" : "");
+    panel.className = "story-frame document-image";
     panel.id = frame.name;
     var sources = frame.background.sources || [];
     var source = sources[sources.length - 1];
     var image = document.createElement("img");
     image.alt = "";
     if (source) {
-      image.src = STORY.root + source.path;
+      image.src = imageUrl(source);
       var scale = Math.min(STORY.frame_width / source.width, STORY.frame_height / source.height);
       image.style.width = (source.width * scale) + "px";
       image.style.height = (source.height * scale) + "px";
@@ -311,8 +330,16 @@
     if (!frame) return;
     if (frame.kind === "validation" && !inspect) return decide(frame);
     var panel = frame.kind === "validation" ? makeValidationPanel(frame) : frame.kind === "document" ? makeDocumentPanel(frame) : makePanel(frame);
-    storyNode.innerHTML = "";
+    var shown = storyNode.lastChild;
+    if (frame.fade_in && !inspect) {
+      panel.className += " frame-fade";
+      panel.style.animationDuration = STORY.default_delay_seconds + "s";
+    }
     storyNode.appendChild(panel);
+    // A crossfade keeps the previous frame behind the new one until it is fully in; from black, it goes at once.
+    var crossfade = shown && frame.fade_in && !frame.fade_from_black && !inspect;
+    if (crossfade) window.setTimeout(function () { storyNode.removeChild(shown); }, STORY.default_delay_seconds * 1000);
+    else if (shown) storyNode.removeChild(shown);
     if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page
     viewerBar.hidden = true;
     viewer = frame.kind === "document" && !inspect ? makeViewer(panel, frame) : null;
@@ -392,6 +419,7 @@
     var forward = new URLSearchParams(window.location.search);
     forward["delete"]("frame");
     forward.set("restart", "");
+    write(session, fullscreenKey, isFullscreen());
     window.location.href = STORY.start_page + "?" + forward.toString();
   }
 
@@ -400,6 +428,7 @@
     forward["delete"]("restart");
     forward["delete"]("frame");
     write(session, handoffKey, visit);
+    write(session, fullscreenKey, isFullscreen());
     window.location.href = STORY.languages[language] + "/index.html?" + forward.toString();
   }
 
@@ -415,7 +444,7 @@
     if (autoplay) return report(true, "Reached an “End story” element.", url);
     if (preview) return notice(url ? "Story finished. Participants would now go to: " + url : "Story finished (no redirect URL set).");
     if (!url) return notice("✓");
-    window.setTimeout(function () { window.location.href = url; }, 400);  // let the last log leave first
+    whenLogged(function () { window.location.href = url; });
   }
 
   // ------------------------------------------------------------- zoom and drag (document frames)
@@ -502,6 +531,44 @@
     showFrame(state.previous);
   });
 
+  // ------------------------------------------------------------- full screen
+  /* The button fades away after a few seconds and comes back on a tap beside the frame (not on it, so
+     it does not reappear at every click in the story). iPhones have no full-screen API: no button there.
+     A page load (restart, choosing a language) always leaves full screen, so the page remembers it and
+     re-enters at the reader's first tap, the earliest moment a browser allows it. */
+  var fullscreenButton = document.getElementById("fullscreen");
+  var fullscreenKey = prefix + "fullscreen";
+  var fullscreenTimer = 0;
+  var page = document.documentElement;
+  var requestFullscreen = page.requestFullscreen || page.webkitRequestFullscreen;
+
+  function isFullscreen() {
+    return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+  function showFullscreenButton() {
+    fullscreenButton.className = "";
+    window.clearTimeout(fullscreenTimer);
+    fullscreenTimer = window.setTimeout(function () { fullscreenButton.className = "faded"; }, 4000);
+  }
+  function enterFullscreen() {
+    if (!isFullscreen()) requestFullscreen.call(page);
+  }
+
+  if (!requestFullscreen || inspect || preview) fullscreenButton.hidden = true;  // the studio's preview is an iframe
+  else {
+    fullscreenButton.addEventListener("click", function () {
+      if (isFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else enterFullscreen();
+      showFullscreenButton();
+    });
+    document.getElementById("viewport").addEventListener("click", function (event) {
+      if (event.target === event.currentTarget) showFullscreenButton();
+    });
+    if (read(session, fullscreenKey)) storyNode.addEventListener("click", enterFullscreen, {once: true});
+    forget(session, fullscreenKey);
+    showFullscreenButton();
+  }
+
   // ------------------------------------------------------------- play-test robot
   var visits = {};
   var steps = 0;
@@ -551,7 +618,13 @@
   }
 
   // ------------------------------------------------------------- start
-  function preloadImages() {
+  var loaded = {};  // image path -> blob: URL of the downloaded copy, kept in memory for the whole visit
+
+  /* Downloads every image the story will show (the variant chooseSource picks for this screen) and keeps
+     each in memory, so a lost connection while playing changes nothing. Browsers that offer Cache Storage
+     (HTTPS) also keep them there, so a restart or a returning reader reuses them instead of downloading.
+     Resolves to {bytes, cached_bytes}; an image that fails to download is simply shown from the server later. */
+  function preloadImages(progress) {
     var chosen = {};
     STORY.frames.forEach(function (frame) {
       var lists = frame.elements.map(function (element) { return element.image; });  // undefined for components
@@ -562,15 +635,30 @@
       });
     });
     var sources = Object.keys(chosen).map(function (path) { return chosen[path]; });
-    return Promise.all(sources.map(function (source) {
-      return new Promise(function (resolve) {
-        var image = new Image();
-        image.onload = image.onerror = resolve;
-        image.src = STORY.root + source.path;
-      });
-    })).then(function () {
-      return sources.reduce(function (total, source) { return total + source.bytes; }, STORY.base_bytes);
-    });
+    var total = sources.reduce(function (sum, source) { return sum + source.bytes; }, STORY.base_bytes);
+    var done = STORY.base_bytes;  // the page itself is already here
+    var cachedBytes = 0;
+    progress(done / total);
+    var storage = window.caches ? caches.open("tiltale-" + STORY.project).catch(function () { return null; }) : Promise.resolve(null);
+    return storage.then(function (cache) {
+      return Promise.all(sources.map(function (source) {
+        var url = STORY.root + source.path;
+        var fromCache = cache ? cache.match(url) : Promise.resolve(null);
+        return fromCache.then(function (hit) {
+          if (hit) cachedBytes += source.bytes;
+          return hit || fetch(url).then(function (response) {
+            if (!response.ok) throw new Error(response.status + " " + url);
+            if (cache) cache.put(url, response.clone());
+            return response;
+          });
+        }).then(function (response) { return response.blob(); }).then(function (blob) {
+          loaded[source.path] = URL.createObjectURL(blob);
+        }).catch(function () { /* shown from the server when its frame opens */ }).then(function () {
+          done += source.bytes;
+          progress(done / total);
+        });
+      }));
+    }).then(function () { return {bytes: total, cached_bytes: cachedBytes}; });
   }
 
   function start() {
@@ -603,10 +691,14 @@
     log("Loading IDN – started", {event_type: "loading_started"});
     loading.hidden = Boolean(forcedFrame);  // the studio jumps straight to a frame, without the bouncing logo
     var minimum = new Promise(function (resolve) { window.setTimeout(resolve, forcedFrame ? 0 : 3000); });
-    var images = preloadImages();
+    var images = preloadImages(function (fraction) {
+      document.querySelector("#progress i").style.width = (fraction * 100) + "%";
+      document.getElementById("progress-text").textContent = "Loading story\u2026 " + Math.round(fraction * 100) + "%";
+    });
     Promise.all([images, minimum]).then(function (results) {
-      var megabytes = (results[0] / 1048576).toFixed(2);
-      log("Loading IDN – completed (" + megabytes + " MB)", {event_type: "loading_completed", bytes: results[0]});
+      var megabytes = function (bytes) { return (bytes / 1048576).toFixed(2) + " MB"; };
+      var summary = megabytes(results[0].bytes) + (results[0].cached_bytes ? ", " + megabytes(results[0].cached_bytes) + " already on this device" : "");
+      log("Loading IDN – completed (" + summary + ")", {event_type: "loading_completed", bytes: results[0].bytes, cached_bytes: results[0].cached_bytes});
       loading.hidden = true;
       storyNode.hidden = false;
       var first = forcedFrame && frames[forcedFrame] ? forcedFrame : (frames[state.frame] ? state.frame : STORY.start_frame);

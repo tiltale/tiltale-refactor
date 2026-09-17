@@ -77,7 +77,7 @@ class ProjectSettingsForm(forms.ModelForm):
                                "phone held upright while the story is landscape.",
             "default_delay_seconds": "Used by elements whose delay behavior is “Fade in”, “Disable click” or both: "
                                      "they fade in, or ignore clicks, for this long so readers cannot skip a frame "
-                                     "by clicking too fast.",
+                                     "by clicking too fast. Frames set to “Fade this frame in” fade for this long too.",
             "participant_parameter": "URL parameter that carries an external participant ID. With the default "
                                      "“ppn”, a link such as …/index.html?ppn=R_abc123 (e.g. from Qualtrics) logs as "
                                      "participant R_abc123. Without it, the story generates a random ID.",
@@ -102,9 +102,16 @@ class FrameForm(forms.ModelForm):
 
     class Meta:
         model = Frame
-        fields = ["name", "fade_in", "background_type", "background_color", "background_image", "close_content_id"]
-        labels = {"fade_in": "Fade this frame in", "background_type": "Background", "background_image": "Image"}
-        help_texts = {"name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below."}
+        fields = ["name", "fade_in", "fade_from_black", "background_type", "background_color", "background_image", "close_content_id"]
+        labels = {
+            "fade_in": "Fade this frame in", "fade_from_black": "Fade in from black",
+            "background_type": "Background", "background_image": "Image",
+        }
+        help_texts = {
+            "name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below.",
+            "fade_in": "Crossfades from the previous frame, taking “Element delay” seconds (Settings).",
+            "fade_from_black": "Only with “Fade this frame in”: the previous frame disappears at once and this one fades in from black.",
+        }
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
 
     def __init__(self, *args: object, materials: list[str], content_ids: set[int], **kwargs: object) -> None:

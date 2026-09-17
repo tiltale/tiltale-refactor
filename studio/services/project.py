@@ -16,7 +16,7 @@ from PIL import ExifTags, Image
 
 from studio.models import ProjectSettings
 
-from .components import default_color_css
+from .components import default_color_css, default_font_css
 from .content import create_content_workbook
 
 PROJECT_FILES: tuple[str, ...] = (  # data: TilTale never recreates these, so nothing is silently replaced
@@ -103,7 +103,7 @@ def create_project(name: str, base_language: str, extra_languages: list[str]) ->
         create_content_workbook(project_dir / "content.xlsx", [base_language, *extra_languages])
         (project_dir / "default-colors.css").write_text(default_color_css(), encoding="utf-8")
         (project_dir / "style-overrides.css").write_text(
-            "/* Advanced project CSS. Loaded after all component and color CSS. */\n", encoding="utf-8"
+            default_font_css() + "\n/* Advanced project CSS. Loaded after all component and color CSS. */\n", encoding="utf-8"
         )
         connections["project"].close()
         _ensure_schema()

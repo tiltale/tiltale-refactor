@@ -28,6 +28,7 @@
       <input type="hidden" name="background_type" value="none"><input type="hidden" name="background_color" value="{{ frame.background_color }}">
       {% elif frame.kind == 'document' %}
       {% include 'studio/_field.html' with field=form.fade_in %}
+      {% include 'studio/_field.html' with field=form.fade_from_black %}
       <input type="hidden" name="background_type" value="image">
       <label class="field"><span class="field-label">The document: an image from /project/materials/</span>
         <select name="background_image">
@@ -49,6 +50,7 @@
       <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the frame the reader came from. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
       {% else %}
       {% include 'studio/_field.html' with field=form.fade_in %}
+      {% include 'studio/_field.html' with field=form.fade_from_black %}
       {% include 'studio/_field.html' with field=form.background_type %}
       <div data-show-when="solid">{% include 'studio/_field.html' with field=form.background_color %}</div>
       <div data-show-when="image" class="field">

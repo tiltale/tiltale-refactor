@@ -31,6 +31,7 @@ class ComponentDefinition:
     fill: str
     border: str
     text: str
+    font: str  # its own font-family, or "" for the page font; pre-fills the Fonts block of style-overrides.css
     svg: str
     css: str
 
@@ -74,6 +75,7 @@ def load_component(folder: Path) -> ComponentDefinition:
         fill=_field(colors, "fill", str, manifest),
         border=_field(colors, "border", str, manifest),
         text=_field(colors, "text", str, manifest),
+        font=str(data.get("font", "")),
         svg=paths["svg"].read_text(encoding="utf-8").strip(),
         css=paths["css"].read_text(encoding="utf-8").strip(),
     )
@@ -109,4 +111,23 @@ def default_color_css() -> str:
         for part, value in (("fill", component.fill), ("border", component.border), ("text", component.text)):
             lines.append(f"  --component-{component.slug}-{part}: {value};")
     lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+PAGE_FONT: str = "Arial, Helvetica, sans-serif"  # what runtime/style.css gives the page; components without a font use it
+
+
+def default_font_css() -> str:
+    """The editable Fonts block at the top of style-overrides.css: one line per component."""
+    components: list[ComponentDefinition] = load_components()
+    width: int = max(len(component.slug) for component in components) + len(".component-")
+    lines: list[str] = [
+        "/* ==== FONTS: one line per component. Change the names between the { }. ====",
+        " * The device uses the first font it has installed, so keep a generic one (sans-serif, serif, cursive) last.",
+        " * Phones and computers have different fonts installed, so a story looks the same everywhere only with its",
+        " * own font file: put it in /project/fonts/ and uncomment the @font-face line (see the README, Fonts). */",
+        "/* @font-face { font-family: \"StoryFont\"; src: url(\"fonts/StoryFont.woff2\"); } */",
+    ]
+    for component in components:
+        lines.append(f"{('.component-' + component.slug).ljust(width)} {{ font-family: {component.font or PAGE_FONT}; }}")
     return "\n".join(lines) + "\n"

@@ -92,7 +92,8 @@ class Frame(models.Model):
     background_y = models.FloatField(null=True, blank=True)
     background_width = models.FloatField(null=True, blank=True)
     background_height = models.FloatField(null=True, blank=True)
-    fade_in = models.BooleanField(default=False)
+    fade_in = models.BooleanField(default=False)  # crossfades from the frame before it, in "Element delay" seconds
+    fade_from_black = models.BooleanField(default=False)  # ...or from black instead
     # Documents: ``background_image`` is the document; the fixed "× Close" button returns to the
     # previous frame and its label is a row of content.xlsx (empty: just "×").
     close_content_id = models.PositiveIntegerField(null=True, blank=True)

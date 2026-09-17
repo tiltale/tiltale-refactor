@@ -16,8 +16,8 @@ Every line carries: the participant ID, the visit ID (the start time in UTC plus
 
 | When | Event | What is added |
 |---|---|---|
-| The story is opened (first line of every log) | `visit` | The reader's local date and time with their UTC offset; screen size and pixel ratio; browser-window size; whether the device has a touch screen; the browser's *user-agent* string; and, where the browser offers them, its platform (e.g. `Android`), whether it calls itself mobile, and its brand names with versions (e.g. `Chrome 131`). No IP address, no browser language, no location. |
-| The story starts loading / has loaded | `Loading IDN – started`, `Loading IDN – completed (n MB)` | Bytes downloaded. |
+| The story is opened (first line of every log) | `visit` | The reader's local date and time with their UTC offset; screen size and pixel ratio; browser-window size; whether the device has a touch screen; the browser's *user-agent* string; the TilTale version that made the story; and, where the browser offers them, its platform (e.g. `Android`), whether it calls itself mobile, and its brand names with versions (e.g. `Chrome 131`). No IP address, no browser language, no location. |
+| The story starts loading / has loaded | `Loading IDN – started`, `Loading IDN – completed (n MB, m MB already on this device)` | Bytes of the story, and how many of them were already on the device from an earlier visit or restart. |
 | A reader returns to an unfinished story | `Resumed` | The language they had chosen. |
 | A frame is shown | `frame` | Which frame, and how it was reached (`start`, `resumed`). *Time on a frame* is not logged as such: Results computes it as the seconds between one `frame` line and the next. |
 | A button or other clickable element is tapped | `choice` | The frame, the element's id, its component, the id and text of the text it showed, and what it leads to (the next frame, a language, `end` or `restart`). Closing a document logs a `choice` with component `close`. |
@@ -38,7 +38,7 @@ Whether the participant ID is personal data depends on your study: a Qualtrics o
 
 ### What is stored on the reader's device
 
-Only in the browser's local storage, only for this story, and only so that a reader can continue after closing the browser or losing the connection: the participant ID; the current frame, the previous frame (for closing a document), the chosen language and the current values of the global variables; and any log lines that could not be sent yet (they are retried later). No cookies are set. The `…/restart/` link and a `&restart` parameter clear all of this.
+Only in the browser's local storage, only for this story, and only so that a reader can continue after closing the browser or losing the connection: the participant ID; the current frame, the previous frame (for closing a document), the chosen language and the current values of the global variables; and the queue of log lines not yet on the server. Every log line is written to that queue first and sent from there in the background, one at a time; a lost connection only delays the sending (it is retried while the story is open and again at the next visit in that browser), and the redirect after *End story* waits until the queue is empty. Besides this, the story's own images are downloaded in full before the first frame and, on HTTPS, kept in the browser's cache storage so that a restart does not download them again; they are the story, not data about the reader. No cookies are set. The `…/restart/` link and a `&restart` parameter clear the progress (not the unsent log lines, which are still sent, and not the cached images).
 
 ## 3. Where the data goes
 
