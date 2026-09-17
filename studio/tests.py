@@ -194,7 +194,7 @@ class VariableRuleTests(SimpleTestCase):
 class FontCssTests(SimpleTestCase):
     def test_every_component_gets_one_font_line(self) -> None:
         css = default_font_css()
-        self.assertEqual(css.count("{ font-family:"), len(component_map()))
+        self.assertEqual(css.count("\n.component-"), len(component_map()))
         self.assertIn('.component-laura-narrator       { font-family: "Chalkboard SE"', css)
 
 
