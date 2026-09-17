@@ -68,8 +68,8 @@ class ProjectSettingsForm(forms.ModelForm):
             "finish_redirect_url": "Finish redirect URL",
         }
         help_texts = {
-            "name": "Shown as the browser tab title of the generated story. The /dist/ folder names keep the "
-                    "slug chosen when the project was created.",
+            "name": "Shown as the browser tab title of the generated story. The logs keep the slug chosen when "
+                    "the project was created (their project field).",
             "frame_width": "Width of the design canvas in pixels; decimals are allowed. Element positions are "
                            "stored in pixels, so changing this later does not move or rescale placed elements.",
             "frame_height": "Height of the design canvas in pixels. Same rule as the width.",
@@ -110,7 +110,7 @@ class FrameForm(forms.ModelForm):
         help_texts = {
             "name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below.",
             "fade_in": "Crossfades from the previous frame, taking “Element delay” seconds (Settings).",
-            "fade_from_black": "Only with “Fade this frame in”: the previous frame disappears at once and this one fades in from black.",
+            "fade_from_black": "The previous frame disappears at once and this one fades in from black (wins over the crossfade).",
         }
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
 

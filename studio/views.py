@@ -259,7 +259,7 @@ def develop(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     frames: list[Frame] = list(Frame.objects.all())
     has_pickers: bool = content.multilingual and any(frame.is_language_picker for frame in frames)
     picker_selected: bool = has_pickers and request.GET.get("lang") == "picker"
-    story_folder: str = language_folder(project, content.language, content.languages)
+    story_folder: str = language_folder(content.language, content.languages)
     shown_folder: str = "" if picker_selected else story_folder
     for frame in frames:
         frame.preview_url = _preview_url("" if frame.is_language_picker else story_folder)  # type: ignore[attr-defined]
@@ -500,7 +500,7 @@ def _flow_graph(project: ProjectSettings, content: Content) -> tuple[list[dict[s
     story_start: Frame | None = next((frame for frame in frames if not frame.is_language_picker), None)
     picker_start: Frame | None = next((frame for frame in frames if frame.is_language_picker), None)
     documents: set[int] = {frame.id for frame in frames if frame.is_document}  # readers look and come back
-    story_url: str = _preview_url(language_folder(project, content.language, content.languages))
+    story_url: str = _preview_url(language_folder(content.language, content.languages))
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     for frame in frames:
@@ -549,7 +549,7 @@ def flowchart(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     return render(request, "studio/flowchart.html", {
         "project": project, "content": content, "nodes": nodes, "edges": edges, "frame_types": load_frame_types().values(),
         "selected_frame": request.GET.get("selected", ""),
-        "dist_ready": (settings.DIST_DIR / page_path(language_folder(project, content.language, content.languages))).is_file(),
+        "dist_ready": (settings.DIST_DIR / page_path(language_folder(content.language, content.languages))).is_file(),
         "dist_stale": dist_is_stale(),
     })
 
@@ -876,7 +876,7 @@ def results(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
         "project": project, "content": content, "nodes": nodes, "edges": edges, "readonly": True,
         "sessions": [session_record(summary, names, labels) for summary in session_summaries(_log_key(request, project))],
         "protected": project.logs_protected,
-        "dist_ready": (settings.DIST_DIR / page_path(language_folder(project, content.language, content.languages))).is_file(),
+        "dist_ready": (settings.DIST_DIR / page_path(language_folder(content.language, content.languages))).is_file(),
     })
 
 

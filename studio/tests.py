@@ -53,10 +53,10 @@ class LanguageTests(SimpleTestCase):
         self.assertEqual(parse_extra_languages("nl-NL, DE-de, nl-nl", "en-US"), ["nl-NL", "de-DE"])
 
     def test_single_language_project_uses_the_dist_root(self) -> None:
-        self.assertEqual(language_folder(ProjectSettings(slug="demo"), "en-US", ("en-US",)), "")
+        self.assertEqual(language_folder("en-US", ("en-US",)), "")
 
     def test_each_language_gets_its_own_dist_folder(self) -> None:
-        self.assertEqual(language_folder(ProjectSettings(slug="demo"), "nl-NL", ("en-US", "nl-NL")), "demo---nl-NL")
+        self.assertEqual(language_folder("nl-NL", ("en-US", "nl-NL")), "nl-NL")
 
 
 class FrameNameRuleTests(SimpleTestCase):
@@ -194,7 +194,7 @@ class VariableRuleTests(SimpleTestCase):
 class FontCssTests(SimpleTestCase):
     def test_every_component_gets_one_font_line(self) -> None:
         css = default_font_css()
-        self.assertEqual(css.count("\n.component-"), len(component_map()))
+        self.assertEqual(css.count("{ font-family:"), len(component_map()))
         self.assertIn('.component-laura-narrator       { font-family: "Chalkboard SE"', css)
 
 
@@ -762,15 +762,15 @@ class MultiLanguageTests(ProjectTestCase):
 
     def test_picker_page_comes_first_then_one_folder_per_language(self) -> None:
         report = generate_dist(self.project)
-        self.assertEqual([build.folder for build in report.builds], ["", "demo---en-US", "demo---nl-NL"])
+        self.assertEqual([build.folder for build in report.builds], ["", "en-US", "nl-NL"])
 
     def test_every_language_folder_has_its_own_page(self) -> None:
         generate_dist(self.project)
-        self.assertTrue((self.root / "dist" / "demo---nl-NL" / "index.html").is_file())
+        self.assertTrue((self.root / "dist" / "nl-NL" / "index.html").is_file())
 
     def test_picker_frames_are_not_in_the_language_pages(self) -> None:
         generate_dist(self.project)
-        story_js = (self.root / "dist" / "demo---en-US" / "story.js").read_text(encoding="utf-8")
+        story_js = (self.root / "dist" / "en-US" / "story.js").read_text(encoding="utf-8")
         self.assertNotIn(f'"{self.picker.key}"', story_js)
 
     def test_a_language_without_a_picker_button_is_an_error(self) -> None:

@@ -256,7 +256,7 @@ A frame's kind is chosen when it is created (**+ Add frame**) and cannot change 
 
 | Kind | What it is |
 |---|---|
-| **Frame** | A normal page of the story: a background with elements. **Fade this frame in** crossfades it from the previous frame, taking the *Element delay* from Settings; **Fade in from black** makes the previous frame disappear first. Documents can fade too. |
+| **Frame** | A normal page of the story: a background with elements. **Fade this frame in** crossfades it from the previous frame, taking the *Element delay* from Settings; **Fade in from black** makes the previous frame disappear first (either box fades the frame; the flowchart shows a *Fade* or *Fade from black* badge). Documents can fade too. |
 | **Picker** | A page of the language start page, only for stories with several languages (see *Several languages*). |
 | **Document** | One image (a poster, a leaflet) that readers open, zoom, drag and close. Only its image and Close text are set; nothing is placed on it. Regenerate makes an extra 3840 px version so it stays sharp when zoomed. It opens as large as the screen allows: a portrait poster fills a phone's height. The Close text is a row of `content.xlsx` (empty for a plain ×). In the flowchart, documents are blue and sit right above the frame that opens them, joined by a two-way arrow; Results counts how often a visit opened one instead of a percentage. |
 | **Validation point** | Never shown to readers: its rules look at the global variables and send the reader on (below). Purple, rounded, in the flowchart. |
@@ -326,7 +326,7 @@ In Qualtrics, put this link in a *Text/Graphic* question or an *End of Survey* r
 |---|---|
 | `…/index.html?ppn=R_1abcDEF` | Starts the story. Opening the same link again, or refreshing, continues where the reader was. |
 | `…/restart/?ppn=R_1abcDEF` | Forgets this browser's progress and starts over, keeping the parameters. For experimenters who reuse a device; no incognito window needed. Only at the site root: with several languages it opens the start page again. |
-| any story link with `&restart` added, e.g. `…/our-story---nl-NL/index.html?ppn=R_1abcDEF&restart` | The same, for one specific page. TilTale removes `restart` from the address once it has been handled, so a later refresh continues normally. |
+| any story link with `&restart` added, e.g. `…/nl-NL/index.html?ppn=R_1abcDEF&restart` | The same, for one specific page. TilTale removes `restart` from the address once it has been handled, so a later refresh continues normally. |
 
 A restart (also the *Restart the story* element) is a new page load, so it starts a new visit with its own log file, but it does not download the story again: images already on the device are reused (see the next section).
 - **Finish redirect**: under Settings, enter a URL to open when a reader clicks an element set to *End story*. Write `{ID}` where the participant ID belongs. It is URL-encoded automatically. Example: `https://example.qualtrics.com/jfe/form/SV_abc?ppn={ID}` sends participant `R_1abcDEF` back to `…?ppn=R_1abcDEF`. `{ID}` was chosen because curly braces never appear in normal URLs, while `%` and `@` already mean something there. The redirect waits until every log line of the visit is on the server (the survey needs a connection anyway); after two seconds of waiting the reader sees *Saving… please keep this page open*.
@@ -351,8 +351,8 @@ Languages are the columns after `content_id` and `note` in `/project/content.xls
 
 ```
 dist/index.html               start page built from language-picker frames (optional)
-dist/<slug>---en-US/index.html  the English story
-dist/<slug>---nl-NL/index.html  the Dutch story
+dist/en-US/index.html         the English story
+dist/nl-NL/index.html         the Dutch story
 dist/tiltale.js, style.css, assets/, log.php, logs/, restart/   shared by all pages
 ```
 

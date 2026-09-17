@@ -8,7 +8,7 @@ Single-language project::
 Multi-language project::
 
     dist/index.html + story.js          language-picker frames (optional)
-    dist/<slug>---<language>/           one folder per language: index.html + story.js
+    dist/<language>/                    one folder per language (e.g. dist/nl-NL/): index.html + story.js
     dist/tiltale.js, style.css, ...     shared by every page
 
 Shared by every page: ``tiltale.js``, ``bubbles.js``, ``style.css``, ``logo-tiltale.png``,
@@ -79,12 +79,11 @@ def story_css() -> str:
     return "\n\n".join(parts)
 
 
-def language_folder(project: ProjectSettings, language: str, languages: tuple[str, ...]) -> str:
-    """``""`` for single-language projects, otherwise ``<slug>---<language>``."""
+def language_folder(language: str, languages: tuple[str, ...]) -> str:
+    """``""`` for single-language projects, otherwise the language code (``nl-NL``)."""
     if len(languages) < 2:
         return ""
-    segment: str = re.sub(r"[^A-Za-z0-9._-]+", "-", language).strip("-.") or "language"
-    return f"{project.slug}---{segment}"
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", language).strip("-.") or "language"
 
 
 def page_path(folder: str) -> str:
@@ -259,7 +258,7 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
     issues: list[ValidationIssue] = validate_project(project, content)
     components = component_map()
     languages: tuple[str, ...] = content.languages
-    folders: dict[str, str] = {language: language_folder(project, language, languages) for language in languages}
+    folders: dict[str, str] = {language: language_folder(language, languages) for language in languages}
     if len(set(folders.values())) != len(folders):
         raise ValueError("Two language columns would produce the same /dist/ folder name.")
 
