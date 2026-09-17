@@ -16,7 +16,7 @@
       <span class="node-badges">
         {% if node.start %}<span class="badge start">{% if node.picker %}Start page{% else %}Story start{% endif %}</span>{% endif %}
         {% if node.kind != 'frame' %}<span class="badge {{ node.kind }}">{{ node.kind|capfirst }}</span>{% endif %}
-        {% if node.fade_in %}<span class="badge">Fade</span>{% endif %}
+        {% if node.fade_from_black %}<span class="badge">Fade from black</span>{% elif node.fade_in %}<span class="badge">Fade</span>{% endif %}
         {% if node.ends %}<span class="badge end">End ×{{ node.ends }}</span>{% endif %}
       </span>
       <span class="node-stats" data-stats></span>

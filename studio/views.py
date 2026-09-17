@@ -533,7 +533,7 @@ def _flow_graph(project: ProjectSettings, content: Content) -> tuple[list[dict[s
             })
         nodes.append({
             "id": frame.id, "name": frame.name, "key": frame.key, "x": frame.flow_x, "y": frame.flow_y, "kind": frame.kind,
-            "fade_in": frame.fade_in, "picker": frame.is_language_picker, "document": frame.is_document,
+            "fade_in": frame.fade_in, "fade_from_black": frame.fade_from_black, "picker": frame.is_language_picker, "document": frame.is_document,
             "start": frame in (story_start, picker_start),
             "ends": sum(element.ends_story for element in frame.elements.all()),
             "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_id': frame.id})}?{urlencode({'lang': content.language})}",
