@@ -4,7 +4,7 @@ Framework-free files that every generated story uses. Regenerate copies them int
 
 | File | What it does | Edit it when… |
 |---|---|---|
-| `index.html` | Page shell with startup logo and progress bar (*Loading story… 42%*), the zoom controls of document frames, the ⛶ full-screen button and the TilTale version. `__ROOT__`, `__TITLE__`, … are filled in by Regenerate. | you need extra `<meta>` tags, or another loading text. |
+| `index.html` | Page shell with startup logo and progress bar (*Loading story… 42%*), the zoom controls of document frames, the full-screen button and the TilTale version. `__ROOT__`, `__TITLE__`, … are filled in by Regenerate. | you need extra `<meta>` tags, or another loading text. |
 | `restart.html` | Becomes `<root>/restart/index.html`: forgets the browser's progress and reopens the story with the same parameters. | the restart link should behave differently. |
 | `tiltale.js` | The whole story player: downloading every image before the first frame (kept in memory and, on HTTPS, in the browser's cache storage), scaling, frame kinds (frames, documents, invisible validation points), frame fades (crossfade or from black, lasting the element delay), clicks, global variables and `{placeholders}`, zoom/drag of documents, full screen, participant IDs, queued logging that survives a lost connection, finish redirect (after the queue is sent), restart, play-test robot. | the story should *behave* differently. |
 | `bubbles.js` | Draws the bodies and tails of bubble components (`"tail"` in `component.json`) in pixels, so borders never scale. Also used by the frame editor. | a bubble shape or tail should look different. |

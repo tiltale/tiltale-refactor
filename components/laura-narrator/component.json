@@ -6,6 +6,6 @@
   "auto_height": true,
   "default_size": {"width": 620, "height": 90},
   "default_font_size": 36,
-  "font": "\"Chalkboard SE\", \"Comic Sans MS\", \"Comic Neue\", cursive, sans-serif",
+  "font": "\"Comic Sans MS\", \"Chalkboard SE\", \"Comic Neue\", \"Segoe Print\", sans-serif",
   "colors": {"fill": "#DFDFCF", "border": "#000000", "text": "#000000"}
 }

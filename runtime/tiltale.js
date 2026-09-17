@@ -532,8 +532,10 @@
   });
 
   // ------------------------------------------------------------- full screen
-  /* The button fades away after a few seconds and comes back on a tap beside the frame (not on it, so
-     it does not reappear at every click in the story). iPhones have no full-screen API: no button there.
+  /* The button appears with the first frame (not during the startup screen, where its few seconds would
+     be over before the reader sees anything), fades away after a few seconds and comes back on a tap beside
+     the frame (not on it, so it does not reappear at every click in the story).
+     iPhones have no full-screen API: no button there.
      A page load (restart, choosing a language) always leaves full screen, so the page remembers it and
      re-enters at the reader's first tap, the earliest moment a browser allows it. */
   var fullscreenButton = document.getElementById("fullscreen");
@@ -546,6 +548,8 @@
     return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
   }
   function showFullscreenButton() {
+    if (!fullscreenUsable) return;
+    fullscreenButton.hidden = false;
     fullscreenButton.className = "";
     window.clearTimeout(fullscreenTimer);
     fullscreenTimer = window.setTimeout(function () { fullscreenButton.className = "faded"; }, 4000);
@@ -554,8 +558,8 @@
     if (!isFullscreen()) requestFullscreen.call(page);
   }
 
-  if (!requestFullscreen || inspect || preview) fullscreenButton.hidden = true;  // the studio's preview is an iframe
-  else {
+  var fullscreenUsable = Boolean(requestFullscreen) && !inspect && !preview;  // the studio's preview is an iframe
+  if (fullscreenUsable) {
     fullscreenButton.addEventListener("click", function () {
       if (isFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
       else enterFullscreen();
@@ -564,9 +568,10 @@
     document.getElementById("viewport").addEventListener("click", function (event) {
       if (event.target === event.currentTarget) showFullscreenButton();
     });
-    if (read(session, fullscreenKey)) storyNode.addEventListener("click", enterFullscreen, {once: true});
+    // A page load (restart, choosing a language) always leaves full screen and a browser only lets a page
+    // back in from a gesture, so the first tap anywhere, also on the startup screen, restores it.
+    if (read(session, fullscreenKey)) document.addEventListener("click", enterFullscreen, {once: true});
     forget(session, fullscreenKey);
-    showFullscreenButton();
   }
 
   // ------------------------------------------------------------- play-test robot
@@ -701,6 +706,7 @@
       log("Loading IDN – completed (" + summary + ")", {event_type: "loading_completed", bytes: results[0].bytes, cached_bytes: results[0].cached_bytes});
       loading.hidden = true;
       storyNode.hidden = false;
+      showFullscreenButton();  // now that there is something to look at: its few seconds start here
       var first = forcedFrame && frames[forcedFrame] ? forcedFrame : (frames[state.frame] ? state.frame : STORY.start_frame);
       if (!first) return notice("This story has no frames yet.");
       showFrame(first, {how: forcedFrame ? "studio-view" : (first === state.frame && first !== STORY.start_frame ? "resumed" : "start")});
