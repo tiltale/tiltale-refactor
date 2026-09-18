@@ -1,0 +1,2 @@
+.component-basic-narrator { --component-fill: var(--component-basic-narrator-fill, #dfdfcf); --component-border: var(--component-basic-narrator-border, #000); --component-text: var(--component-basic-narrator-text, #000); --shape-inset: 2px; --text-padding: 16px 26px; font-family: "Comic Sans MS", "Chalkboard SE", "Comic Neue", "Segoe Print", sans-serif; }
+.component-basic-narrator .basic-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 4; }

@@ -1,5 +1,5 @@
 {
-  "name": "Laura speech bubble",
+  "name": "Basic speech bubble",
   "description": "Rounded bubble with a pointed tail you can drag to a mouth. Grows with its text.",
   "accepts_content": true,
   "clickable": false,

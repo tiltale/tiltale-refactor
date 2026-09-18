@@ -1,0 +1,2 @@
+.component-basic-interact { --component-border: var(--component-basic-interact-border, #a6cdf6); --shape-inset: 12px; }
+.component-basic-interact .basic-box { fill: none; stroke: var(--element-border, var(--component-border)); stroke-width: 24; }

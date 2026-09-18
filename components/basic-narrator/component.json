@@ -1,5 +1,5 @@
 {
-  "name": "Laura narrator",
+  "name": "Basic narrator",
   "description": "Caption box for narration. Grows with its text.",
   "accepts_content": true,
   "clickable": false,

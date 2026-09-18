@@ -196,7 +196,7 @@ class FontCssTests(SimpleTestCase):
     def test_every_component_gets_one_font_line(self) -> None:
         css = default_font_css()
         self.assertEqual(css.count("\n.component-"), len(component_map()))
-        self.assertIn(".component-laura-narrator ", css)
+        self.assertIn(".component-basic-narrator ", css)
 
 
 class VisitHeaderTests(SimpleTestCase):
@@ -803,13 +803,13 @@ class StudioViewTests(ProjectTestCase):
         self.assertEqual((element.x, element.y, element.width, element.height), (100, 200, 300, 150))
 
     def test_dragged_bubble_tail_is_in_the_story(self) -> None:
-        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="laura-speech-bubble")
+        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="basic-speech-bubble")
         body = {"x": 100, "y": 200, "width": 300, "height": 150, "tail_x": -80, "tail_y": 120, "language": "en-US"}
         self.client.post(reverse("studio:element_position_api", kwargs={"element_id": element.id}), json.dumps(body), content_type="application/json")
         generate_dist(self.project)
         story = (self.root / "dist" / "story.js").read_text(encoding="utf-8")
         self.assertIn('"tail_x":-80.0,"tail_y":120.0', story)
-        self.assertIn('"laura-speech-bubble":{"svg":', story)
+        self.assertIn('"basic-speech-bubble":{"svg":', story)
         self.assertTrue((self.root / "dist" / "bubbles.js").is_file())
 
     def test_moved_background_is_in_the_story(self) -> None:

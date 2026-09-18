@@ -1,5 +1,5 @@
 {
-  "name": "Laura thought bubble",
+  "name": "Basic thought bubble",
   "description": "Cloud with a trail of small circles you can drag to a head. Grows with its text.",
   "accepts_content": true,
   "clickable": false,

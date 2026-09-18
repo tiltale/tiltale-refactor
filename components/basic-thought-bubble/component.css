@@ -1,0 +1,2 @@
+.component-basic-thought-bubble { --component-fill: var(--component-basic-thought-bubble-fill, #fff); --component-border: var(--component-basic-thought-bubble-border, #000); --component-text: var(--component-basic-thought-bubble-text, #000); --shape-inset: 3px; --text-padding: 26px 40px; font-family: Georgia, "Times New Roman", serif; }
+.component-basic-thought-bubble .bubble-body, .component-basic-thought-bubble .bubble-tail { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 6; stroke-linejoin: round; }

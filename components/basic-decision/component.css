@@ -1,0 +1,3 @@
+.component-basic-decision { --component-fill: var(--component-basic-decision-fill, #a0cfff); --component-border: var(--component-basic-decision-border, #000); --component-text: var(--component-basic-decision-text, #000); --shape-inset: 2px; --text-padding: 16px 26px; }
+.component-basic-decision .basic-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 4; transition: filter .12s ease; }
+.component-basic-decision:hover .basic-box { filter: brightness(.94); }

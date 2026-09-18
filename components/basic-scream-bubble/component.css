@@ -1,0 +1,2 @@
+.component-basic-scream-bubble { --component-fill: var(--component-basic-scream-bubble-fill, #fff); --component-border: var(--component-basic-scream-bubble-border, #000); --component-text: var(--component-basic-scream-bubble-text, #000); --shape-inset: 3px; --text-padding: 56px 72px; font-family: Georgia, "Times New Roman", serif; }
+.component-basic-scream-bubble .bubble-body { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 6; stroke-linejoin: miter; }

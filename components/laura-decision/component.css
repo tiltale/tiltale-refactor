@@ -1,3 +1,0 @@
-.component-laura-decision { --component-fill: var(--component-laura-decision-fill, #a0cfff); --component-border: var(--component-laura-decision-border, #000); --component-text: var(--component-laura-decision-text, #000); --shape-inset: 2px; --text-padding: 16px 26px; }
-.component-laura-decision .laura-box { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 4; transition: filter .12s ease; }
-.component-laura-decision:hover .laura-box { filter: brightness(.94); }

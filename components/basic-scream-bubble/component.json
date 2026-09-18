@@ -1,5 +1,5 @@
 {
-  "name": "Laura scream bubble",
+  "name": "Basic scream bubble",
   "description": "Jagged bubble for shouting, with a thin spike you can drag to a mouth. Grows with its text.",
   "accepts_content": true,
   "clickable": false,

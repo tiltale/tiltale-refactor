@@ -232,7 +232,7 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 |---|---|
 | Drag | move it. Its edges stick to the edges of other elements, shown by a blue line. |
 | `Shift` + drag | move it only horizontally or only vertically, whichever way you drag furthest. |
-| Drag a corner dot (appear on hover) | resize it from that corner; the opposite corner stays. Images and the background keep their proportions; components do not. Components that grow with their text (the `laura-*` ones) use this as their minimum height. |
+| Drag a corner dot (appear on hover) | resize it from that corner; the opposite corner stays. Images and the background keep their proportions; components do not. Components that grow with their text (the `basic-*` ones) use this as their minimum height. |
 | `Shift` + drag a corner dot | the opposite: distort an image freely, or keep a component's proportions. |
 | ▲ / ▼ in the *Elements* list | bring an element forward or send it backward. The list runs back to front; new elements start in front. The background is not an element and always stays behind. |
 | Drag the black dot (bubbles only) | point the bubble's tail at a mouth or head. The bubble itself stays where it is. |
@@ -298,7 +298,7 @@ A new frame's default name repeats its ID number. Names must be unique, ignoring
 
 ## Fonts
 
-The top of `/project/style-overrides.css` is a **Fonts** block with one line per component (`.component-laura-narrator { font-family: … }`). Change the names between the braces; to give two components the same font, give them the same line. The block is written when a project is created (from the optional `"font"` in each `component.json`); a project made before 2.3 does not have it yet: add the lines you need in the same form.
+The top of `/project/style-overrides.css` is a **Fonts** block with one line per component (`.component-basic-narrator { font-family: … }`). Change the names between the braces; to give two components the same font, give them the same line. The block is written when a project is created (from the optional `"font"` in each `component.json`); a project made before 2.3 does not have it yet: add the lines you need in the same form.
 
 A browser uses the first font in the list that the device has installed, and phones, tablets and computers have different fonts installed. Never end a list with `cursive`, `fantasy` or `monospace`: Android maps `cursive` to a small handwriting face, so a line that reads fine on Windows (Comic Sans MS) turns into cramped italics on a phone. End with `sans-serif` or `serif` instead, which every device maps to a plain readable font. A story only looks the same everywhere with its **own font file**: put a `.woff2` (or `.ttf`) in `/project/fonts/`, uncomment the `@font-face` example line in the block, and use its name in the component lines. Regenerate copies `/project/fonts/` into `/dist/fonts/`. (The studio's frame editor keeps showing installed fonts; the generated story uses the file.)
 

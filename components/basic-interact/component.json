@@ -1,5 +1,5 @@
 {
-  "name": "Laura interact",
+  "name": "Basic interact",
   "description": "See-through clickable area with a thick blue frame. Put it over the part of the picture readers should tap. The fill color is not used.",
   "accepts_content": false,
   "clickable": true,

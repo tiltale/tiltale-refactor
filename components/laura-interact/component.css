@@ -1,2 +1,0 @@
-.component-laura-interact { --component-border: var(--component-laura-interact-border, #a6cdf6); --shape-inset: 12px; }
-.component-laura-interact .laura-box { fill: none; stroke: var(--element-border, var(--component-border)); stroke-width: 24; }

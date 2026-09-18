@@ -1,5 +1,5 @@
 {
-  "name": "Laura next arrow",
+  "name": "Basic next arrow",
   "description": "Square arrow button that advances to a selected frame.",
   "accepts_content": false,
   "clickable": true,

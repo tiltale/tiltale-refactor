@@ -1,5 +1,5 @@
 {
-  "name": "Laura decision",
+  "name": "Basic decision",
   "description": "Clickable answer or choice that leads to another frame. Grows with its text.",
   "accepts_content": true,
   "clickable": true,

@@ -1,5 +1,5 @@
 {
-  "name": "Laura next text",
+  "name": "Basic next text",
   "description": "Instruction box with the arrow button inside it; the whole box is clickable. Grows with its text.",
   "accepts_content": true,
   "clickable": true,
