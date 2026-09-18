@@ -26,7 +26,8 @@ from .services.generate import generate_dist, language_folder, reset_dist_direct
 from .services.llm import parse_elements
 from .services.log_keys import LockedLog, decrypt_event, encrypt_event, fingerprint, generate_key_pair, load_private_key
 from .services.project import image_size, project_health, safe_child
-from .services.study_logs import describe_visit, final_variables, frame_visits, import_jsonl, log_file_name, parse_events, readable_events, safe_name, session_kind
+from .services.stresstest import RUNTIME_FILES, build_check, device_checks, es5_problems
+from .services.study_logs import SessionSummary, describe_visit, device_report, final_variables, frame_visits, import_jsonl, log_file_name, parse_events, readable_events, safe_name, session_kind
 from .services.validate import validate_project
 from .services.variables import check_name, check_value, kind_of, parse_value, rule_label, unknown_placeholders
 
@@ -369,6 +370,10 @@ class StudyLogTests(SimpleTestCase):
         self.assertEqual(frame_visits(events), [("fnr-1", 5.0), ("fnr-2", None), ("fnr-3", None)])
         self.assertEqual(final_variables(events), {"score": 1})
 
+    def test_a_javascript_error_gets_a_readable_line(self) -> None:
+        events = [{"event": "error", "message": "x is not defined", "file": "https://example.org/tiltale.js", "line": 212}]
+        self.assertEqual(readable_events(events, {}, {}), ["JavaScript error: x is not defined (https://example.org/tiltale.js, line 212)"])
+
     def test_import_never_overwrites_an_existing_log(self) -> None:
         data = (json.dumps(EVENT) + "\n").encode()
         with TemporaryDirectory() as directory:
@@ -384,6 +389,59 @@ class StudyLogTests(SimpleTestCase):
             (Path(directory) / "logs").mkdir()
             with override_settings(PROJECT_DIR=Path(directory)), self.assertRaises(ValueError):
                 import_jsonl("mixed.jsonl", data)
+
+
+def make_summary(device: str, events: list[dict[str, object]], finished: bool = False, kind: str = "study") -> SessionSummary:
+    return SessionSummary(file_name="x.jsonl", participant_id="p", visit_id="v", language="en", event_count=len(events), started="",
+                          last_frame="", finished=finished, kind=kind, device=device, local_time="", events=tuple(events))
+
+
+class DeviceReportTests(SimpleTestCase):
+    """The Results page sums up every device the story was opened on: visits, finished visits and errors."""
+
+    def test_visits_are_counted_per_device(self) -> None:
+        rows = device_report([
+            make_summary("iPhone · Safari", [{"event": "visit"}], finished=True),
+            make_summary("iPhone · Safari", [{"event": "visit"}]),
+            make_summary("Android · Chrome", [{"event": "visit"}, {"event": "error", "message": "boom"}]),
+        ])
+        self.assertEqual([(row["device"], row["visits"], row["finished"], row["errors"]) for row in rows],
+                         [("Android · Chrome", 1, 0, 1), ("iPhone · Safari", 2, 1, 0)])  # problems first
+
+    def test_a_browser_too_old_is_its_own_column(self) -> None:
+        rows = device_report([make_summary("Android · Chrome", [{"event": "Browser not supported", "missing": ["fetch"]}])])
+        self.assertEqual((rows[0]["unsupported"], rows[0]["visits"]), (1, 1))
+
+    def test_a_visit_without_a_header_is_an_unknown_device(self) -> None:
+        self.assertEqual(device_report([make_summary("", [{"event": "frame"}])])[0]["device"], "Unknown device")
+
+
+class StressTestChecklistTests(SimpleTestCase):
+    """The Stress test page's rows that need no browser (services/stresstest.py)."""
+
+    def test_the_story_player_stays_es5(self) -> None:
+        """Old phones run only ES5; python manage.py test is where a developer hears about a slip first."""
+        for name in RUNTIME_FILES:
+            self.assertEqual(es5_problems((settings.RUNTIME_DIR / name).read_text(encoding="utf-8"), name), [])
+
+    def test_modern_syntax_is_named_with_its_line(self) -> None:
+        text = 'var a = 1; // a const in a comment does not count\nvar s = "let it be";\nconst b = () => `x`;'
+        self.assertEqual(es5_problems(text, "x.js"), ["x.js line 3: 'const'", "x.js line 3: '=>'", "x.js line 3: '`'", "x.js line 3: '`'"])
+
+    def test_regenerate_warnings_make_an_orange_row(self) -> None:
+        report = {"issues": [{"severity": "warning", "message": "Intro: text is about 8.0px on a iPhone 5s / SE 1st gen (minimum 12px)."}]}
+        self.assertEqual((build_check(report).status, build_check({"issues": []}).status, build_check(None).status), ("orange", "green", "red"))
+
+    def test_real_phones_are_counted_from_study_visits_only(self) -> None:
+        visits = [
+            make_summary("iPhone · Safari", [{"event": "visit"}], finished=True),
+            make_summary("Android · Chrome", [{"event": "visit"}, {"event": "error", "message": "boom"}]),
+        ]
+        studio_run = make_summary("Windows · Chrome", [{"event": "visit"}], finished=True, kind="play-test")
+        phones, errors = device_checks([*visits, studio_run])
+        self.assertEqual((phones.status, phones.message), ("orange", "1 so far: iPhone · Safari"))
+        self.assertEqual((errors.status, errors.message), ("red", "Errors or a browser too old on: Android · Chrome"))
+        self.assertEqual(device_checks([])[0].status, "red")
 
 
 class PreviewTests(SimpleTestCase):
@@ -476,6 +534,24 @@ class ProjectTestCase(TestCase):
 
 
 class StudioViewTests(ProjectTestCase):
+
+    def test_the_preview_logger_takes_one_event_or_a_batch(self) -> None:
+        """tiltale.js sends up to 25 queued events in one request; log.php and this stand-in accept both shapes."""
+        url = reverse("studio:preview_log")
+        one = {**EVENT, "seq": 1}
+        batch = [{**EVENT, "seq": 2}, {**EVENT, "seq": 3, "event": "Story finished"}]
+        self.assertEqual(self.client.post(url, json.dumps(one), content_type="application/json").status_code, 204)
+        self.assertEqual(self.client.post(url, json.dumps(batch), content_type="application/json").status_code, 204)
+        self.assertEqual(self.client.post(url, json.dumps([1, 2]), content_type="application/json").status_code, 400)
+        lines = (self.root / "project" / "logs" / "R_abc--20260910T101530Z-a1b2.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual([json.loads(line)["seq"] for line in lines], [1, 2, 3])
+
+    def test_the_stress_test_page_shows_the_checklist(self) -> None:
+        (self.root / "dist").mkdir()
+        (self.root / "dist" / ".build.json").write_text(json.dumps({"builds": [{"label": "en", "folder": ""}], "source_timestamp": 0, "issues": []}), encoding="utf-8")
+        response = self.client.get(reverse("studio:stresstest"))
+        self.assertContains(response, 'data-stress="lost-connection"')
+        self.assertContains(response, 'data-result="red" data-result-message="No finished visit from a real phone yet')
 
     def test_dragged_flowchart_positions_are_stored(self) -> None:
         first = Frame.objects.create(name="frame-1")

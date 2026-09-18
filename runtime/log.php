@@ -1,8 +1,8 @@
 <?php
 /*
- * TilTale study logger (PHP 7.4+). Receives one JSON event per POST from tiltale.js and
- * appends it to logs/<participant_id>--<visit_id>.jsonl next to this file.
- * Each page load is a new visit, so opening the story twice never overwrites a log.
+ * TilTale study logger (PHP 7.4+). Receives one JSON event, or a JSON array of events of the
+ * same visit, per POST from tiltale.js and appends them to logs/<participant_id>--<visit_id>.jsonl
+ * next to this file. Each page load is a new visit, so opening the story twice never overwrites a log.
  * logs/.htaccess blocks browsing the logs on Apache; see the README for other servers.
  *
  * When the studio put log-key.pem (the project's public key) next to this file, every line is
@@ -19,11 +19,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 $body = file_get_contents('php://input', false, null, 0, 65536);
-$event = json_decode($body === false ? '' : $body, true);
-if (!is_array($event) || !is_string($event['participant_id'] ?? null)
-    || !is_string($event['visit_id'] ?? null) || !is_string($event['event'] ?? null)) {
-    http_response_code(400);
-    exit;
+$decoded = json_decode($body === false ? '' : $body, true);
+$events = is_array($decoded) && isset($decoded[0]) ? $decoded : [$decoded];  /* a list of events, or one */
+$first = $events[0] ?? null;
+foreach ($events as $event) {
+    if (!is_array($event) || !is_string($event['participant_id'] ?? null)
+        || !is_string($event['visit_id'] ?? null) || !is_string($event['event'] ?? null)
+        || $event['participant_id'] !== $first['participant_id'] || $event['visit_id'] !== $first['visit_id']) {
+        http_response_code(400);  /* not an event, or events of two visits in one request */
+        exit;
+    }
 }
 
 /* Same rule as tiltale.js and the TilTale studio: unsafe characters become "-". */
@@ -32,8 +37,8 @@ function tiltale_safe_name(string $value): string
     return substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '-', $value), '-'), 0, 80);
 }
 
-$participant = tiltale_safe_name($event['participant_id']);
-$visit = tiltale_safe_name($event['visit_id']);
+$participant = tiltale_safe_name($first['participant_id']);
+$visit = tiltale_safe_name($first['visit_id']);
 if ($participant === '' || $visit === '') {
     http_response_code(400);
     exit;
@@ -61,15 +66,20 @@ function tiltale_encrypt(string $plain, string $publicKey): ?string
     ]);
 }
 
-$event['received_at'] = gmdate('Y-m-d\TH:i:s\Z');
-$line = json_encode($event, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $publicKeyFile = __DIR__ . '/log-key.pem';
-if (is_file($publicKeyFile)) {
-    $line = tiltale_encrypt($line, (string) file_get_contents($publicKeyFile));
-    if ($line === null) {
-        http_response_code(500);  /* the openssl extension is missing or the key file is damaged: nothing is written */
-        exit;
+$publicKey = is_file($publicKeyFile) ? (string) file_get_contents($publicKeyFile) : null;
+$lines = '';
+foreach ($events as $event) {
+    $event['received_at'] = gmdate('Y-m-d\TH:i:s\Z');
+    $line = json_encode($event, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($publicKey !== null) {
+        $line = tiltale_encrypt($line, $publicKey);
+        if ($line === null) {
+            http_response_code(500);  /* the openssl extension is missing or the key file is damaged: nothing is written */
+            exit;
+        }
     }
+    $lines .= $line . "\n";
 }
 $file = $directory . '/' . $participant . '--' . $visit . '.jsonl';
-http_response_code(file_put_contents($file, $line . "\n", FILE_APPEND | LOCK_EX) === false ? 500 : 204);
+http_response_code(file_put_contents($file, $lines, FILE_APPEND | LOCK_EX) === false ? 500 : 204);

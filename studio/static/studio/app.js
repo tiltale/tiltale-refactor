@@ -735,7 +735,9 @@ async function runPlaytest(card, settings) {
   await showPlaytestLog(card, settings, result.log_file);
 }
 
-function waitForPlaytest(frame, url, parameter, participant) {
+/* Resolves with the robot's report. stress: ?stress= conditions the story pretends (see runtime/tiltale.js).
+   A report with unsent log events counts as a failure: a study would have lost them. */
+function waitForPlaytest(frame, url, parameter, participant, stress = "") {
   return new Promise((resolve) => {
     // A long story takes minutes, so the clock measures time since the robot's last frame, not the whole run.
     let timer;
@@ -749,6 +751,7 @@ function waitForPlaytest(frame, url, parameter, participant) {
     const finish = (result) => {
       clearTimeout(timer);
       window.removeEventListener("message", onMessage);
+      if (result.unsent) Object.assign(result, { ok: false, message: `${result.message} But ${result.unsent} log event(s) never reached the server.` });
       resolve(result);
     };
     const onMessage = (event) => {
@@ -758,7 +761,7 @@ function waitForPlaytest(frame, url, parameter, participant) {
     };
     wait();
     window.addEventListener("message", onMessage);
-    frame.src = `${url}?${new URLSearchParams({ autoplay: "1", preview: "1", restart: "1", [parameter]: participant })}`;
+    frame.src = `${url}?${new URLSearchParams({ autoplay: "1", preview: "1", restart: "1", stress, [parameter]: participant })}`;
   });
 }
 
@@ -785,6 +788,61 @@ async function showPlaytestLog(card, settings, fileName) {
   box.open = card.dataset.state === "fail";
 }
 
+/* Stress test page: every [data-stress] row is one robot run per generated page; a [data-result] row was
+   checked by the server when the page opened. Afterwards the rows are sorted red, orange, green. */
+const STATUS_ORDER = { red: 0, orange: 1, green: 2, "": 3 };
+const MOBILE_BYTES_PER_SECOND = 100000; // an ordinary 3G connection; 4G is about ten times faster
+
+function setupStresstest() {
+  const list = document.querySelector("[data-stresstest]");
+  const runButton = document.querySelector("[data-run-stress]");
+  if (!list || !runButton) return;
+  const progress = document.querySelector("[data-stress-progress]");
+  const cards = [...document.querySelectorAll("[data-build-url]")];
+  const rows = [...list.querySelectorAll("[data-stress]")];
+  runButton.addEventListener("click", async () => {
+    runButton.disabled = true;
+    // The rows the server checked when the page opened appear now, so nothing is coloured before the run.
+    for (const row of list.querySelectorAll("[data-result]")) setStressRow(row, row.dataset.result, row.dataset.result, row.dataset.resultMessage);
+    let bytes = 0;
+    for (const [index, row] of rows.entries()) {
+      setStressRow(row, "running", "Running…", "");
+      progress.textContent = `Check ${index + 1} of ${rows.length}…`;
+      const verdicts = [];
+      for (const card of cards) {
+        const participant = `playtest-stress-${Date.now()}`;
+        card.querySelector("[data-screen-state]").textContent = `Playing: ${row.querySelector("strong").textContent}`;
+        const result = await waitForPlaytest(card.querySelector("[data-frame]"), card.dataset.buildUrl, list.dataset.participantParameter, participant, row.dataset.stress);
+        bytes = Math.max(bytes, result.bytes || 0);
+        const crashed = !result.ok && result.message.startsWith("JavaScript error");
+        const good = row.dataset.expect === "fail" ? crashed : result.ok;
+        verdicts.push({ good, text: `${card.dataset.buildLabel}: ${result.message}` });
+      }
+      const failed = verdicts.filter((verdict) => !verdict.good);
+      setStressRow(row, failed.length ? "red" : "green", failed.length ? "red" : "green", (failed.length ? failed : verdicts).map((verdict) => verdict.text).join(" · "));
+    }
+    const seconds = bytes / MOBILE_BYTES_PER_SECOND;
+    const loadRow = list.querySelector("[data-load-time]");
+    const status = seconds <= 20 ? "green" : seconds <= 60 ? "orange" : "red";
+    setStressRow(loadRow, status, status, `${(bytes / 1048576).toFixed(1)} MB to download before the first frame: about ${Math.round(seconds)} s on 3G, ${Math.max(1, Math.round(seconds / 10))} s on 4G.`);
+    progress.textContent = "Done. Red rows first.";
+    for (const card of cards) card.querySelector("[data-screen-state]").textContent = "Done";
+    list.replaceChildren(...[...list.children].sort((a, b) => STATUS_ORDER[a.dataset.status] - STATUS_ORDER[b.dataset.status]));
+    runButton.disabled = false;
+  });
+}
+
+function setStressRow(row, state, badge, message) {
+  row.dataset.status = state === "running" ? "" : state;
+  const label = row.querySelector("[data-badge]");
+  label.className = `badge ${state}`;
+  label.textContent = badge;
+  row.querySelector("[data-message]").textContent = message;
+  const advice = row.querySelector(".advice");
+  advice.hidden = state === "running" || state === "green";
+  advice.textContent = row.dataset.advice;
+}
+
 setupToasts();
 setupForms();
 setupDialogs();
@@ -796,3 +854,4 @@ setupEditor();
 setupFlowchart();
 setupResults();
 setupPlaytest();
+setupStresstest();

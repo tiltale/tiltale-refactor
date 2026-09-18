@@ -322,3 +322,31 @@ label.compact select { width: auto; }
   .inspector { width: auto; }
   .nav { overflow-x: auto; }
 }
+
+/* Results: the "Devices seen" table above the visits; a device with problems is marked. */
+.devices { margin: 0 0 .6rem; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: var(--radius); font-size: .88rem; }
+.devices summary { cursor: pointer; font-weight: 600; }
+.devices .table { margin-top: .4rem; }
+.devices tr.danger td { color: var(--danger); }
+
+/* Stress test: a checklist, red first. app.js sorts the rows after a run. */
+.badge.green { background: var(--ok-soft); border-color: #b9e0c8; color: var(--ok); }
+.badge.orange { background: var(--warn-soft); border-color: #f1cf95; color: var(--warn); }
+.badge.red { background: var(--danger-soft); border-color: #f2c4c0; color: var(--danger); }
+.badge.running { background: var(--accent-soft); border-color: #c6d4f5; color: var(--accent); }
+.stress-list { list-style: none; margin: 0; padding: 0; }
+.stress-row { display: grid; grid-template-columns: 5.2rem 1fr; gap: .8rem; align-items: start; padding: .7rem 0; border-bottom: 1px solid var(--line); }
+.stress-row:last-child { border-bottom: 0; }
+.stress-row .badge { justify-self: start; margin-top: .15rem; text-transform: capitalize; }
+.stress-row p { margin: .2rem 0 0; }
+.stress-row .advice { font-size: .88rem; }
+.stress-row[data-status="red"] .advice { color: var(--danger); }
+.stress-row[data-status="orange"] .advice { color: var(--warn); }
+.stress-legend { margin: .4rem 0 0; padding: 0; list-style: none; font-size: .9rem; }
+.stress-legend li { margin: .3rem 0; }
+.stress-legend + .stress-legend { margin-top: .8rem; padding-top: .6rem; border-top: 1px solid var(--line); }
+/* Stress test: the robot's screens on the left, the checklist beside them; stacked on a narrow window. */
+.stress-layout { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(340px, 1.1fr); gap: 1rem; align-items: start; }
+@media (max-width: 960px) { .stress-layout { grid-template-columns: 1fr; } }
+.stress-layout .playtest-grid { grid-template-columns: 1fr; }
+.stress-row { padding: .5rem 0; }

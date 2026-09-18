@@ -12,6 +12,18 @@
         <label class="compact">To <input type="date" name="to"></label>
       </form>
     </div>
+    {% if devices %}
+    <details class="devices">
+      <summary>Devices seen <span class="count">{{ devices|length }}</span></summary>
+      <p class="muted">Every visit, also previews and play-tests. A device with errors, or without a finished visit, is where the story struggles.</p>
+      <table class="table">
+        <thead><tr><th>Device</th><th>Visits</th><th>Finished</th><th>Errors</th></tr></thead>
+        <tbody>{% for row in devices %}
+          <tr{% if row.errors or row.unsupported %} class="danger"{% endif %}><td>{{ row.device }}</td><td>{{ row.visits }}</td><td>{{ row.finished }}</td><td>{{ row.errors }}{% if row.unsupported %} · browser too old{% endif %}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+    </details>
+    {% endif %}
     <button type="button" class="session-all is-active" data-show-all>Show all <span class="muted" data-shown-count></span></button>
     {% for session in sessions %}
     <details class="session" data-session="{{ forloop.counter0 }}">

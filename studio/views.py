@@ -30,7 +30,8 @@ from .services.generate import dist_is_stale, generate_dist, language_folder, lo
 from .services.llm import frame_prompt, parse_elements
 from .services.project import BRANDING_FILES, create_project, image_size, list_materials, project_health, project_settings, safe_child
 from .services.log_keys import LockedLog, fingerprint, generate_key_pair, load_private_key, unlock, unlocked
-from .services.study_logs import append_event, import_jsonl, logs_dir, read_events, session_record, session_summaries
+from .services.stresstest import ROBOT_CHECKS, checklist
+from .services.study_logs import append_event, device_report, import_jsonl, logs_dir, read_events, session_record, session_summaries
 from .services.validate import DEVICE_PRESETS, validate_project
 from .services.variables import COMPARATORS, OPERATIONS, check_name, check_value, parse_value, rule_label
 
@@ -298,6 +299,21 @@ def playtest(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
         "project": project, "builds": builds, "dist_stale": dist_is_stale(),
         "log_api": reverse("studio:log_api", kwargs={"file_name": "FILE"}),
         "session_url": reverse("studio:session_detail", kwargs={"file_name": "FILE"}),
+    })
+
+
+@project_view
+def stresstest(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    """Does the story work everywhere? Rows computed here plus rows the robot fills in (see services/stresstest.py)."""
+    report: dict[str, Any] | None = load_build_report()
+    builds: list[dict[str, str]] = [
+        {"label": build["label"], "url": _preview_url(build["folder"])} for build in (report or {}).get("builds", [])
+    ]
+    summaries = [] if _locked(request, project) else session_summaries(_log_key(request, project))
+    return render(request, "studio/stresstest.html", {
+        "project": project, "builds": builds, "dist_stale": dist_is_stale(),
+        "checks": checklist(report, summaries), "robot_checks": ROBOT_CHECKS,
+        "logs_locked": _locked(request, project),
     })
 
 
@@ -872,9 +888,11 @@ def results(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
         edge["element_id"]: edge["text"] if edge["rule"] else (f"{edge['component']} ({edge['text']})" if edge["text"] else edge["component"])
         for edge in edges
     }
+    summaries = session_summaries(_log_key(request, project))
     return render(request, "studio/results.html", {
         "project": project, "content": content, "nodes": nodes, "edges": edges, "readonly": True,
-        "sessions": [session_record(summary, names, labels) for summary in session_summaries(_log_key(request, project))],
+        "sessions": [session_record(summary, names, labels) for summary in summaries],
+        "devices": device_report(summaries),
         "protected": project.logs_protected,
         "dist_ready": (settings.DIST_DIR / page_path(language_folder(content.language, content.languages))).is_file(),
     })
@@ -930,18 +948,23 @@ def session_detail(request: HttpRequest, project: ProjectSettings, file_name: st
     })
 
 
-def status_context(request: HttpRequest) -> dict[str, dict[str, str]]:
-    """Context processor for the status bar in base.html (see TEMPLATES in settings.py)."""
+def status_context(request: HttpRequest) -> dict[str, Any]:
+    """Context processor for base.html (see TEMPLATES in settings.py): the status bar, and the version
+    that base.html appends to app.js and app.css so a browser never keeps an old copy after an update."""
+    return {"status": _status(), "version": settings.TILTALE_VERSION}
+
+
+def _status() -> dict[str, str]:
     health = project_health()
     if not health.exists:
-        return {"status": {"state": "idle", "label": "No project", "detail": "Create one, or copy a project folder into /project/."}}
+        return {"state": "idle", "label": "No project", "detail": "Create one, or copy a project folder into /project/."}
     if health.problems:
-        return {"status": {"state": "error", "label": "Project incomplete", "detail": "; ".join(health.problems)}}
+        return {"state": "error", "label": "Project incomplete", "detail": "; ".join(health.problems)}
     if project_settings() is None:
-        return {"status": {"state": "error", "label": "Database error", "detail": "Could not read project/project.sqlite3."}}
+        return {"state": "error", "label": "Database error", "detail": "Could not read project/project.sqlite3."}
     if dist_is_stale():
-        return {"status": {"state": "stale", "label": "Saved; not in the preview yet", "detail": "Press Regenerate."}}
-    return {"status": {"state": "ready", "label": "All changes saved", "detail": str(settings.PROJECT_DB)}}
+        return {"state": "stale", "label": "Saved; not in the preview yet", "detail": "Press Regenerate."}
+    return {"state": "ready", "label": "All changes saved", "detail": str(settings.PROJECT_DB)}
 
 
 @require_POST
@@ -1013,11 +1036,15 @@ def log_api(request: HttpRequest, project: ProjectSettings, file_name: str) -> J
 @csrf_exempt
 @require_POST
 def preview_log(request: HttpRequest) -> HttpResponse:
-    """Local stand-in for dist/log.php: preview events go to /project/logs/."""
+    """Local stand-in for dist/log.php: preview events (one, or a list of them) go to /project/logs/."""
     if project_settings() is None:
         return JsonResponse({"error": "No active project."}, status=409)
     try:
-        append_event(_json_body(request))
+        body: Any = json.loads(request.body.decode("utf-8"))  # a UnicodeDecodeError or JSONDecodeError is a ValueError
+        for event in (body if isinstance(body, list) else [body]):
+            if not isinstance(event, dict):
+                raise ValueError("Each event must be a JSON object.")
+            append_event(event)
     except (OSError, ValueError) as error:
         return JsonResponse({"error": str(error)}, status=400)
     return HttpResponse(status=204)

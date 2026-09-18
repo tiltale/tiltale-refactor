@@ -1,0 +1,69 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | Stress test{% endblock %}
+{% block body %}
+<main class="page">
+  <section class="card hero">
+    <p class="eyebrow">Does it work everywhere?</p>
+    <h1>Stress test the story</h1>
+    {% if dist_stale %}<div class="alert warning">/project/dist/ is older than your latest changes. Regenerate first to test what you see in the editor.</div>{% endif %}
+    {% if logs_locked %}<div class="alert warning">The logs are encrypted and no key file is loaded, so the rows about real phones cannot be filled in. Unlock them under Results first.</div>{% endif %}
+    {% if builds %}<div class="row">
+      <button type="button" class="button primary" data-run-stress>Run the stress test</button>
+      <span class="muted" data-stress-progress>Takes about a minute per page.</span>
+    </div>
+    {% else %}<p class="muted">Nothing has been generated yet. Press <strong>Regenerate</strong> on the Develop page first.</p>{% endif %}
+  </section>
+
+  <div class="stress-layout">
+  {% if builds %}
+  <section class="card">
+    <div class="playtest-grid">
+      {% for build in builds %}
+      <article class="playtest-card" data-build-url="{{ build.url }}" data-build-label="{{ build.label }}">
+        <header class="row"><h2>{{ build.label }}</h2><span class="spacer"></span><span class="badge" data-screen-state>Waiting</span></header>
+        <div class="playtest-screen"><iframe title="Stress test of {{ build.label }}" tabindex="-1" data-frame></iframe></div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <ul class="stress-list" data-stresstest data-participant-parameter="{{ project.participant_parameter }}">
+      {% for check in robot_checks %}
+      <li class="stress-row" data-status="" data-stress="{{ check.stress }}" data-expect="{{ check.expect }}" data-advice="{{ check.advice }}">
+        <span class="badge" data-badge>Waiting</span>
+        <div><strong>{{ check.title }}</strong><p class="muted" data-message></p><p class="advice" hidden></p></div>
+      </li>
+      {% endfor %}
+      <li class="stress-row" data-status="" data-load-time data-advice="Fewer or smaller pictures per frame make the story start sooner; Regenerate already shrinks images to phone size, so the number of pictures is what counts.">
+        <span class="badge" data-badge>Waiting</span>
+        <div><strong>Starts quickly on a mobile connection</strong><p class="muted" data-message></p><p class="advice" hidden></p></div>
+      </li>
+      {# Checked by the server when the page opened; shown, like the others, once the run starts. #}
+      {% for check in checks %}
+      <li class="stress-row" data-status="" data-result="{{ check.status }}" data-result-message="{{ check.message }}" data-advice="{{ check.advice }}">
+        <span class="badge" data-badge>Waiting</span>
+        <div><strong>{{ check.title }}</strong><p class="muted" data-message></p><p class="advice" hidden></p></div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  </div>
+
+  <section class="card">
+    <h2>How to read the list</h2>
+    <ul class="stress-legend">
+      <li><span class="badge red">red</span> Fix before the study. The row says what to do.</li>
+      <li><span class="badge orange">orange</span> Have a look; often fine.</li>
+      <li><span class="badge green">green</span> Nothing to do.</li>
+      <li><span class="badge">Waiting</span> Not checked yet: press the button.</li>
+    </ul>
+    <ul class="stress-legend">
+      <li>The robot plays every page while the story <em>pretends</em> a slow connection, a lost connection, blocked storage and a crash.</li>
+      <li>The other rows come from Regenerate and from the logs of real phones. To add a real phone, open the story on it with <code>?autoplay</code> added to the address.</li>
+      <li>Only <em>Plays to the end</em> red? Play-test shows the log of the run and where the robot got stuck.</li>
+    </ul>
+  </section>
+</main>
+{% endblock %}

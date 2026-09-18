@@ -32,6 +32,7 @@
         <button class="button primary{% if dist_stale %} attention{% endif %}" title="Rebuild /project/dist/ from the project" data-busy="Regenerating…">Regenerate</button>
       </form>
       <a class="button" href="{% url 'studio:playtest' %}">Play-test</a>
+      <a class="button" href="{% url 'studio:stresstest' %}">Stress test</a>
       <span class="divider"></span>
       {% if content.multilingual %}
       <form method="get">

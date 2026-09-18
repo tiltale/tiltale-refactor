@@ -14,6 +14,7 @@ urlpatterns = [
     path("develop/", views.develop, name="develop"),
     path("develop/regenerate/", views.regenerate, name="regenerate"),
     path("develop/playtest/", views.playtest, name="playtest"),
+    path("develop/stresstest/", views.stresstest, name="stresstest"),
     path("develop/config/", views.project_config, name="config"),
     path("develop/config/variables/", views.save_variables, name="save_variables"),
     path("develop/config/variables/<int:variable_id>/delete/", views.delete_variable, name="delete_variable"),

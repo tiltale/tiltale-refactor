@@ -97,6 +97,8 @@ def read_events(path: Path, key: RSAPrivateKey | None = None) -> list[dict[str, 
 
 
 VISIT_EVENT: str = "visit"  # the header line tiltale.js writes first: local time, screen, browser
+ERROR_EVENT: str = "error"  # tiltale.js logs every JavaScript error (message, file, line)
+UNSUPPORTED_EVENT: str = "Browser not supported"  # a browser too old for the story got a message instead; its only line
 
 _BROWSERS: tuple[tuple[str, str], ...] = (  # order matters: Edge and Samsung say "Chrome" too, Chrome says "Safari"
     ("Edg/", "Edge"), ("SamsungBrowser/", "Samsung Internet"), ("OPR/", "Opera"), ("Firefox/", "Firefox"),
@@ -140,7 +142,7 @@ def session_summaries(key: RSAPrivateKey | None = None) -> list[SessionSummary]:
         first: dict[str, Any] = events[0]
         participant: str = str(first.get("participant_id", ""))
         frames: list[str] = [str(event["frame"]) for event in events if event.get("frame")]
-        header: dict[str, Any] = next((event for event in events if event.get("event") == VISIT_EVENT), {})
+        header: dict[str, Any] = next((event for event in events if event.get("event") in (VISIT_EVENT, UNSUPPORTED_EVENT)), {})
         summaries.append(SessionSummary(
             file_name=path.name,
             participant_id=participant,
@@ -156,6 +158,25 @@ def session_summaries(key: RSAPrivateKey | None = None) -> list[SessionSummary]:
             events=tuple(events),
         ))
     return sorted(summaries, key=lambda item: item.started, reverse=True)
+
+
+def device_report(summaries: list[SessionSummary]) -> list[dict[str, Any]]:
+    """One row per device: visits, finished visits, JavaScript errors and "browser too old" visits.
+
+    Read this after play-tests on real phones and after a study: a device with errors or
+    without finished visits is where the story struggles. Problems sort to the top.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+    for summary in summaries:
+        kinds: list[str] = [str(event.get("event", "")) for event in summary.events]
+        row = rows.setdefault(summary.device or "Unknown device", {
+            "device": summary.device or "Unknown device", "visits": 0, "finished": 0, "errors": 0, "unsupported": 0,
+        })
+        row["visits"] += 1
+        row["finished"] += summary.finished
+        row["errors"] += kinds.count(ERROR_EVENT)
+        row["unsupported"] += UNSUPPORTED_EVENT in kinds
+    return sorted(rows.values(), key=lambda row: (-row["errors"] - row["unsupported"], -row["visits"], row["device"]))
 
 
 def _time(value: object) -> datetime:
@@ -207,6 +228,8 @@ def readable_events(events: list[dict[str, Any]], frame_names: dict[str, str], e
         elif kind == "choice":
             label = element_labels.get(event.get("element_id"), str(event.get("component", "element")))
             lines.append(f"{frame}: clicked '{label}'")
+        elif kind == ERROR_EVENT:
+            lines.append(f"JavaScript error: {event.get('message')} ({event.get('file') or '?'}, line {event.get('line') or '?'})")
         elif kind == VISIT_EVENT:
             made_with: str = f" (story made with TilTale {event['tiltale_version']})" if event.get("tiltale_version") else ""
             lines.append(f"Visit started at {event.get('local_time', '?')} on {describe_visit(event) or 'an unknown device'}{made_with}")

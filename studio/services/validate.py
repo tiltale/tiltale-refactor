@@ -39,7 +39,7 @@ class DevicePreset:
     height: int
 
 
-# The first entry is the smallest device the runtime supports (iOS 12 / 2013+).
+# The first entry is the smallest device the runtime supports (iOS 13 / 2015+; see README, Play-test and Stress test).
 DEVICE_PRESETS: tuple[DevicePreset, ...] = (
     DevicePreset("iPhone 5s / SE 1st gen", 320, 568),
     DevicePreset("Galaxy S5", 360, 640),

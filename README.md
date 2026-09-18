@@ -23,6 +23,7 @@ You do **not** need previous experience with Python, Django or command-line deve
 | [Frame names](#frame-names), [Logo and favicon](#logo-and-favicon), [Fonts](#fonts), [Building with a language model](#building-with-a-language-model) | Naming, branding, fonts and LLM prompts. |
 | [Participant IDs](#participant-ids-qualtrics-prolific-) | Links, logging, restarting and the finish redirect. |
 | [Loading, full screen and a lost connection](#loading-full-screen-and-a-lost-connection) | What a reader sees while the story downloads, and what happens when the wifi drops. |
+| [Play-test and Stress test](#play-test-and-stress-test) | Two robots: one for while you build, one for before you publish, plus how to test on real phones. |
 | [Protecting logs](#protecting-logs) | Encrypting study logs with a project key; see also `ETHICS.md`. |
 | [Several languages](#several-languages), [Publishing](#publishing) | Multilingual stories and uploading. |
 | [Tech stack](#tech-stack) | A short explanation of the technologies used. |
@@ -215,8 +216,9 @@ python manage.py test
 1. **Develop**: add frames (**+ Add frame**, which explains each kind in one sentence), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. The preview only changes when you press **Regenerate**, which the status bar reminds you of. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
 2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
-4. **Play-test**: a robot plays every generated page to its end and shows pass/fail plus the full log of the run.
-5. Upload `/project/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**, which lists every visit with a readable timeline and draws visit counts, seconds per frame and the percentage that took each path onto the flowchart. Select one visit to see its own path highlighted.
+4. **Play-test** while you build: a robot plays every generated page to its end in a few seconds and shows pass/fail plus the full log of the run, so you see exactly where it got stuck.
+5. **Stress test** before you publish: the same robot plays every page eight times under pretended bad conditions (slow or lost connection, blocked storage, a crash), and a checklist also shows what Regenerate warned about and what real phones reported. About a minute per page; red rows first.
+6. Upload `/project/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**, which lists every visit with a readable timeline and draws visit counts, seconds per frame and the percentage that took each path onto the flowchart. Select one visit to see its own path highlighted.
 
 The status bar at the bottom shows whether everything is saved and in the preview. It is checked on every page load, and turns red as soon as a background save (dragging an element or frame) fails.
 
@@ -337,7 +339,26 @@ A restart (also the *Restart the story* element) is a new page load, so it start
 
 **Full screen.** A round button in the top-right corner puts the story in full screen. It appears together with the first frame (not on the startup screen), fades away four seconds later, and comes back when the reader taps the area *beside* the frame (the letterbox), not the frame itself, so it does not flash up at every click in the story. Turning the device keeps full screen; a restart or choosing a language loads a new page, which every browser leaves full screen for, so the story re-enters it at the reader's first tap. iPhones do not offer full screen to web pages, so the button is not shown there (iPads and Android phones are fine). The studio's preview has no button.
 
-**A lost connection.** Because everything is in memory, the reader can keep playing. Every log event is first written to a queue on the device (kept in the browser's local storage), then sent one by one in the background; a failed send is retried a few seconds later, at the next event, when the browser reports it is online again, and at the next visit in that browser. Nothing is lost as long as the reader either reaches *End story* with a connection (the redirect waits for the upload) or opens the story again on that device. A restart while offline still needs the connection for the (small) page itself.
+**A lost connection.** Because everything is in memory, the reader can keep playing. Every log event is first written to a queue on the device (kept in the browser's local storage), then sent in the background, up to 25 events per request; a failed send is retried a few seconds later, at the next event, when the browser reports it is online again, and at the next visit in that browser. Nothing is lost as long as the reader either reaches *End story* with a connection (the redirect waits for the upload) or opens the story again on that device. A restart while offline still needs the connection for the (small) page itself. An image that could not be downloaded is noted in the log (*Image not downloaded*) and shown from the server when its frame opens.
+
+**A browser that is too old.** Stories run on iOS Safari 13 and Chrome 61 or newer (phones from about 2015 on). An older browser gets the message *This browser is too old to play this story* instead of a blank page, and the server gets one log line (`Browser not supported`, participant `unsupported`, with the browser's name) so the study knows it happened.
+
+**A crash.** Any JavaScript error in a story is written to its log (`error`, with message, file and line) and shows up under Results, in the visit's timeline and in the *Devices seen* table, so a problem that only one phone has can be found afterwards.
+
+## Play-test and Stress test
+
+Both pages use the same robot: it plays a generated page like a reader, waits for delays, clicks buttons (preferring frames it has not seen) and stops at *End story*. It fails on a button that leads nowhere, a loop, a JavaScript error, a minute without a new frame, or log events that never reach the server.
+
+| | Play-test | Stress test |
+|---|---|---|
+| When | While building, after every Regenerate | Before publishing, and after big changes |
+| Runs | Once per page, a few seconds | Eight times per page under pretended bad conditions, about a minute per page |
+| Shows | Pass/fail per page and the full log of the run: where exactly it got stuck | A checklist, red rows first; each row says what to do. The page explains the rows |
+| Leaves under Results | One `playtest-…` visit per page | Eight per page (exclude them with the filter there) |
+
+The stress test cannot pretend a real phone. To add one: open the story on the phone with `?autoplay` added to the address (`https://your-host/story/?autoplay`); it plays itself to the end and its visit lands under **Results**, where the *Devices seen* table lists every phone with its visits, finished visits and errors, and where the Stress test page counts it. Borrow the oldest phone in the group, a current iPhone and Android, a tablet; rotate the phone mid-story; turn wifi off for a few frames and on again; try a private window. A phone that is too old (before iOS 13 or Chrome 61) shows *This browser is too old to play this story* instead of a blank page and leaves a `Browser not supported` line in the logs. Phones you do not own: BrowserStack and LambdaTest offer a free tier with real older devices.
+
+Any pretended condition can also be typed into a story's address, for example `?stress=slow,no-storage`; the list is at the top of `runtime/tiltale.js`.
 
 ## Protecting logs
 
@@ -393,6 +414,7 @@ Most changes start in one of these places:
 | a studio page's layout | `studio/templates/studio/<page>.html` |
 | how the studio looks / reacts | `studio/static/studio/app.css`, `app.js` |
 | how the published story behaves (loading, full screen, logging, fades) | `runtime/tiltale.js` |
+| the rows of the Stress test page, or what the story can pretend | `studio/services/stresstest.py` (`ROBOT_CHECKS`) and `?stress=` at the top of `runtime/tiltale.js` |
 | how story elements look | `components/<name>/` and `runtime/elements.css` |
 | what is stored in the database | `studio/models.py` (then see *Changing models*) |
 | what Regenerate produces | `studio/services/generate.py` |
@@ -464,7 +486,7 @@ To keep TilTale understandable for everyone:
 
 - Prefer readable code over clever code, and the smallest change that does the job.
 - Use type hints in Python; keep functions short and named after what they do.
-- Keep the story player (`runtime/tiltale.js`) in plain ES5 JavaScript, so old phones can run it; the studio (`app.js`) may use modern JavaScript.
+- Keep the story player (`runtime/tiltale.js`) in plain ES5 JavaScript, so old phones can run it; a test and the Stress test page check this. The studio (`app.js`) may use modern JavaScript.
 - Put reusable logic in `studio/services/`; views only validate input and call a service.
 - Do not edit `project/`, `project/dist/` or `studio/migrations/` by hand (see *Changing models*).
 - Add or adjust a test in `studio/tests.py` when you change behavior.
@@ -486,7 +508,7 @@ The one exception so far is `0006_frame_kinds_variables_rules`, which adds a `Ru
 
 ## Tests and CI
 
-`python manage.py test` runs the behavior tests against an in-memory database. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, a syntax check of `tiltale.js`, `app.js` and `log.php`, and, on pull requests, fails when `TILTALE_VERSION` in `config/settings.py` was not bumped.
+`python manage.py test` runs the behavior tests against an in-memory database, including a check that `runtime/tiltale.js` and `runtime/bubbles.js` contain no JavaScript newer than ES5 (`const`, `=>`, template strings…), so old phones can still run them; the Stress test page shows the same check. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, a syntax check of `tiltale.js`, `app.js` and `log.php`, and, on pull requests, fails when `TILTALE_VERSION` in `config/settings.py` was not bumped.
 
 ---
 

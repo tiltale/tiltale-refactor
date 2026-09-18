@@ -1,7 +1,7 @@
 /* TilTale story runtime. Every generated page loads its own story.js (var STORY)
  * and then this shared file.
  *
- * Browser target: iOS Safari 12+ and Chrome 61+ (phones from about 2013 on).
+ * Browser target: iOS Safari 13+ and Chrome 61+ (phones from about 2015 on; pointer events need iOS 13).
  * Hence ES5 syntax plus Promise, fetch and URLSearchParams only.
  *
  * URL parameters
@@ -13,6 +13,10 @@
  *   ?inspect     static thumbnail: no splash, no logging, no clicks
  *   ?element=ID  highlight one element (studio flowchart)
  *   ?autoplay    play-test robot: clicks through and reports to the studio
+ *   ?stress=…    pretend bad conditions, comma-separated (the studio's Stress test page): slow (every request
+ *                takes 3 s), lost-connection (no server for 10 s from the 2nd frame on), no-cache
+ *                (no Cache Storage, as on plain http), no-storage (no local storage, as in some
+ *                private modes), crash (a JavaScript error on the 2nd frame, to see one in the log)
  *
  * Frame kinds (STORY.frames[].kind): "frame", "picker" and "minigame" show their elements;
  * "document" shows one zoomable image; "validation" is never shown: its rules on the global
@@ -20,11 +24,27 @@
  *
  * Offline: every image of the story is downloaded before the first frame (progress bar), kept in
  * memory while playing and, where the browser allows (HTTPS), in its Cache Storage so a restart
- * does not download it again. Log events are queued on the device and sent one by one; a lost
+ * does not download it again. Log events are queued on the device and sent in small batches; a lost
  * connection only delays them (see the logging section).
  */
 (function () {
   "use strict";
+
+  // ------------------------------------------------------------- too old a browser?
+  /* A browser without these would stop with a blank page. It gets a message instead, and the server
+     gets one line (with XMLHttpRequest, which every browser has), so the study knows it happened. */
+  var missing = ["Promise", "fetch", "URLSearchParams"].filter(function (name) { return !window[name]; });
+  if (missing.length) {
+    document.getElementById("loading").hidden = true;
+    notice("This browser is too old to play this story. Please open the link in a current browser (Chrome, Safari, Firefox or Edge).");
+    var stamp = new Date().toISOString().replace(/[-:]|\.\d+/g, "");
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", STORY.root + "log.php");
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.send(JSON.stringify({participant_id: "unsupported", visit_id: stamp, seq: 1, timestamp: new Date().toISOString(), project: STORY.project,
+      language: STORY.language || null, event: "Browser not supported", missing: missing, user_agent: navigator.userAgent, tiltale_version: STORY.version}));
+    return;
+  }
 
   var params = new URLSearchParams(window.location.search);
   var preview = params.has("preview");
@@ -33,6 +53,10 @@
   var restart = params.has("restart");
   var forcedFrame = params.get("frame");
   var storyNode = document.getElementById("story");
+
+  /* ?stress=slow,no-cache makes the story pretend these conditions (see the top of this file). */
+  var stress = {};
+  (params.get("stress") || "").split(",").forEach(function (name) { stress[name] = true; });
   var prefix = "tiltale:" + STORY.project + ":";
   var frames = {};
   STORY.frames.forEach(function (frame) { frames[frame.name] = frame; });
@@ -41,6 +65,7 @@
   // Private browsing on older Safari throws on every write, so storage is
   // best-effort: the story must keep working without it.
   function storageArea(name) {
+    if (stress["no-storage"]) return null;
     try { return window[name]; } catch (error) { return null; }
   }
   var local = storageArea("localStorage");
@@ -119,33 +144,55 @@
       tiltale_version: STORY.version,
       platform: data.platform || navigator.platform || null,
       mobile: typeof data.mobile === "boolean" ? data.mobile : null,
-      brands: data.brands ? data.brands.map(function (b) { return b.brand + " " + b.version; }) : null
+      brands: data.brands ? data.brands.map(function (b) { return b.brand + " " + b.version; }) : null,
+      connection: (navigator.connection || {}).effectiveType || null,  // "4g", "3g", …: Chrome and Android only
+      stress: params.get("stress") || null
     };
+  }
+
+  // ------------------------------------------------------------- requests
+  var framesShown = 0;  // counts up in showFrame
+  var connectionBackAt = 0;  // lost-connection: showFrame sets when the pretended outage ends
+
+  /* Every download and every log post goes through here, so a stress condition can slow it down or
+     fail it the way a bad connection would (fetch rejects; the browser never answers with a status). */
+  function request(url, options) {
+    var lost = Date.now() < connectionBackAt;
+    return new Promise(function (resolve, reject) {
+      window.setTimeout(function () {
+        if (lost) return reject(new Error("Pretending the connection is lost"));
+        fetch(url, options).then(resolve, reject);
+      }, stress.slow ? 3000 : 0);
+    });
   }
 
   // ------------------------------------------------------------- logging
   /* Every event first goes into a queue on the device (mirrored to localStorage, so it survives a
-     closed browser), then the queue is sent to log.php one event at a time, oldest first. A failed
-     send (offline, slow, server error) is retried a few seconds later, at every next event and when
-     the device reports it is online again; whatever is left is sent the next time the story is opened
-     in this browser. Sending is a background request, so the story never waits for it. */
+     closed browser), then the queue is sent to log.php oldest first, up to BATCH events per request
+     (one round trip instead of one per event: on a slow connection a story's whole log arrives in
+     seconds, not minutes). A failed send (offline, slow, server error) is retried a few seconds later,
+     at every next event and when the device reports it is online again; whatever is left is sent the
+     next time the story is opened in this browser. Sending is a background request, so the story
+     never waits for it. */
   var queueKey = prefix + "unsent";
   var unsent = read(local, queueKey) || [];
   var sending = false;
   var offline = window.location.protocol === "file:";
+  var BATCH = 25;  // log.php reads at most 64 KB per request; an event is well under 1 KB
 
   function flushUnsent() {
     if (sending || offline || !unsent.length) return;
     sending = true;
-    fetch(STORY.root + "log.php", {
+    var batch = unsent.slice(0, BATCH);
+    request(STORY.root + "log.php", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(unsent[0]),
+      body: JSON.stringify(batch.length === 1 ? batch[0] : batch),
       keepalive: true
     }).then(function (response) { return response.ok; }, function () { return false; }).then(function (sent) {
       sending = false;
       if (!sent) return window.setTimeout(flushUnsent, 5000);
-      unsent.shift();
+      unsent.splice(0, batch.length);
       write(local, queueKey, unsent);
       flushUnsent();
     });
@@ -170,13 +217,24 @@
     flushUnsent();
   }
 
-  /* Calls back once every event is on the server. Used before the finish redirect: the survey behind
-     it needs a connection anyway, so waiting for one costs the reader nothing. */
-  function whenLogged(then, waited) {
-    if (!unsent.length || offline) return then();
+  /* Calls back, with the number of events still unsent, once every event is on the server or after
+     giveUpAfter milliseconds (none: waits as long as it takes). Used before the finish redirect: the
+     survey behind it needs a connection anyway, so waiting for one costs the reader nothing. */
+  function whenLogged(then, giveUpAfter, waited) {
+    waited = waited || 0;
+    if (!unsent.length || offline || (giveUpAfter && waited >= giveUpAfter)) return then(unsent.length);
     if (waited >= 2000) notice("Saving\u2026 please keep this page open.");
-    window.setTimeout(function () { whenLogged(then, (waited || 0) + 500); }, 500);
+    window.setTimeout(function () { whenLogged(then, giveUpAfter, waited + 500); }, 500);
   }
+
+  /* A JavaScript error anywhere in the story goes into the log, so a failure on a reader's phone can be
+     seen afterwards (the device is in the visit line). The play-test robot fails on it. */
+  function logError(message, file, line) {
+    log("error", {message: message, file: file || null, line: line || null});
+    if (autoplay) report(false, "JavaScript error: " + message);
+  }
+  window.addEventListener("error", function (event) { logError(event.message, event.filename, event.lineno); });
+  window.addEventListener("unhandledrejection", function (event) { logError(String(event.reason && event.reason.message || event.reason)); });
 
   // ------------------------------------------------------------- rendering
   var storyScale = 1;
@@ -351,6 +409,9 @@
     if (state.frame !== name) state.previous = state.frame;  // where "× Close" goes
     state.frame = name;
     saveState();
+    framesShown += 1;
+    if (stress["lost-connection"] && framesShown === 2) connectionBackAt = Date.now() + 10000;
+    if (stress.crash && framesShown === 2) throw new Error("Pretending a JavaScript error on " + name);
     var event = {frame: name};
     for (var key in details) if (Object.prototype.hasOwnProperty.call(details, key)) event[key] = details[key];
     log("frame", event);
@@ -578,17 +639,22 @@
   var visits = {};
   var steps = 0;
   var reported = false;
+  var loadedBytes = 0;  // what the startup screen downloaded; the studio's stress test judges it
 
+  /* Reports to the studio once the log queue is empty (or after 30 s: the studio then reports the
+     unsent events as a failure), so a slow or lost connection is part of what is tested. */
   function report(ok, message, redirect) {
     if (reported) return;
     reported = true;
     log("Play-test ended", {ok: ok, message: message});
-    window.parent.postMessage({
-      tiltale: "playtest", ok: ok, message: message, redirect: redirect || "",
-      participant_id: participantId, language: STORY.language,
-      log_file: safeName(participantId) + "--" + safeName(visit.visit_id) + ".jsonl",
-      unvisited: STORY.frames.map(function (f) { return f.name; }).filter(function (n) { return !visits[n]; })
-    }, "*");
+    whenLogged(function (left) {
+      window.parent.postMessage({
+        tiltale: "playtest", ok: ok, message: message, redirect: redirect || "", unsent: left, bytes: loadedBytes,
+        participant_id: participantId, language: STORY.language,
+        log_file: safeName(participantId) + "--" + safeName(visit.visit_id) + ".jsonl",
+        unvisited: STORY.frames.map(function (f) { return f.name; }).filter(function (n) { return !visits[n]; })
+      }, "*");
+    }, 30000);
   }
 
   /* Prefer buttons it has not clicked whose frame it has not seen, then "End story", then the least
@@ -618,17 +684,13 @@
     }, 250 + (pick.delay_mode === "none" ? 0 : STORY.default_delay_seconds * 1000));
   }
 
-  if (autoplay) {
-    window.addEventListener("error", function (event) { report(false, "JavaScript error: " + event.message); });
-  }
-
   // ------------------------------------------------------------- start
   var loaded = {};  // image path -> blob: URL of the downloaded copy, kept in memory for the whole visit
 
   /* Downloads every image the story will show (the variant chooseSource picks for this screen) and keeps
      each in memory, so a lost connection while playing changes nothing. Browsers that offer Cache Storage
      (HTTPS) also keep them there, so a restart or a returning reader reuses them instead of downloading.
-     Resolves to {bytes, cached_bytes}; an image that fails to download is simply shown from the server later. */
+     Resolves to {bytes, cached_bytes}; an image that fails to download is logged and shown from the server later. */
   function preloadImages(progress) {
     var chosen = {};
     STORY.frames.forEach(function (frame) {
@@ -644,21 +706,24 @@
     var done = STORY.base_bytes;  // the page itself is already here
     var cachedBytes = 0;
     progress(done / total);
-    var storage = window.caches ? caches.open("tiltale-" + STORY.project).catch(function () { return null; }) : Promise.resolve(null);
+    var cacheStorage = stress["no-cache"] ? null : window.caches;
+    var storage = cacheStorage ? cacheStorage.open("tiltale-" + STORY.project).catch(function () { return null; }) : Promise.resolve(null);
     return storage.then(function (cache) {
       return Promise.all(sources.map(function (source) {
         var url = STORY.root + source.path;
         var fromCache = cache ? cache.match(url) : Promise.resolve(null);
         return fromCache.then(function (hit) {
           if (hit) cachedBytes += source.bytes;
-          return hit || fetch(url).then(function (response) {
-            if (!response.ok) throw new Error(response.status + " " + url);
+          return hit || request(url).then(function (response) {
+            if (!response.ok) throw new Error("HTTP " + response.status);
             if (cache) cache.put(url, response.clone());
             return response;
           });
         }).then(function (response) { return response.blob(); }).then(function (blob) {
           loaded[source.path] = URL.createObjectURL(blob);
-        }).catch(function () { /* shown from the server when its frame opens */ }).then(function () {
+        }).catch(function (error) {
+          log("Image not downloaded", {path: source.path, message: String(error.message || error)});  // shown from the server when its frame opens
+        }).then(function () {
           done += source.bytes;
           progress(done / total);
         });
@@ -704,6 +769,7 @@
       var megabytes = function (bytes) { return (bytes / 1048576).toFixed(2) + " MB"; };
       var summary = megabytes(results[0].bytes) + (results[0].cached_bytes ? ", " + megabytes(results[0].cached_bytes) + " already on this device" : "");
       log("Loading IDN – completed (" + summary + ")", {event_type: "loading_completed", bytes: results[0].bytes, cached_bytes: results[0].cached_bytes});
+      loadedBytes = results[0].bytes;
       loading.hidden = true;
       storyNode.hidden = false;
       showFullscreenButton();  // now that there is something to look at: its few seconds start here

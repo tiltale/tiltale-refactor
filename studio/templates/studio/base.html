@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TilTale{% endblock %}</title>
   <link rel="icon" href="{% url 'studio:branding' 'favicon.ico' %}">
-  <link rel="stylesheet" href="{% static 'studio/app.css' %}">
+  <link rel="stylesheet" href="{% static 'studio/app.css' %}?v={{ version }}">
   {% block head %}{% endblock %}
 </head>
 <body{% if project %} style="--frame-ratio: {{ project.frame_width|stringformat:'g' }} / {{ project.frame_height|stringformat:'g' }}"{% endif %}>
@@ -18,6 +18,7 @@
         <a href="{% url 'studio:develop' %}" {% if here == 'develop' or here == 'frame_editor' %}aria-current="page"{% endif %}>Develop</a>
         <a href="{% url 'studio:flowchart' %}" {% if here == 'flowchart' %}aria-current="page"{% endif %}>Flowchart</a>
         <a href="{% url 'studio:playtest' %}" {% if here == 'playtest' %}aria-current="page"{% endif %}>Play-test</a>
+        <a href="{% url 'studio:stresstest' %}" {% if here == 'stresstest' %}aria-current="page"{% endif %}>Stress test</a>
         <a href="{% url 'studio:config' %}" {% if here == 'config' %}aria-current="page"{% endif %}>Settings</a>
         <a href="{% url 'studio:results' %}" {% if here == 'results' or here == 'session_detail' %}aria-current="page"{% endif %}>Results</a>
       </nav>
@@ -40,6 +41,6 @@
     <strong data-status-label>{{ status.label }}</strong>
     <span data-status-detail>{{ status.detail }}</span>
   </footer>
-  <script src="{% static 'studio/app.js' %}" defer></script>
+  <script src="{% static 'studio/app.js' %}?v={{ version }}" defer></script>
 </body>
 </html>
