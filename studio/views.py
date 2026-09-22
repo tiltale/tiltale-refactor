@@ -27,7 +27,7 @@ from .middleware import LANGUAGE_COOKIE, ORIGIN_COOKIE, ORIGINS
 from .models import Element, ElementLanguageOverride, Frame, ProjectSettings, Rule, Variable
 from .services.components import component_map, load_components
 from .services.content import (
-    ContentTable, add_language, append_content_row, load_content_table, rename_language, update_content_row,
+    LOCKED_MESSAGE, ContentTable, add_language, append_content_row, load_content_table, rename_language, update_content_row,
 )
 from .services.docs import DOCUMENTS, document_html
 from .services.flow import create_frame, tidy_layout
@@ -312,12 +312,13 @@ def develop(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     shown_folder: str = "" if picker_selected else story_folder
     for frame in frames:
         frame.preview_url = _preview_url("" if frame.is_language_picker else story_folder)  # type: ignore[attr-defined]
+    issues = [] if content.error else validate_project(project, content.table)
     return render(request, "studio/develop.html", {
         "selected_frame": request.GET.get("selected", ""),  # scrolled to and highlighted ("Save and exit")
         "project": project, "content": content, "frames": frames, "frame_types": load_frame_types().values(),
         "has_pickers": has_pickers, "picker_selected": picker_selected,
         "devices": DEVICE_PRESETS,
-        "issues": [] if content.error else validate_project(project, content.table),
+        "issues": issues, "essential_issues": sum(issue.essential for issue in issues),
         "preview_url": _preview_url(shown_folder),
         "dist_ready": (settings.DIST_DIR / page_path(shown_folder)).is_file(),
         "dist_stale": dist_is_stale(),
@@ -466,6 +467,8 @@ def content_row_api(request: HttpRequest, project: ProjectSettings) -> JsonRespo
         else:
             row = update_content_row(settings.PROJECT_DIR / "content.xlsx", int(data["id"]), note, values)
     except (OSError, TypeError, ValueError) as error:
+        if str(error) == LOCKED_MESSAGE:  # a reload would lose the edit that is still on the page
+            error = ValueError("content.xlsx is open in Excel (or another program). Close it there, then press Retry: your edit is still on this page.")
         return JsonResponse({"error": str(error)}, status=400)
     return JsonResponse({"ok": True, "id": row.content_id})
 

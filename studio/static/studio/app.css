@@ -60,6 +60,7 @@ code, kbd { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; backgrou
 .alert ul { margin: .4rem 0 0; padding-left: 1.2rem; }
 .alert.issues { background: var(--surface); border: 1px solid var(--line); }
 .alert.issues summary { cursor: pointer; font-weight: 600; }
+.issues-toggle { margin: .5rem 0 .2rem; font-size: .88rem; }
 .alert.issues li.error::marker { color: var(--danger); } .alert.issues li.warning::marker { color: var(--warn); }
 
 /* Buttons and badges */
@@ -234,6 +235,9 @@ label.compact select { width: auto; }
 
 /* Content page: text rows, image cards and font previews. */
 .content-rows textarea { width: 100%; min-width: 12rem; }
+.content-rows tr.is-unsaved { background: var(--warn-soft); }  /* edited, not in content.xlsx yet */
+.content-rows tr.is-failed { background: var(--danger-soft); }
+.content-rows tr.is-failed [data-save-row] { color: var(--danger); border-color: var(--danger); }
 .content-rows input { width: 100%; min-width: 8rem; }
 /* Materials page: a grid of image tiles; the first tile uploads (click or drop). */
 .material-grid-page { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .75rem; margin: .8rem 0; }

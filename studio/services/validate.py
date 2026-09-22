@@ -18,6 +18,7 @@ from .variables import check_value, unknown_placeholders
 
 Severity = Literal["warning", "error"]
 MIN_TEXT_PX: float = 12.0
+NEAR_MINIMUM: float = 0.95  # text within 5% of the minimum is flagged, but not essential
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,10 +27,11 @@ class ValidationIssue:
     message: str
     frame_id: int | None = None
     frame_name: str = ""
+    essential: bool = True  # "Show essentials only" on the Develop page hides the others
 
 
-def _issue(severity: Severity, message: str, frame: Frame | None = None) -> ValidationIssue:
-    return ValidationIssue(severity, message, frame.id if frame else None, frame.name if frame else "")
+def _issue(severity: Severity, message: str, frame: Frame | None = None, essential: bool = True) -> ValidationIssue:
+    return ValidationIssue(severity, message, frame.id if frame else None, frame.name if frame else "", essential)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,12 +168,12 @@ def _element_issues(element: Element, frame: Frame | None, checks: _Checks) -> I
         return
     for severity, problem in _text_problems(element, frame, checks):
         yield _issue(severity, f"{label} {problem}", frame)
-    smallest_font: float = min(element.geometry(language)["font_size"] for language in checks.languages)
-    if smallest_font * checks.scale < MIN_TEXT_PX:
+    smallest_px: float = min(element.geometry(language)["font_size"] for language in checks.languages) * checks.scale
+    if smallest_px < MIN_TEXT_PX:
         yield _issue("warning", (
-            f"{label}: text is about {smallest_font * checks.scale:.1f}px on a {DEVICE_PRESETS[0].label} "
+            f"{label}: text is about {smallest_px:.1f}px on a {DEVICE_PRESETS[0].label} "
             f"(minimum {MIN_TEXT_PX:g}px). Increase the font size."
-        ), frame)
+        ), frame, essential=smallest_px < MIN_TEXT_PX * NEAR_MINIMUM)
 
 
 def _text_problems(element: Element, frame: Frame | None, checks: _Checks) -> Iterator[tuple[Severity, str]]:

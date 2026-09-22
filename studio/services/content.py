@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import Cell
+from openpyxl.styles import Alignment
 from openpyxl.worksheet.worksheet import Worksheet
 
 LOCKED_MESSAGE: str = (
@@ -54,6 +56,21 @@ def create_content_workbook(path: Path, languages: list[str]) -> None:
 def _text(value: Any) -> str:
     """Trim the ends; keep line breaks inside (browser forms send them as CRLF, Excel as LF)."""
     return "" if value is None else str(value).replace("\r\n", "\n").strip()
+
+
+def _wrap_line_breaks(cell: Cell) -> bool:
+    """Turn on "wrap text" for a cell with a line break, as Excel does on Alt+Enter; without it Excel
+    shows the lines as one. Returns whether the cell changed."""
+    if "\n" not in str(cell.value or "") or cell.alignment.wrap_text:
+        return False
+    cell.alignment = Alignment(wrap_text=True, vertical=cell.alignment.vertical or "top")
+    return True
+
+
+def _write(sheet: Worksheet, row: int, column: int, value: str) -> None:
+    cell: Cell = sheet.cell(row, column)
+    cell.value = value
+    _wrap_line_breaks(cell)
 
 
 def _content_id(value: Any, excel_row: int) -> int:
@@ -127,12 +144,11 @@ def load_content_table(path: Path) -> ContentTable:
         else:
             content_id = _content_id(raw, excel_row)
         rows.append(ContentRow(content_id=content_id, excel_row=excel_row, values=values, note=note))
+        for column in range(2, 3 + len(languages)):
+            changed = _wrap_line_breaks(sheet.cell(excel_row, column)) or changed
 
     if changed:
-        try:
-            workbook.save(path)
-        except PermissionError:
-            raise ValueError(LOCKED_MESSAGE) from None
+        _save(workbook, path)
     return ContentTable(languages=languages, rows=tuple(rows))
 
 
@@ -145,6 +161,8 @@ def _cleaned(table: ContentTable, note: str, values: dict[str, str]) -> tuple[st
 
 
 def _save(workbook: Workbook, path: Path) -> None:
+    if (path.parent / f"~${path.name}").exists():  # Excel's lock file: the workbook is open in Excel
+        raise ValueError(LOCKED_MESSAGE)
     try:
         workbook.save(path)
     except PermissionError:
@@ -183,9 +201,11 @@ def append_content_row(path: Path, note: str, values: dict[str, str]) -> Content
     next_id: int = max((row.content_id for row in table.rows), default=0) + 1
     workbook = load_workbook(path)
     sheet: Worksheet = workbook.active
-    sheet.append([next_id, note, *cleaned.values()])
+    excel_row: int = sheet.max_row + 1
+    for column, value in enumerate([next_id, note, *cleaned.values()], start=1):
+        _write(sheet, excel_row, column, value)
     _save(workbook, path)
-    return ContentRow(content_id=next_id, excel_row=sheet.max_row, values=cleaned, note=note)
+    return ContentRow(content_id=next_id, excel_row=excel_row, values=cleaned, note=note)
 
 
 def update_content_row(path: Path, content_id: int, note: str, values: dict[str, str]) -> ContentRow:
@@ -198,6 +218,6 @@ def update_content_row(path: Path, content_id: int, note: str, values: dict[str,
     workbook = load_workbook(path)
     sheet: Worksheet = workbook.active
     for column, value in enumerate([note, *cleaned.values()], start=2):
-        sheet.cell(row.excel_row, column).value = value
+        _write(sheet, row.excel_row, column, value)
     _save(workbook, path)
     return ContentRow(content_id=content_id, excel_row=row.excel_row, values=cleaned, note=note)

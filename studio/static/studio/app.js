@@ -29,6 +29,20 @@ async function postJson(url, csrfToken, body) {
   if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
 }
 
+/* A message at the top right, like the ones the server sends after a page load. Errors stay until closed. */
+function showToast(message, kind = "error") {
+  const toast = document.createElement("div");
+  toast.className = `toast ${kind}`;
+  toast.setAttribute("role", "status");
+  toast.textContent = message;
+  const close = Object.assign(document.createElement("button"), { type: "button", className: "toast-close", textContent: "×" });
+  close.setAttribute("aria-label", "Dismiss");
+  close.addEventListener("click", () => toast.remove());
+  toast.append(close);
+  document.querySelector(".toasts").append(toast);
+  if (kind !== "error") setTimeout(() => toast.remove(), TOAST_MS);
+}
+
 function setupToasts() {
   for (const toast of document.querySelectorAll("[data-toast]")) {
     toast.querySelector("[data-dismiss]").addEventListener("click", () => toast.remove());
@@ -129,22 +143,38 @@ function setupMaterials() {
 function setupContent() {
   const page = document.querySelector("[data-content-page]");
   if (!page) return;
+  // Rows with changes that are not in content.xlsx yet: leaving the page asks first.
+  const unsaved = new Set();
+  window.addEventListener("beforeunload", (event) => { if (unsaved.size) event.preventDefault(); });
   for (const row of page.querySelectorAll("[data-content-row]")) {
     const button = row.querySelector("[data-save-row]");
-    row.addEventListener("input", () => { button.disabled = false; });
+    const label = button.textContent;
+    row.addEventListener("input", () => {
+      unsaved.add(row);
+      row.classList.add("is-unsaved");
+      row.classList.remove("is-failed");
+      button.disabled = false;
+      button.textContent = label;
+    });
     button.addEventListener("click", async () => {
       const values = {};
       for (const area of row.querySelectorAll("[data-value]")) values[area.dataset.value] = area.value;
       const body = { id: row.dataset.contentRow ? Number(row.dataset.contentRow) : null, note: row.querySelector("[data-note]").value, values };
       button.disabled = true;
+      button.textContent = "Saving…";
       try {
         await postJson(page.dataset.rowsApi, page.dataset.csrf, body);
-        button.textContent = "Saved";
-        if (!row.dataset.contentRow) location.reload(); // the new row's id comes from the workbook
-      } catch (error) {
+      } catch (error) { // e.g. content.xlsx is open in Excel: say so where the user is looking, keep the edit
         button.disabled = false;
-        reportError(`Text not saved: ${error.message}`);
+        button.textContent = "Retry";
+        row.classList.add("is-failed");
+        showToast(`Text not saved. ${error.message}`);
+        return;
       }
+      unsaved.delete(row);
+      row.classList.remove("is-unsaved", "is-failed"); // a successful Retry clears the red too
+      button.textContent = "Saved";
+      if (!row.dataset.contentRow) location.reload(); // the new row's id comes from the workbook
     });
   }
   for (const fontRow of page.querySelectorAll("[data-font-row]")) {
@@ -304,6 +334,17 @@ function setupDevelop() {
     const thumb = event.target.closest("[data-view-frame]");
     if (thumb && preview && !event.target.closest("a")) preview.src = thumb.dataset.viewFrame;
   });
+  // "Show essentials only": hide the minor preflight warnings; the choice is remembered per browser.
+  const essentials = page.querySelector("[data-essentials-only]");
+  if (essentials) {
+    const apply = () => {
+      for (const item of page.querySelectorAll("[data-issues] [data-minor]")) item.hidden = essentials.checked;
+      localStorage.setItem("tiltale.essentialsOnly", essentials.checked ? "1" : "0");
+    };
+    essentials.checked = localStorage.getItem("tiltale.essentialsOnly") === "1";
+    essentials.addEventListener("change", apply);
+    apply();
+  }
   page.querySelector("[data-frame-filter]").addEventListener("input", (event) => {
     const query = event.target.value.trim().toLowerCase();
     for (const thumb of page.querySelectorAll("[data-frame-name]")) thumb.hidden = !thumb.dataset.frameName.includes(query);

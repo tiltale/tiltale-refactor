@@ -57,9 +57,10 @@
     {% if content.error %}<div class="alert error">{{ content.error }}</div>{% endif %}
     {% if dist_stale and dist_ready %}<div class="alert warning">The preview is older than your latest changes. Press <strong>Regenerate</strong>.</div>{% endif %}
     {% if issues %}
-    <details class="alert issues">
-      <summary>{{ issues|length }} thing{{ issues|length|pluralize }} to check before publishing</summary>
-      <ul>{% for issue in issues %}<li class="{{ issue.severity }}">{% if issue.frame_id %}<a href="{% url 'studio:frame_editor' issue.frame_id %}?lang={{ content.language }}">{{ issue.frame_name }}</a>: {% endif %}{{ issue.message }}</li>{% endfor %}</ul>
+    <details class="alert issues" data-issues>
+      <summary>{{ issues|length }} thing{{ issues|length|pluralize }} to check before publishing (of which {{ essential_issues }} essential)</summary>
+      <label class="check issues-toggle"><input type="checkbox" data-essentials-only> <span>Show essentials only (hides e.g. text that is within 5% of the minimum size)</span></label>
+      <ul>{% for issue in issues %}<li class="{{ issue.severity }}"{% if not issue.essential %} data-minor{% endif %}>{% if issue.frame_id %}<a href="{% url 'studio:frame_editor' issue.frame_id %}?lang={{ content.language }}">{{ issue.frame_name }}</a>: {% endif %}{{ issue.message }}</li>{% endfor %}</ul>
     </details>
     {% endif %}
 

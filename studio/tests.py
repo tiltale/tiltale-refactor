@@ -985,3 +985,31 @@ class MaterialsPageTests(ProjectTestCase):
         response = self.client.get(reverse("studio:materials"))
         self.assertContains(response, "640×480")
         self.assertContains(response, "background of frame-1")
+
+
+class LineBreakAndEssentialsTests(SimpleTestCase):
+    def test_a_saved_line_break_shows_as_a_line_break_in_excel(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "content.xlsx"
+            create_content_workbook(path, ["en-US"])
+            append_content_row(path, "", {"en-US": "one"})
+            update_content_row(path, 1, "", {"en-US": "First line\nSecond line"})
+            cell = load_workbook(path).active.cell(2, 3)
+        self.assertEqual((cell.value, cell.alignment.wrap_text), ("First line\nSecond line", True))
+
+    def test_text_just_under_the_minimum_is_not_essential(self) -> None:
+        from .services.validate import MIN_TEXT_PX, NEAR_MINIMUM
+        self.assertGreater(11.8, MIN_TEXT_PX * NEAR_MINIMUM)  # the reported case is within the 5% margin
+        self.assertLess(11.0, MIN_TEXT_PX * NEAR_MINIMUM)
+
+
+class ExcelOpenTests(ProjectTestCase):
+    def test_saving_while_excel_has_the_workbook_open_is_refused_with_a_message(self) -> None:
+        append_content_row(settings.PROJECT_DIR / "content.xlsx", "", {"en-US": "Hello"})
+        (settings.PROJECT_DIR / "~$content.xlsx").write_bytes(b"owner")  # what Excel leaves while the file is open
+        body = {"id": 1, "note": "", "values": {"en-US": "Hi"}}
+        response = self.client.post(reverse("studio:content_row_api"), json.dumps(body), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("open in Excel", response.json()["error"])
+        (settings.PROJECT_DIR / "~$content.xlsx").unlink()  # Excel closed: the workbook was left untouched
+        self.assertEqual(load_content_table(settings.PROJECT_DIR / "content.xlsx").by_id()[1].values["en-US"], "Hello")
