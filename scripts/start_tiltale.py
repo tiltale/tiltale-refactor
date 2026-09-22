@@ -40,8 +40,11 @@ STUDIO_URL: str = "http://127.0.0.1:8000/"
 STUDIO_PORT: int = 8000
 ROOT: Path = Path(__file__).resolve().parent.parent if Path(__file__).parent.name == "scripts" else Path.cwd()
 LOG_FILE: Path = ROOT / "start_TilTale.log"
+# What may sit in the folder before TilTale is there: the launcher itself, the copy of this app it
+# downloads when the repository is not there yet, its log, and OS clutter. Such a folder counts as empty.
 LAUNCHER_FILES: frozenset[str] = frozenset({
-    "start_TilTale.bat", "start_TilTale.command", "start_TilTale.sh", "start_TilTale.log", ".DS_Store",
+    "start_TilTale.bat", "start_TilTale.command", "start_TilTale.sh", "start_tiltale_tmp.py",
+    "start_TilTale.log", "__pycache__", ".DS_Store", "Thumbs.db", "desktop.ini",
 })
 GIT_INSTALLS: dict[str, list[str]] = {  # per OS: the quiet installer most machines have
     "Windows": ["winget", "install", "-e", "--id", "Git.Git", "--silent", "--accept-package-agreements", "--accept-source-agreements"],
@@ -63,6 +66,13 @@ def version_in(settings_text: str) -> str:
     return found.group(1) if found else "unknown"
 
 
+def venv_python() -> Path:
+    """The Python inside ROOT/.venv. Packages and the studio only ever run with this one, never with
+    the computer's own Python, which merely starts this window (standard library only)."""
+    windows: bool = platform.system() == "Windows"
+    return ROOT / ".venv" / ("Scripts" if windows else "bin") / ("python.exe" if windows else "python")
+
+
 def run(command: list[str], cwd: Path = ROOT) -> subprocess.CompletedProcess:
     """Run a command without opening a console window; output goes to the log."""
     flags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
@@ -78,7 +88,7 @@ class Launcher:
         self.window.minsize(460, 300)
         self.aborted = False
         self.server: subprocess.Popen | None = None
-        self.python: Path = Path(sys.executable)  # replaced by .venv's Python in install_packages
+        self.python: Path = venv_python()  # always the project's .venv: the computer's own Python stays untouched
 
         frame = ttk.Frame(self.window, padding=16)
         frame.pack(fill="both", expand=True)
@@ -200,8 +210,10 @@ class Launcher:
             raise ValueError(f"git clone failed: {result.stderr.strip()}")
         temp = ROOT / "_tiltale_tmp"
         for item in temp.iterdir():  # the files belong in the root itself, next to start_TilTale
+            if (ROOT / item.name).exists():  # the launcher that is running right now: keep it, the clone has the same
+                continue
             shutil.move(str(item), str(ROOT / item.name))
-        temp.rmdir()
+        shutil.rmtree(temp, ignore_errors=True)
         return f"downloaded TilTale {version_in((ROOT / 'config' / 'settings.py').read_text(encoding='utf-8'))}"
 
     def connect(self) -> None:
@@ -233,7 +245,7 @@ class Launcher:
 
     def install_packages(self) -> str:
         venv = ROOT / ".venv"
-        python = venv / ("Scripts" if platform.system() == "Windows" else "bin") / ("python.exe" if platform.system() == "Windows" else "python")
+        python = venv_python()
         if not python.exists():
             self.log("Creating the project's own Python environment (.venv)…")
             result = run([sys.executable, "-m", "venv", str(venv)])
@@ -243,8 +255,7 @@ class Launcher:
         result = run([str(python), "-m", "pip", "install", "-r", "requirements.txt", "--quiet"])
         if result.returncode != 0:
             raise ValueError(f"pip install failed: {result.stderr.strip()[-300:]}")
-        self.python = python
-        return "packages installed"
+        return "packages installed in .venv"
 
     # ------------------------------------------------------------- opening TilTale
     def offer_open(self) -> None:
