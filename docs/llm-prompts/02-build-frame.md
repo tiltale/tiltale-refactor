@@ -45,7 +45,7 @@ Do not include the background; TilTale adds that separately. Answer with the JSO
 
 ```json
 {"elements": [
-  {"component": "speech-bubble", "content_id": 12, "x": 960, "y": 280, "width": 900, "height": 260},
-  {"component": "choice-button", "content_id": 13, "x": 700, "y": 900, "target": "fnr-4"}
+  {"component": "basic-speech-bubble", "content_id": 12, "x": 960, "y": 280, "width": 900, "height": 260},
+  {"component": "basic-decision", "content_id": 13, "x": 700, "y": 900, "target": "fnr-4"}
 ]}
 ```

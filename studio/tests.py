@@ -17,21 +17,21 @@ from openpyxl import load_workbook
 from PIL import Image
 
 from .forms import FrameForm, ProjectSettingsForm, normalize_language, parse_extra_languages
-from .models import Element, Frame, ProjectSettings, Rule, Variable, name_key
+from .models import Element, ElementLanguageOverride, Frame, ProjectSettings, Rule, Variable, name_key
 from .services.components import component_map, default_color_css, default_font_css
-from .services.content import append_content_row, create_content_workbook, load_content_table, update_content_row
+from .services.content import add_language, append_content_row, create_content_workbook, load_content_table, rename_language, update_content_row
 from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.frame_types import load_frame_types
 from .services.generate import generate_dist, language_folder, reset_dist_directory
 from .services.llm import parse_elements
 from .services.log_keys import LockedLog, decrypt_event, encrypt_event, fingerprint, generate_key_pair, load_private_key
-from .services.project import image_size, project_health, safe_child
+from .services.project import image_size, list_materials, material_thumbnail, project_health, safe_child
 from .services.stresstest import RUNTIME_FILES, build_check, device_checks, es5_problems
 from .services.study_logs import SessionSummary, describe_visit, device_report, final_variables, frame_visits, import_jsonl, log_file_name, parse_events, readable_events, safe_name, session_kind
 from .services.validate import validate_project
 from .services.variables import check_name, check_value, kind_of, parse_value, rule_label, unknown_placeholders
 
-ANSWER: str = '{"elements": [{"component": "choice-button", "content_id": 1, "x": 960, "y": 540, "target": "fnr-2"}]}'
+ANSWER: str = '{"elements": [{"component": "basic-decision", "content_id": 1, "x": 960, "y": 540, "target": "fnr-2"}]}'
 EVENT: dict[str, object] = {"participant_id": "R_abc", "visit_id": "20260910T101530Z-a1b2", "event": "frame", "seq": 1}
 
 
@@ -85,7 +85,7 @@ class LlmAnswerTests(SimpleTestCase):
         self.assertEqual(self.parse(ANSWER)[0]["target_frame_id"], 7)
 
     def test_missing_size_uses_the_component_default(self) -> None:
-        self.assertEqual(self.parse(ANSWER)[0]["width"], component_map()["choice-button"].default_width)
+        self.assertEqual(self.parse(ANSWER)[0]["width"], component_map()["basic-decision"].default_width)
 
     def test_code_fences_around_the_answer_are_accepted(self) -> None:
         self.assertEqual(len(self.parse(f"```json\n{ANSWER}\n```")), 1)
@@ -96,11 +96,11 @@ class LlmAnswerTests(SimpleTestCase):
 
     def test_invented_content_id_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "content_id 99"):
-            self.parse('{"elements": [{"component": "speech-bubble", "content_id": 99, "x": 1, "y": 1}]}')
+            self.parse('{"elements": [{"component": "basic-speech-bubble", "content_id": 99, "x": 1, "y": 1}]}')
 
     def test_unknown_target_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown target"):
-            self.parse('{"elements": [{"component": "choice-button", "x": 1, "y": 1, "target": "fnr-9"}]}')
+            self.parse('{"elements": [{"component": "basic-decision", "x": 1, "y": 1, "target": "fnr-9"}]}')
 
 
 class ContentWorkbookTests(SimpleTestCase):
@@ -486,6 +486,15 @@ class FrameNameTests(TestCase):
         frame = create_frame("picker")
         self.assertEqual(frame.name, f"Picker {frame.pk}")
 
+    def test_fade_is_one_three_way_choice(self) -> None:
+        """One of: no fade, crossfade, from black. "From black" alone must still fade (it once did not)."""
+        frame = Frame.objects.create(name="frame-1")
+        for choice, fade_in, fade_from_black in (("black", True, True), ("previous", True, False), ("none", False, False)):
+            data = {"name": "frame-1", "fade": choice, "background_type": "none", "background_color": "#111111", "background_image": ""}
+            FrameForm(data, instance=frame, materials=[], content_ids=set()).save()
+            frame.refresh_from_db()
+            self.assertEqual((frame.fade_in, frame.fade_from_black), (fade_in, fade_from_black), choice)
+
     def test_a_new_background_image_fills_the_frame_again(self) -> None:
         frame = Frame.objects.create(name="frame-1", background_type="image", background_image="old.png", background_width=50)
         data = {"name": "frame-1", "background_type": "image", "background_color": "#111111", "background_image": "new.png"}
@@ -546,12 +555,16 @@ class StudioViewTests(ProjectTestCase):
         lines = (self.root / "project" / "logs" / "R_abc--20260910T101530Z-a1b2.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual([json.loads(line)["seq"] for line in lines], [1, 2, 3])
 
-    def test_the_stress_test_page_shows_the_checklist(self) -> None:
+    def test_the_test_page_shows_the_stress_checklist(self) -> None:
         (self.root / "dist").mkdir()
         (self.root / "dist" / ".build.json").write_text(json.dumps({"builds": [{"label": "en", "folder": ""}], "source_timestamp": 0, "issues": []}), encoding="utf-8")
-        response = self.client.get(reverse("studio:stresstest"))
+        response = self.client.get(reverse("studio:test"))
         self.assertContains(response, 'data-stress="lost-connection"')
         self.assertContains(response, 'data-result="red" data-result-message="No finished visit from a real phone yet')
+
+    def test_old_playtest_and_stresstest_links_land_on_the_test_page(self) -> None:
+        for name in ("playtest", "stresstest"):
+            self.assertEqual(self.client.get(reverse(f"studio:{name}")).url, reverse("studio:test"))
 
     def test_dragged_flowchart_positions_are_stored(self) -> None:
         first = Frame.objects.create(name="frame-1")
@@ -568,19 +581,23 @@ class StudioViewTests(ProjectTestCase):
         self.assertEqual(project_health().problems, ())
         self.assertTrue((self.root / "project" / "logs").is_dir())
 
-    def test_new_elements_go_in_front_and_can_be_sent_backward(self) -> None:
+    def test_new_elements_go_in_front_and_the_list_can_be_restacked(self) -> None:
         frame = Frame.objects.create(name="frame-1")
-        first = Element.objects.create(frame=frame, component="choice-button")
-        second = Element.objects.create(frame=frame, component="choice-button")
+        first = Element.objects.create(frame=frame, component="basic-decision")
+        second = Element.objects.create(frame=frame, component="basic-decision")
         self.assertEqual(list(frame.elements.values_list("id", flat=True)), [first.id, second.id])
-        self.client.post(reverse("studio:move_element", args=[second.id]), {"direction": "backward"})
+        url = reverse("studio:element_order_api", args=[frame.id])
+        body = {"order": [first.id, second.id]}  # front to back: first now in front
+        self.client.post(url, json.dumps(body), content_type="application/json")
         self.assertEqual(list(frame.elements.values_list("id", flat=True)), [second.id, first.id])
+        stale = self.client.post(url, json.dumps({"order": [first.id]}), content_type="application/json")
+        self.assertEqual(stale.status_code, 409)  # the list no longer matches the frame
 
     def test_target_list_is_alphabetical_and_skips_the_frame_itself(self) -> None:
         frame = Frame.objects.create(name="Middle")
         Frame.objects.create(name="zebra")
         Frame.objects.create(name="Apple")
-        Element.objects.create(frame=frame, component="choice-button")
+        Element.objects.create(frame=frame, component="basic-decision")
         html = self.client.get(reverse("studio:frame_editor", args=[frame.id])).content.decode()
         self.assertLess(html.index("Go to Apple"), html.index("Go to zebra"))
         self.assertNotIn("Go to Middle", html)
@@ -644,8 +661,8 @@ class StudioViewTests(ProjectTestCase):
         first = Frame.objects.create(name="frame-1")
         check = Frame.objects.create(name="check", kind="validation")
         good = Frame.objects.create(name="good")
-        Element.objects.create(frame=first, component="choice-button", target_frame=check, update_variable=score, update_operation="add", update_value="1")
-        Element.objects.create(frame=good, component="choice-button", restarts_story=True)
+        Element.objects.create(frame=first, component="basic-decision", target_frame=check, update_variable=score, update_operation="add", update_value="1")
+        Element.objects.create(frame=good, component="basic-decision", restarts_story=True)
         Rule.objects.create(frame=check, order=1, variable=score, comparator=">=", value="1", target_frame=good)
         Rule.objects.create(frame=check, order=2, target_frame=first)
         generate_dist(self.project)
@@ -669,7 +686,7 @@ class StudioViewTests(ProjectTestCase):
 
     def test_saving_a_type_mismatch_on_an_element_is_refused(self) -> None:
         score = Variable.objects.create(name="score", initial_value="0")
-        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="choice-button")
+        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="basic-decision")
         data = {
             "x": "1", "y": "1", "width": "100", "height": "50", "font_size": "30", "delay_mode": "none",
             "update_variable": str(score.id), "update_operation": "set", "update_value": "lots",
@@ -705,7 +722,7 @@ class StudioViewTests(ProjectTestCase):
 
     def test_a_used_variable_cannot_be_deleted(self) -> None:
         score = Variable.objects.create(name="score", initial_value="0")
-        Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="choice-button", update_variable=score, update_value="1")
+        Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="basic-decision", update_variable=score, update_value="1")
         self.client.post(reverse("studio:delete_variable", args=[score.id]))
         self.assertTrue(Variable.objects.filter(pk=score.id).exists())
 
@@ -796,7 +813,7 @@ class StudioViewTests(ProjectTestCase):
         self.assertEqual((element.image, element.width / element.height), ("tree.png", 2))
 
     def test_resized_element_keeps_its_new_size(self) -> None:
-        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="speech-bubble")
+        element = Element.objects.create(frame=Frame.objects.create(name="frame-1"), component="basic-speech-bubble")
         body = {"x": 100, "y": 200, "width": 300, "height": 150, "language": "en-US"}
         self.client.post(reverse("studio:element_position_api", kwargs={"element_id": element.id}), json.dumps(body), content_type="application/json")
         element.refresh_from_db()
@@ -834,7 +851,7 @@ class MultiLanguageTests(ProjectTestCase):
         super().setUp()
         Frame.objects.create(name="frame-1")
         self.picker = Frame.objects.create(name="picker-1", kind="picker")
-        Element.objects.create(frame=self.picker, component="choice-button", text="Nederlands", target_language="nl-NL")
+        Element.objects.create(frame=self.picker, component="basic-decision", text="Nederlands", target_language="nl-NL")
 
     def test_picker_page_comes_first_then_one_folder_per_language(self) -> None:
         report = generate_dist(self.project)
@@ -861,3 +878,110 @@ class MultiLanguageTests(ProjectTestCase):
     def test_tidy_up_puts_picker_frames_left_of_the_story(self) -> None:
         tidy_layout()
         self.assertLess(Frame.objects.get(name="picker-1").flow_x, Frame.objects.get(name="frame-1").flow_x)
+
+
+class ContentPageTests(ProjectTestCase):
+    """The Content page: texts, images and fonts without opening the source files."""
+
+    def test_a_row_can_be_changed_and_added_without_a_reload(self) -> None:
+        append_content_row(settings.PROJECT_DIR / "content.xlsx", "greet", {"en-US": "Hello"})
+        body = {"id": 1, "note": "greet", "values": {"en-US": "Hi"}}
+        self.assertEqual(self.client.post(reverse("studio:content_row_api"), json.dumps(body), content_type="application/json").status_code, 200)
+        added = self.client.post(reverse("studio:content_row_api"), json.dumps({"note": "", "values": {"en-US": "Bye"}}), content_type="application/json")
+        self.assertEqual(added.json()["id"], 2)
+        table = load_content_table(settings.PROJECT_DIR / "content.xlsx")
+        self.assertEqual([row.values["en-US"] for row in table.rows], ["Hi", "Bye"])
+
+    def test_an_image_is_uploaded_with_a_safe_name_and_protected_while_used(self) -> None:
+        from io import BytesIO
+        buffer = BytesIO()
+        Image.new("RGB", (8, 8)).save(buffer, "PNG")
+        self.client.post(reverse("studio:upload_materials"), {"images": SimpleUploadedFile("My Photo!.png", buffer.getvalue())})
+        self.assertEqual(list_materials(), ["My-Photo.png"])
+        Frame.objects.create(name="frame-1", background_type="image", background_image="My-Photo.png")
+        self.client.post(reverse("studio:delete_material"), {"name": "My-Photo.png"})
+        self.assertEqual(list_materials(), ["My-Photo.png"])  # used and not confirmed: kept
+        self.client.post(reverse("studio:delete_material"), {"name": "My-Photo.png", "force": "1"})
+        self.assertEqual(list_materials(), [])
+
+    def test_choosing_a_font_writes_only_known_stacks_to_the_css(self) -> None:
+        body = {"component": "basic-narrator", "preset": "Serif"}
+        self.assertEqual(self.client.post(reverse("studio:save_component_font"), json.dumps(body), content_type="application/json").status_code, 200)
+        css = (settings.PROJECT_DIR / "style-overrides.css").read_text(encoding="utf-8")
+        self.assertIn('.component-basic-narrator { font-family: Georgia, "Times New Roman", serif; }', css)
+        bad = {"component": "basic-narrator", "preset": "evil; } body { display: none"}
+        self.assertEqual(self.client.post(reverse("studio:save_component_font"), json.dumps(bad), content_type="application/json").status_code, 400)
+
+class OfflineUseTests(ProjectTestCase):
+    def test_regenerate_writes_the_offline_page_and_service_worker(self) -> None:
+        Frame.objects.create(name="frame-1")
+        generate_dist(self.project)
+        page = (self.root / "dist" / "offline" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('"tiltale:demo:unsent"', page)
+        self.assertIn('"folder": ""', page)  # the single page: the story at the dist root
+        self.assertIn("networkFirst", (self.root / "dist" / "sw.js").read_text(encoding="utf-8"))
+
+class DocumentPageTests(TestCase):
+    """The Docs pages: repository documents rendered inside the studio."""
+
+    databases = {"project"}
+
+    def test_the_readme_is_rendered_as_a_page(self) -> None:
+        response = self.client.get(reverse("studio:document", kwargs={"slug": "readme"}))
+        self.assertContains(response, "<h1>TilTale</h1>")
+
+    def test_unknown_documents_are_not_served(self) -> None:
+        self.assertEqual(self.client.get(reverse("studio:document", kwargs={"slug": "settings"})).status_code, 404)
+
+
+class LanguageColumnTests(SimpleTestCase):
+    def test_a_language_column_can_be_added_and_renamed(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "content.xlsx"
+            create_content_workbook(path, ["en-US"])
+            add_language(path, "nl-NL")
+            rename_language(path, "nl-NL", "nl-BE")
+            self.assertEqual(load_content_table(path).languages, ("en-US", "nl-BE"))
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                add_language(path, "NL-be")
+            with self.assertRaisesRegex(ValueError, "no language column"):
+                rename_language(path, "de-DE", "de-AT")
+
+
+class SaveLanguagesViewTests(ProjectTestCase):
+    languages = ["en-US", "nl-NL"]
+
+    def test_renaming_a_language_updates_everything_that_stores_the_code(self) -> None:
+        frame = Frame.objects.create(name="frame-1")
+        element = Element.objects.create(frame=frame)
+        ElementLanguageOverride.objects.create(element=element, language="nl-NL", x=1)
+        picker = Element.objects.create(frame=Frame.objects.create(name="picker-1", kind="picker"), target_language="nl-NL")
+        self.client.post(reverse("studio:save_languages"), {"rename.en-US": "en-US", "rename.nl-NL": "nl-BE"})
+        self.assertEqual(load_content_table(settings.PROJECT_DIR / "content.xlsx").languages, ("en-US", "nl-BE"))
+        self.assertEqual(ElementLanguageOverride.objects.get().language, "nl-BE")
+        self.assertEqual(Element.objects.get(pk=picker.pk).target_language, "nl-BE")
+
+    def test_adding_a_language_normalizes_the_code(self) -> None:
+        self.client.post(reverse("studio:save_languages"), {"rename.en-US": "en-US", "rename.nl-NL": "nl-NL", "new_language": " de_de "})
+        self.assertEqual(load_content_table(settings.PROJECT_DIR / "content.xlsx").languages, ("en-US", "nl-NL", "de-DE"))
+
+
+class MaterialsPageTests(ProjectTestCase):
+    def test_thumbnails_are_small_cached_webp_files(self) -> None:
+        Image.new("RGB", (4000, 3000)).save(settings.PROJECT_DIR / "materials" / "big.png")
+        thumbnail = material_thumbnail("big.png")
+        with Image.open(thumbnail) as image:
+            self.assertLessEqual(max(image.size), 360)
+        self.assertEqual(material_thumbnail("big.png"), thumbnail)  # served from the cache
+        response = self.client.get(reverse("studio:material_thumb", kwargs={"path": "big.png"}))
+        self.assertEqual(response["Content-Type"], "image/webp")
+        # A FileResponse holds the thumbnail open until it is consumed; a real server always
+        # consumes it, but the test client does not, and Windows cannot delete an open file.
+        response.close()
+
+    def test_the_materials_page_lists_size_and_usage(self) -> None:
+        Image.new("RGB", (640, 480)).save(settings.PROJECT_DIR / "materials" / "scene.png")
+        Frame.objects.create(name="frame-1", background_type="image", background_image="scene.png")
+        response = self.client.get(reverse("studio:materials"))
+        self.assertContains(response, "640×480")
+        self.assertContains(response, "background of frame-1")

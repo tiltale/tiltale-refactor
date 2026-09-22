@@ -1,0 +1,64 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | Content{% endblock %}
+{% block body %}
+<main class="page" data-content-page data-csrf="{{ csrf_token }}" data-rows-api="{% url 'studio:content_row_api' %}" data-fonts-api="{% url 'studio:save_component_font' %}">
+  <section class="card hero">
+    <p class="eyebrow">Texts and fonts</p>
+    <h1>Content</h1>
+    <p>The texts of <code>/project/content.xlsx</code> and the fonts of the components, editable without opening the files themselves. Images have their own <a href="{% url 'studio:materials' %}">Materials</a> page; languages are added and renamed under <a href="{% url 'studio:config' %}">Settings</a>. Press <strong>Regenerate</strong> afterwards to see changes in the preview.</p>
+    {% if content.error %}<div class="alert error">{{ content.error }}</div>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Texts <span class="count">{{ rows|length }}</span></h2>
+    <p class="muted">One row per text, one column per language; elements pick a row by its id. Saving a row changes it for every element that uses it. The workbook itself stays the source: you can still edit it in Excel, and rows added there appear here after a reload.</p>
+    <div class="table-wrap"><table class="table content-rows">
+      {# The same column order as content.xlsx: id, note, then one column per language. #}
+      <thead><tr><th>id</th><th>Note</th>{% for language in content.languages %}<th>{{ language }}</th>{% endfor %}<th>Used by</th><th></th></tr></thead>
+      <tbody>
+        {% for item in rows %}{% with row=item.row %}
+        <tr data-content-row="{{ row.content_id }}">
+          <td><code>{{ row.content_id }}</code></td>
+          <td><input data-note value="{{ row.note }}" aria-label="Note of row {{ row.content_id }}"></td>
+          {% for language in content.languages %}
+          <td><textarea rows="2" data-value="{{ language }}" aria-label="{{ language }} text of row {{ row.content_id }}">{% for item_language, text in row.values.items %}{% if item_language == language %}{{ text }}{% endif %}{% endfor %}</textarea></td>
+          {% endfor %}
+          <td class="muted">{{ item.uses }} element{{ item.uses|pluralize }}</td>
+          <td><button type="button" class="button small" data-save-row disabled>Save</button></td>
+        </tr>
+        {% endwith %}{% endfor %}
+        <tr data-content-row="">
+          <td class="muted">new</td>
+          <td><input data-note placeholder="Note (for translators)" aria-label="Note of the new row"></td>
+          {% for language in content.languages %}
+          <td><textarea rows="2" data-value="{{ language }}" aria-label="{{ language }} text of the new row"></textarea></td>
+          {% endfor %}
+          <td></td>
+          <td><button type="button" class="button small" data-save-row disabled>Add</button></td>
+        </tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Fonts</h2>
+    <p class="muted">One font per <em>component</em> (every speech bubble shares one font; a single element cannot differ). The choice is written to the Fonts block of <code>/project/style-overrides.css</code>. A stack edited by hand there, or an own font file (see the README, Fonts), shows as <em>Custom</em> and is left alone.</p>
+    <div class="font-rows">
+      {% for item in fonts %}
+      <div class="font-row" data-font-row data-component="{{ item.component.slug }}">
+        <div class="preview-box component-{{ item.component.slug }}"><div class="component-shape">{{ item.component.svg|safe }}</div>
+          <span class="font-sample" data-font-sample style="font-family: {{ item.stack|default:'Arial, Helvetica, sans-serif' }}">The quick brown fox</span></div>
+        <label class="field"><span class="field-label">{{ item.component.name }}</span>
+          <select data-font-select aria-label="Font of {{ item.component.name }}">
+            {% if not item.preset %}<option value="" selected>Custom ({{ item.stack|default:"page font" }})</option>{% endif %}
+            {% for name, stack in presets %}<option value="{{ name }}" data-stack="{{ stack }}"{% if name == item.preset %} selected{% endif %}>{{ name }} — {{ stack }}</option>{% endfor %}
+          </select>
+          <small class="field-help" data-font-state></small>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}
+{% block head %}<style>{{ project_css|safe }}</style>{% endblock %}

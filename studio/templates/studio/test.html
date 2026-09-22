@@ -1,0 +1,102 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | Test{% endblock %}
+{% block body %}
+<main class="page" data-test data-participant-parameter="{{ project.participant_parameter }}" data-log-api="{{ log_api }}" data-session-url="{{ session_url }}">
+  <section class="card hero">
+    <p class="eyebrow">Automatic check</p>
+    <h1>Test the story</h1>
+    <p>A robot plays every generated page of the story like a reader would: it waits for delays, clicks buttons (preferring frames it has not seen yet) and stops at <strong>End story</strong>. A test <strong>fails</strong> on a button that leads nowhere, a JavaScript error, a loop without an end, a robot that stops reaching new frames for a minute, or log events that never reach the server. Every run writes a normal log (participant <code>playtest-…</code>) that you can read below and under Results.</p>
+    {% if dist_stale %}<div class="alert warning">The generated story is older than your latest changes. Regenerate first to test what you see in the editor.</div>{% endif %}
+    {% if logs_locked %}<div class="alert warning">The logs are encrypted and no key file is loaded, so the Stress-test rows about real phones cannot be filled in. Unlock them under Results first.</div>{% endif %}
+    {% if not builds %}<p class="muted">Nothing has been generated yet. Press <strong>Regenerate</strong> on the Develop page first.</p>{% endif %}
+  </section>
+
+  {% if builds %}
+  <section class="card">
+    <form data-test-settings>
+      <div class="row">
+        <label class="check"><input type="radio" name="mode" value="play" checked>
+          <span><strong>Play-test</strong> — one quick run per page, a few seconds each. While building, after every Regenerate.</span></label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="radio" name="mode" value="stress">
+          <span><strong>Stress-test</strong> — eight runs per page under pretended bad conditions (slow or lost connection, blocked storage, a crash), about a minute per page. Before publishing.</span></label>
+      </div>
+      {% if builds|length > 1 %}
+      <fieldset><legend>Pages to test</legend>
+        <div class="row">
+          {% for build in builds %}<label class="check"><input type="checkbox" name="build" value="{{ build.label }}" checked> <span>{{ build.label }}</span></label>{% endfor %}
+        </div>
+      </fieldset>
+      {% endif %}
+      <label class="check"><input type="checkbox" name="speed">
+        <span>Speed up: run with “Element delay (seconds)” temporarily set to 0.01, so fades and click delays do not slow the robot down. Only this test run is affected; the story itself is unchanged.</span></label>
+      <div class="row">
+        <button type="button" class="button primary" data-run-test>Run the test</button>
+        <span class="muted" data-test-progress></span>
+      </div>
+    </form>
+  </section>
+
+  <div class="stress-layout">
+  <section class="card">
+    <div class="playtest-grid">
+      {% for build in builds %}
+      <article class="playtest-card" data-build-url="{{ build.url }}" data-build-label="{{ build.label }}">
+        <header class="row"><h2>{{ build.label }}</h2><span class="spacer"></span><span class="badge" data-state>Not run</span></header>
+        <div class="playtest-screen"><iframe title="Test of {{ build.label }}" tabindex="-1" data-frame></iframe></div>
+        <p class="muted" data-message>Press “Run the test”.</p>
+        <details data-log hidden>
+          <summary>Test log · <span data-count>0</span> events</summary>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>#</th><th>Time</th><th>Event</th><th>Frame</th></tr></thead>
+            <tbody data-rows></tbody>
+          </table></div>
+          <a data-session-link>Open this log under Results</a>
+        </details>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# The Stress-test checklist; hidden while the Play-test mode is selected. #}
+  <section class="card" data-stress-panel hidden>
+    <ul class="stress-list" data-stresstest>
+      {% for check in robot_checks %}
+      <li class="stress-row" data-status="" data-stress="{{ check.stress }}" data-expect="{{ check.expect }}" data-advice="{{ check.advice }}">
+        <span class="badge" data-badge>Waiting</span>
+        <div><strong>{{ check.title }}</strong><p class="muted" data-message></p><p class="advice" hidden></p></div>
+      </li>
+      {% endfor %}
+      <li class="stress-row" data-status="" data-load-time data-advice="Fewer or smaller pictures per frame make the story start sooner; Regenerate already shrinks images to phone size, so the number of pictures is what counts.">
+        <span class="badge" data-badge>Waiting</span>
+        <div><strong>Starts quickly on a mobile connection</strong><p class="muted" data-message></p><p class="advice" hidden></p></div>
+      </li>
+      {# Checked by the server when the page opened; shown, like the others, once the run starts. #}
+      {% for check in checks %}
+      <li class="stress-row" data-status="" data-result="{{ check.status }}" data-result-message="{{ check.message }}" data-advice="{{ check.advice }}">
+        <span class="badge" data-badge>Waiting</span>
+        <div><strong>{{ check.title }}</strong><p class="muted" data-message></p><p class="advice" hidden></p></div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  </div>
+
+  <section class="card" data-stress-panel hidden>
+    <h2>How to read the Stress-test list</h2>
+    <ul class="stress-legend">
+      <li><span class="badge red">red</span> Fix before the study. The row says what to do.</li>
+      <li><span class="badge orange">orange</span> Have a look; often fine.</li>
+      <li><span class="badge green">green</span> Nothing to do.</li>
+      <li><span class="badge">Waiting</span> Not checked yet: press the button.</li>
+    </ul>
+    <ul class="stress-legend">
+      <li>The robot plays every selected page while the story <em>pretends</em> a slow connection, a lost connection, blocked storage and a crash.</li>
+      <li>The other rows come from Regenerate and from the logs of real phones. To add a real phone, open the story on it with <code>?autoplay</code> added to the address.</li>
+      <li>Only <em>Plays to the end</em> red? Run a Play-test: its log shows where the robot got stuck.</li>
+    </ul>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

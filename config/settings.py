@@ -15,7 +15,7 @@ So the absence of ``/project/`` simply means "no active project".
 from pathlib import Path
 import os
 
-TILTALE_VERSION: str = "2.5.0"  # bump on every release; CI checks this on pull requests
+TILTALE_VERSION: str = "2.6.0"  # bump on every release; CI checks this on pull requests
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 PROJECT_DIR: Path = BASE_DIR / "project"
@@ -24,7 +24,7 @@ DIST_DIR: Path = PROJECT_DIR / "dist"  # the generated website lives with the pr
 COMPONENTS_DIR: Path = BASE_DIR / "components"
 FRAME_TYPES_DIR: Path = BASE_DIR / "frame-types"  # names and help texts of the frame kinds
 RUNTIME_DIR: Path = BASE_DIR / "runtime"
-BRANDING_DIR: Path = BASE_DIR  # default logo-tiltale.png and favicon.ico for every project
+BRANDING_DIR: Path = BASE_DIR / "branding"  # default logo-tiltale.png and favicon.ico for every project
 PROMPTS_DIR: Path = BASE_DIR / "docs" / "llm-prompts"
 
 SECRET_KEY: str = os.environ.get(
@@ -46,6 +46,7 @@ MIDDLEWARE: list[str] = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "studio.middleware.RememberChoicesMiddleware",  # keeps the selected language and the edit origin
 ]
 
 ROOT_URLCONF: str = "config.urls"

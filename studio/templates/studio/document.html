@@ -1,0 +1,18 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | {{ document.title }}{% endblock %}
+{% block body %}
+<main class="page narrow">
+  <section class="card">
+    <p class="eyebrow">Documentation</p>
+    <nav class="row doc-switch">
+      {% for item in documents %}
+      <a class="button small{% if item.slug == document.slug %} primary{% endif %}" href="{% url 'studio:document' item.slug %}">{{ item.title }}</a>
+      {% endfor %}
+      <span class="muted">The file <code>{{ document.file_name }}</code> in the repository root, rendered here.</span>
+    </nav>
+  </section>
+  <section class="card document-body">
+    {{ body|safe }}
+  </section>
+</main>
+{% endblock %}

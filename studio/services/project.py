@@ -1,7 +1,9 @@
 """The ``/project/`` folder: creation, health, schema and file helpers."""
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
+import re
 import shutil
 import threading
 
@@ -12,7 +14,7 @@ from django.db import DatabaseError, connections
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils.text import slugify
-from PIL import ExifTags, Image
+from PIL import ExifTags, Image, ImageOps
 
 from studio.models import ProjectSettings
 
@@ -23,7 +25,7 @@ PROJECT_FILES: tuple[str, ...] = (  # data: TilTale never recreates these, so no
     "project.sqlite3", "content.xlsx", "default-colors.css", "style-overrides.css",
 )
 PROJECT_FOLDERS: tuple[str, ...] = ("materials", "logs")  # containers: an empty one is the same as a missing one
-BRANDING_FILES: tuple[str, ...] = ("logo-tiltale.png", "favicon.ico")  # in the repository root; /project/ may override
+BRANDING_FILES: tuple[str, ...] = ("logo-tiltale.png", "favicon.ico")  # in /branding/; /project/ may override
 IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 QUARTER_TURNS: frozenset[int] = frozenset({5, 6, 7, 8})  # EXIF orientations that ImageOps.exif_transpose turns 90°
 
@@ -132,6 +134,80 @@ def list_materials() -> list[str]:
         return []
     paths = (path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES)
     return sorted(paths, key=str.casefold)
+
+
+def save_material(file_name: str, content: bytes) -> str:
+    """Store an uploaded image in ``/project/materials/`` and return its cleaned name.
+
+    An existing file of the same name is replaced (that is how an image is updated);
+    the caller says so in its message.
+    """
+    suffix: str = Path(file_name).suffix.lower()
+    if suffix not in IMAGE_SUFFIXES:
+        raise ValueError(f"{file_name}: only images are stored in /project/materials/ "
+                         f"({', '.join(sorted(IMAGE_SUFFIXES))}).")
+    stem: str = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(file_name).stem).strip("-") or "image"
+    cleaned: str = stem + suffix
+    destination: Path = safe_child(settings.PROJECT_DIR / "materials", cleaned)
+    destination.write_bytes(content)
+    return cleaned
+
+
+def delete_material(relative_path: str) -> None:
+    path: Path = safe_child(settings.PROJECT_DIR / "materials", relative_path)
+    if not path.is_file():
+        raise ValueError(f"{relative_path} is not in /project/materials/.")
+    path.unlink()
+
+
+THUMBNAIL_PIXELS: int = 360  # longest edge of a grid thumbnail
+
+
+def material_thumbnail(relative_path: str) -> Path:
+    """A small cached WebP of a material, so the image grids never load multi-megabyte originals.
+
+    Cached in ``/project/.thumbnails/`` under a name derived from the path and the file's
+    modification time: a replaced image gets a fresh thumbnail, and the old one is just dead cache.
+    """
+    source: Path = safe_child(settings.PROJECT_DIR / "materials", relative_path)
+    if not source.is_file():
+        raise ValueError(f"{relative_path} is not in /project/materials/.")
+    cache: Path = settings.PROJECT_DIR / ".thumbnails"
+    cache.mkdir(exist_ok=True)
+    key: str = hashlib.sha1(f"{relative_path}:{source.stat().st_mtime_ns}".encode("utf-8")).hexdigest()[:16]
+    thumbnail: Path = cache / f"{key}.webp"
+    if not thumbnail.is_file():
+        with Image.open(source) as opened:
+            opened.draft("RGB", (THUMBNAIL_PIXELS * 2, THUMBNAIL_PIXELS * 2))  # JPEGs decode at a fraction of full size
+            image: Image.Image = ImageOps.exif_transpose(opened).convert("RGB")
+            image.thumbnail((THUMBNAIL_PIXELS, THUMBNAIL_PIXELS))
+            image.save(thumbnail, "WEBP", quality=72)
+    return thumbnail
+
+
+_thumbnail_warmer = threading.Lock()
+
+
+def warm_thumbnails() -> None:
+    """Generate any missing thumbnails in the background, so an image grid opens at full speed.
+
+    Called when a page with a grid opens; with the cache warm this is one quick stat per image.
+    At most one warmer runs at a time.
+    """
+    if not _thumbnail_warmer.acquire(blocking=False):
+        return
+
+    def work() -> None:
+        try:
+            for name in list_materials():
+                try:
+                    material_thumbnail(name)
+                except (OSError, ValueError):
+                    continue  # an unreadable file still gets its tile; the browser shows the gap
+        finally:
+            _thumbnail_warmer.release()
+
+    threading.Thread(target=work, daemon=True).start()
 
 
 def image_size(relative_path: str) -> tuple[int, int]:

@@ -5,7 +5,11 @@
 <main class="workspace" data-editor data-language="{{ language }}" data-csrf="{{ csrf_token }}">
   <aside class="panel editor-panel">
     <div class="panel-head">
+      {% if origin == 'develop' %}
+      <a class="back" href="{% url 'studio:develop' %}?lang={{ content.language }}&amp;selected={{ frame.id }}">← Develop</a>
+      {% else %}
       <a class="back" href="{% url 'studio:flowchart' %}?lang={{ content.language }}&amp;selected={{ frame.id }}">← Flowchart</a>
+      {% endif %}
       <h1>{{ frame.name }} <code class="frame-id">{{ frame.key }}</code> {% if frame.kind != 'frame' %}<span class="badge {{ frame.kind }}">{{ frame_type.name }}</span>{% endif %}</h1>
     </div>
 
@@ -18,134 +22,189 @@
     </form>
     {% endif %}
 
-    <form method="post" class="form" data-unsaved-guard>
+    {# Folded sections keep the panel scannable; a section with a validation error opens itself. #}
+    <form method="post" id="frame-form" data-unsaved-guard>
       {% csrf_token %}
-      <h2>{{ frame_type.name }}</h2>
       {% for error in form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-      {% include 'studio/_field.html' with field=form.name %}
-      <p class="field-help">ID <code>{{ frame.key }}</code> never changes, so logs stay readable after renaming.</p>
-      {% if frame.kind == 'validation' %}
-      <input type="hidden" name="background_type" value="none"><input type="hidden" name="background_color" value="{{ frame.background_color }}">
-      {% elif frame.kind == 'document' %}
-      {% include 'studio/_field.html' with field=form.fade_in %}
-      {% include 'studio/_field.html' with field=form.fade_from_black %}
-      <input type="hidden" name="background_type" value="image">
-      <label class="field"><span class="field-label">The document: an image from /project/materials/</span>
-        <select name="background_image">
-          <option value="">Choose an image…</option>
-          {% for name in materials %}<option value="{{ name }}"{% if name == form.background_image.value %} selected{% endif %}>{{ name }}</option>{% endfor %}
-        </select>
-        <small class="field-help">Shown as large as the screen allows, keeping its proportions. Use a sharp image (a poster scan of 2000–4000 px): readers zoom into it.</small>
-      </label>
-      {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-      {% include 'studio/_field.html' with field=form.background_color %}
-      <p class="field-help">Fills the screen around the image.</p>
-      <label class="field"><span class="field-label">Text of the “× Close” button <em>(from content.xlsx)</em></span>
-        <select name="close_content_id">
-          <option value="">× only</option>
-          {% for row in content_rows %}<option value="{{ row.id }}"{% if row.id == frame.close_content_id %} selected{% endif %}>{{ row.id }} · {{ row.text|truncatechars:40 }}</option>{% endfor %}
-        </select>
-      </label>
-      {% for error in form.close_content_id.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-      <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the frame the reader came from. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
-      {% else %}
-      {% include 'studio/_field.html' with field=form.fade_in %}
-      {% include 'studio/_field.html' with field=form.fade_from_black %}
-      {% include 'studio/_field.html' with field=form.background_type %}
-      <div data-show-when="solid">{% include 'studio/_field.html' with field=form.background_color %}</div>
-      <div data-show-when="image" class="field">
-        <label class="field"><span class="field-label">Image from /project/materials/</span>
-          <select name="background_image">
-            <option value="">Choose an image…</option>
-            {% for name in materials %}<option value="{{ name }}"{% if name == form.background_image.value %} selected{% endif %}>{{ name }}</option>{% endfor %}
-          </select>
-        </label>
-        {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-        {% if frame.background_box %}<button class="button" name="fill_frame" value="1">Fill the frame again</button>{% endif %}
-      </div>
+      {% if frame.kind == 'validation' %}<input type="hidden" name="background_type" value="none"><input type="hidden" name="background_color" value="{{ frame.background_color }}">{% endif %}
+      {% if frame.kind == 'document' %}<input type="hidden" name="background_type" value="image">{% endif %}
+
+      <details class="editor-section"{% if form.name.errors %} open{% endif %}>
+        <summary>(Re)name</summary>
+        <div class="editor-body form">
+          {% include 'studio/_field.html' with field=form.name %}
+          <p class="field-help">ID <code>{{ frame.key }}</code> never changes, so logs stay readable after renaming.</p>
+        </div>
+      </details>
+
+      {% if frame.kind != 'validation' %}
+      <details class="editor-section">
+        <summary>Fade in</summary>
+        <div class="editor-body form">{% include 'studio/_field.html' with field=form.fade %}</div>
+      </details>
       {% endif %}
+
+      {% if frame.kind == 'document' %}
+      <details class="editor-section"{% if form.background_image.errors or form.close_content_id.errors %} open{% endif %}>
+        <summary>The document</summary>
+        <div class="editor-body form">
+          <label class="field"><span class="field-label">The document: an image from Materials</span>
+            <select name="background_image">
+              <option value="">Choose an image…</option>
+              {% for name in materials %}<option value="{{ name }}"{% if name == form.background_image.value %} selected{% endif %}>{{ name }}</option>{% endfor %}
+            </select>
+            <small class="field-help">Shown as large as the screen allows, keeping its proportions. Use a sharp image (a poster scan of 2000–4000 px): readers zoom into it.</small>
+          </label>
+          {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+          {% include 'studio/_field.html' with field=form.background_color %}
+          <p class="field-help">Fills the screen around the image.</p>
+          <label class="field"><span class="field-label">Text of the “× Close” button <em>(from content.xlsx)</em></span>
+            <select name="close_content_id">
+              <option value="">× only</option>
+              {% for row in content_rows %}<option value="{{ row.id }}"{% if row.id == frame.close_content_id %} selected{% endif %}>{{ row.id }} · {{ row.text|truncatechars:40 }}</option>{% endfor %}
+            </select>
+          </label>
+          {% for error in form.close_content_id.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+          <p class="field-help">The button appears in the top-right corner, unscaled, and returns to the frame the reader came from. Phones pinch and drag; larger screens also get + / − buttons and the mouse wheel.</p>
+        </div>
+      </details>
+      {% elif frame.kind != 'validation' %}
+      <details class="editor-section"{% if form.background_image.errors %} open{% endif %}>
+        <summary>Background</summary>
+        <div class="editor-body form">
+          {% include 'studio/_field.html' with field=form.background_type %}
+          <div data-show-when="solid">{% include 'studio/_field.html' with field=form.background_color %}</div>
+          <div data-show-when="image" class="field">
+            <label class="field"><span class="field-label">Image from Materials</span>
+              <select name="background_image">
+                <option value="">Choose an image…</option>
+                {% for name in materials %}<option value="{{ name }}"{% if name == form.background_image.value %} selected{% endif %}>{{ name }}</option>{% endfor %}
+              </select>
+            </label>
+            {% for error in form.background_image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+            {% if frame.background_box %}<button class="button" name="fill_frame" value="1">Fill the frame again</button>{% endif %}
+          </div>
+        </div>
+      </details>
+      {% endif %}
+    </form>
+
+    {% if frame.kind == 'validation' %}
+    <details class="editor-section" open>
+      <summary>Rules <span class="count">{{ conditions|length }}</span></summary>
+      <div class="editor-body">
+        <form method="post" action="{% url 'studio:save_rules' frame.id %}" class="form" data-rules data-unsaved-guard>
+          {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+          <p class="field-help">Checked from top to bottom; the first matching rule decides.</p>
+          {% if not variables %}<div class="alert warning">There are no global variables yet. Define one under <a href="{% url 'studio:config' %}?tab=advanced">Settings → Advanced</a> first, then add rules here.</div>{% endif %}
+          <ol class="rule-list" data-rule-list>
+            {% for rule in conditions %}{% include 'studio/_rule.html' with index=forloop.counter0 %}{% endfor %}
+          </ol>
+          <template data-rule-template>{% include 'studio/_rule.html' with index='IDX' rule=None %}</template>
+          <button type="button" class="button" data-add-rule{% if not variables %} disabled{% endif %}>+ Add rule</button>
+          <label class="field"><span class="field-label">Otherwise, go to</span>
+            <input type="hidden" name="else.id" value="{{ otherwise.id|default:'' }}">
+            <select name="else.target">{% for value, label in rule_targets %}<option value="{{ value }}"{% if value == otherwise.target_value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            <small class="field-help">Readers whose values match none of the rules go here. Every validation point needs this, or those readers get stuck.</small>
+          </label>
+          <p class="field-help">Values are checked against the variable's type: a number variable (initial value such as 0 or 2.5) is compared with numbers, a text variable with text.</p>
+          <button class="button primary">Save rules</button>
+        </form>
+      </div>
+    </details>
+    {% endif %}
+
+    {% if frame.has_canvas %}
+    <details class="editor-section">
+      <summary>Add elements</summary>
+      <div class="editor-body form">
+        <div class="row">
+          <button type="button" class="button" data-open-dialog="component-picker">+ Component…</button>
+          <button type="button" class="button" data-open-dialog="material-picker">+ Image…</button>
+        </div>
+        <p class="field-help">Components are the story's building blocks: bubbles, buttons, captions. Images come from the <a href="{% url 'studio:materials' %}">Materials</a> page.</p>
+      </div>
+    </details>
+
+    <details class="editor-section">
+      <summary>(Re)order elements <span class="count">{{ elements|length }}</span></summary>
+      <div class="editor-body form">
+        <p class="field-help">Top of the list is the <strong>front</strong> layer. Drag a pill to restack, or use ⤒ / ⤓ (shown on hover). Click a pill's name for its settings.</p>
+        {% if not elements %}<p class="muted">No elements yet: open <em>Add elements</em> above.</p>{% endif %}
+        <ul class="element-pills" data-element-order data-order-url="{% url 'studio:element_order_api' frame.id %}">
+          {% for item in elements reversed %}{% with element=item.element %}
+          <li class="pill{% if not element.frame_id %} pill-global{% endif %}"{% if element.frame_id %} draggable="true"{% endif %} data-element-id="{{ element.id }}"{% if element.frame_id %} data-owned{% endif %}>
+            <span class="pill-grip" aria-hidden="true">{% if element.frame_id %}⣿{% else %}—{% endif %}</span>
+            <button type="button" class="pill-open" data-open-dialog="element-{{ element.id }}">#{{ element.id }} {{ item.component.name|default:element.image }}{% if item.has_override %} ◆{% endif %}</button>
+            {% if not element.frame_id %}<span class="badge" title="Added under Settings → Advanced; shown on every frame; its layer is shared, so it is not dragged here">every frame</span>{% endif %}
+            {% if item.component %}<span class="pill-text muted">{{ item.text|truncatechars:28|default:"(no text)" }}</span>{% else %}<span class="pill-text"></span>{% endif %}
+            {% if element.frame_id %}
+            <span class="pill-actions">
+              <button type="button" class="icon" data-order-move="front" title="Bring to the very front">⤒</button>
+              <button type="button" class="icon" data-order-move="back" title="Send to the very back">⤓</button>
+            </span>
+            {% endif %}
+          </li>
+          {% endwith %}{% endfor %}
+          {% if frame.background_type != 'none' %}
+          <li class="pill pill-locked" title="The background is always the very back layer; nothing can go behind it and it cannot move up.">
+            <span class="pill-grip" aria-hidden="true">🔒</span>
+            <span>Background · {% if frame.background_type == 'image' %}{{ frame.background_image }}{% else %}solid color{% endif %}</span>
+            <span class="pill-text muted">always behind everything</span>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+    </details>
+
+    {% if llm_prompt %}
+    <details class="editor-section">
+      <summary>Build with an LLM</summary>
+      <div class="editor-body form">
+        <p class="field-help">1. Copy the prompt and paste it into a chat with a language model, together with the storyboard image of this frame. 2. Paste the model's JSON answer below. New elements are added; existing ones stay.</p>
+        <textarea readonly rows="3" aria-label="Prompt for the language model" data-prompt>{{ llm_prompt }}</textarea>
+        <button type="button" class="button" data-copy-prompt>Copy prompt</button>
+        <form method="post" action="{% url 'studio:import_elements' frame.id %}" class="form">
+          {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
+          <textarea name="answer" rows="5" required placeholder='{"elements": [...]}' aria-label="The model's answer"></textarea>
+          <button class="button primary">Add these elements</button>
+        </form>
+      </div>
+    </details>
+    {% endif %}
+    {% endif %}
+
+    {# Always visible at the panel's bottom: nobody should ever search for the save button. #}
+    <div class="editor-actions">
       <div class="row">
-        <button class="button primary">Save {{ frame_type.name|lower }}</button>
+        <button class="button primary" form="frame-form">Save {{ frame_type.name|lower }}</button>
+        <button class="button" form="frame-form" name="exit" value="1" title="Save, then go back to the {{ origin|title }} page, zoomed in on this frame">Save and exit</button>
         <button class="button danger" form="delete-frame">Delete</button>
       </div>
-    </form>
+      {% if continues_to %}
+      <details class="continues">
+        <summary>Continues to <span class="count">{{ continues_to|length }}</span></summary>
+        <p class="field-help">The frames this one leads to (buttons and rules). Edit one to keep working along the branch. New connections appear after a save.</p>
+        <div class="thumb-grid">
+          {% for item in continues_to %}
+          <article class="thumb is-{{ item.frame.kind }}">
+            <div class="thumb-screen">
+              {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ item.frame.name }}" src="{{ item.preview_url }}?inspect=1&amp;frame={{ item.frame.key }}"></iframe>{% endif %}
+            </div>
+            <div class="thumb-foot">
+              <strong>{{ item.frame.name }}</strong> <code class="frame-id">{{ item.frame.key }}</code>
+              <a class="button small thumb-edit" href="{% url 'studio:frame_editor' item.frame.id %}?lang={{ content.language }}">Edit</a>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
     <form method="post" id="delete-frame" action="{% url 'studio:delete_frame' frame.id %}"
           data-confirm="Delete {{ frame.name }}{% if elements %} and its {{ elements|length }} element(s){% endif %}?{% if incoming %} {{ incoming }} button(s) or rule(s) that lead here will lead nowhere.{% endif %}">
       {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
     </form>
-
-    {% if frame.kind == 'validation' %}
-    <form method="post" action="{% url 'studio:save_rules' frame.id %}" class="form" data-rules data-unsaved-guard>
-      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
-      <h2>Rules <span class="count">{{ conditions|length }}</span> <span class="muted">checked from top to bottom</span></h2>
-      {% if not variables %}<div class="alert warning">There are no global variables yet. Define one under <a href="{% url 'studio:config' %}?tab=advanced">Settings → Advanced</a> first, then add rules here.</div>{% endif %}
-      <ol class="rule-list" data-rule-list>
-        {% for rule in conditions %}{% include 'studio/_rule.html' with index=forloop.counter0 %}{% endfor %}
-      </ol>
-      <template data-rule-template>{% include 'studio/_rule.html' with index='IDX' rule=None %}</template>
-      <button type="button" class="button" data-add-rule{% if not variables %} disabled{% endif %}>+ Add rule</button>
-      <label class="field"><span class="field-label">Otherwise, go to</span>
-        <input type="hidden" name="else.id" value="{{ otherwise.id|default:'' }}">
-        <select name="else.target">{% for value, label in rule_targets %}<option value="{{ value }}"{% if value == otherwise.target_value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-        <small class="field-help">Readers whose values match none of the rules go here. Every validation point needs this, or those readers get stuck.</small>
-      </label>
-      <p class="field-help">Values are checked against the variable's type: a number variable (initial value such as 0 or 2.5) is compared with numbers, a text variable with text. The first matching rule wins, so put the most specific rule first.</p>
-      <button class="button primary">Save rules</button>
-    </form>
-    {% endif %}
-
-    {% if frame.has_canvas %}
-    <section>
-      <h2>Elements <span class="count">{{ elements|length }}</span> <span class="muted">back to front</span></h2>
-      {% if not elements %}<p class="muted">Add a component below.</p>{% endif %}
-      <ul class="element-list">
-        {% for item in elements %}
-        <li><button type="button" class="link" data-open-dialog="element-{{ item.element.id }}">#{{ item.element.id }} {{ item.component.name|default:item.element.image }}{% if item.has_override %} ◆{% endif %}{% if not item.element.frame_id %} <span class="badge" title="Added under Settings → Advanced; shown on every frame">every frame</span>{% endif %}</button>
-          <span class="element-order">
-            {% if item.element.frame_id %}
-            {% if not forloop.first %}<button class="icon" form="move-{{ item.element.id }}" name="direction" value="backward" title="Send backward (the background always stays behind)">▼</button>{% endif %}
-            {% if not forloop.last %}<button class="icon" form="move-{{ item.element.id }}" name="direction" value="forward" title="Bring forward">▲</button>{% endif %}
-            {% endif %}
-          </span>
-          {% if item.component %}<span class="muted">{{ item.text|truncatechars:40|default:"(no text)" }}</span>{% endif %}</li>
-        {% endfor %}
-      </ul>
-    </section>
-
-    <section>
-      <h2>Add a component</h2>
-      <div class="component-list">
-        {% for component in components %}
-        <button type="button" class="component-card" data-open-dialog="component-{{ component.slug }}"><strong>{{ component.name }}</strong><span>{{ component.description }}</span></button>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section>
-      <h2>Add an image <span class="count">{{ materials|length }}</span></h2>
-      {% if materials %}<p class="field-help">Click an image to see it, then use it as the background or add it to the frame.</p>
-      {% else %}<p class="muted">Put images in <code>/project/materials/</code> and reload.</p>{% endif %}
-      <div class="material-grid">
-        {% for name in materials %}
-        <button type="button" class="material-thumb" data-open-dialog="material-{{ forloop.counter }}" title="{{ name }}"><img src="{% url 'studio:material_file' name %}" alt="{{ name }}" loading="lazy"></button>
-        {% endfor %}
-      </div>
-    </section>
-
-    {% if llm_prompt %}
-    <details class="llm-box">
-      <summary>Build with an LLM</summary>
-      <p class="field-help">1. Copy the prompt and paste it into a chat with a language model, together with the storyboard image of this frame. 2. Paste the model's JSON answer below. New elements are added; existing ones stay.</p>
-      <textarea readonly rows="3" aria-label="Prompt for the language model" data-prompt>{{ llm_prompt }}</textarea>
-      <button type="button" class="button" data-copy-prompt>Copy prompt</button>
-      <form method="post" action="{% url 'studio:import_elements' frame.id %}" class="form">
-        {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}">
-        <textarea name="answer" rows="5" required placeholder='{"elements": [...]}' aria-label="The model's answer"></textarea>
-        <button class="button primary">Add these elements</button>
-      </form>
-    </details>
-    {% endif %}
-    {% endif %}
   </aside>
 
   <section class="stage-area">
@@ -300,36 +359,62 @@
     {% endif %}
     {% if item.has_override %}<form method="post" id="reset-{{ element.id }}" action="{% url 'studio:save_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"><input type="hidden" name="reset_language" value="1"></form>{% endif %}
     <form method="post" id="duplicate-{{ element.id }}" action="{% url 'studio:duplicate_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"></form>
-    <form method="post" id="move-{{ element.id }}" action="{% url 'studio:move_element' element.id %}">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"></form>
     <form method="post" id="delete-{{ element.id }}" action="{% url 'studio:delete_element' element.id %}" data-confirm="Delete element #{{ element.id }}{% if not element.frame_id %} from every frame{% endif %}?">{% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="frame" value="{{ frame.id }}"></form>
   </dialog>
   {% endwith %}
   {% endfor %}
 
-  {% for component in components %}
-  <dialog class="dialog" id="component-{{ component.slug }}">
-    <header class="dialog-head"><h2>{{ component.name }}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
-    <div class="preview-box component-{{ component.slug }}"{% if component.tail %} data-tail="{{ component.tail }}"{% endif %}><div class="component-shape">{{ component.svg|safe }}</div></div>
-    <p>{{ component.description }}</p>
+  <dialog class="dialog wide" id="component-picker">
+    <header class="dialog-head"><h2>Add a component</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
+    <div class="picker-grid">
+      {% for component in components %}
+      <button type="button" class="picker-card" data-pick-component="{{ component.slug }}" data-pick-name="{{ component.name }}">
+        <span class="preview-box picker-preview">
+          <span class="story-element component-{{ component.slug }}{% if component.auto_height %} auto-height{% endif %}"{% if component.tail %} data-tail="{{ component.tail }}"{% endif %}
+                style="width: {{ component.default_width|stringformat:'g' }}px; {% if component.auto_height %}min-height{% else %}height{% endif %}: {{ component.default_height|stringformat:'g' }}px; font-size: 60px;">
+            <span class="component-shape">{{ component.svg|safe }}</span>
+            {% if component.accepts_content %}<span class="component-text"><span>{% if component.scoreboard %}12{% else %}TEXT{% endif %}</span></span>{% endif %}
+          </span>
+        </span>
+        <strong>{{ component.name }}</strong>
+        <span class="muted">{{ component.description }}</span>
+        <span class="picker-facts">
+          {% if component.clickable %}<span class="badge">clickable → can lead to a frame</span>{% endif %}
+          {% if component.accepts_content %}<span class="badge">text from content.xlsx</span>{% endif %}
+          {% if component.auto_height %}<span class="badge">grows with its text</span>{% endif %}
+          {% if component.scoreboard %}<span class="badge">made to show a {score}</span>{% endif %}
+        </span>
+      </button>
+      {% endfor %}
+    </div>
     <form method="post" action="{% url 'studio:add_element' frame.id %}" class="dialog-foot">
-      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="component" value="{{ component.slug }}">
-      <span class="spacer"></span><button class="button primary">Add to frame</button>
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="component" data-picked>
+      <span class="muted" data-picked-name>Choose a component above.</span>
+      <span class="spacer"></span><button class="button primary" data-picker-confirm disabled>Add to frame</button>
     </form>
   </dialog>
-  {% endfor %}
 
-  {% for name in materials %}
-  <dialog class="dialog" id="material-{{ forloop.counter }}">
-    <header class="dialog-head"><h2>{{ name }}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
-    <div class="preview-box"><img src="{% url 'studio:material_file' name %}" alt="{{ name }}" loading="lazy"></div>
+  <dialog class="dialog wide" id="material-picker">
+    <header class="dialog-head"><h2>Add an image</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>
+    {% if materials %}
+    <input type="search" placeholder="Filter by file name" aria-label="Filter images" data-material-filter>
+    <div class="picker-grid">
+      {% for name in materials %}
+      <button type="button" class="picker-card" data-pick-material="{{ name }}" data-pick-name="{{ name }}" data-file-name="{{ name|lower }}">
+        <img class="blur-in" src="{% url 'studio:material_thumb' name %}" alt="{{ name }}" loading="lazy" width="200" height="134">
+        <span class="picker-name">{{ name }}</span>
+      </button>
+      {% endfor %}
+    </div>
+    {% else %}<p class="muted">No images yet. Upload them on the <a href="{% url 'studio:materials' %}">Materials</a> page, then reload this frame.</p>{% endif %}
     <form method="post" action="{% url 'studio:add_image' frame.id %}" class="dialog-foot">
-      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="image" value="{{ name }}">
+      {% csrf_token %}<input type="hidden" name="language" value="{{ content.language }}"><input type="hidden" name="image" data-picked>
+      <span class="muted" data-picked-name>Choose an image above.</span>
       <span class="spacer"></span>
-      <button type="button" class="button" data-use-background="{{ name }}">Use as background</button>
-      <button class="button primary">Add to frame</button>
+      <button type="button" class="button" data-use-background disabled>Use as background</button>
+      <button class="button primary" data-picker-confirm disabled>Add to frame</button>
     </form>
   </dialog>
-  {% endfor %}
 
   <dialog class="dialog wide" id="content-picker">
     <header class="dialog-head"><h2>Choose a text ({{ language }})</h2><button type="button" class="icon" data-close aria-label="Close">×</button></header>

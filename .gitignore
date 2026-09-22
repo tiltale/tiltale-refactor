@@ -14,3 +14,7 @@ Thumbs.db
 
 # Archives shared outside Git
 *.zip
+
+# start_TilTale launcher
+start_TilTale.log
+_tiltale_tmp/

@@ -5,21 +5,25 @@
   <section class="card hero">
     <p class="eyebrow">Help</p>
     <h1>How TilTale fits together</h1>
-    <p>You build the story here. <strong>Regenerate</strong> turns it into a plain website in <code>/project/dist/</code> (HTML, CSS, JavaScript and one small <code>log.php</code>), which you upload to any web host with PHP.</p>
+    <p>You build the story here. <strong>Regenerate</strong> turns it into a plain website in <code>/project/dist/</code> (HTML, CSS, JavaScript and one small <code>log.php</code>), which you upload to any web host with PHP. The <code>start_TilTale</code> launcher in the repository root starts this studio without a terminal, and tells you when a newer TilTale exists (updating is always your choice).</p>
   </section>
   <section class="card">
     <h2>The workflow</h2>
     <ol class="steps">
-      <li><strong>Frames</strong> are the story's screens. Create them with <em>+ Add frame</em>, choosing a kind: a normal <em>Frame</em> with a background and <strong>elements</strong> (speech bubbles, buttons, images…), a <em>Document</em> (one zoomable image), a <em>Validation point</em> (invisible: sends readers on according to the global variables), or a <em>Minigame</em>.</li>
-      <li><strong>Text</strong> comes from <code>/project/content.xlsx</code>: one row per text, one column per language. Pick a row for an element, or add one from the element's settings.</li>
-      <li><strong>Connections</strong>: set what a button does (go to a frame, end the story, or open a language). The <em>Flowchart</em> shows the result.</li>
-      <li><strong>Regenerate</strong>, then check the preview on different phones and run the <em>Play-test</em>.</li>
-      <li>Upload <code>/project/dist/</code>; later download <code>dist/logs/</code> from the server and import it under <em>Results</em>. What a story records, and how to encrypt the logs with a project key (<em>Settings → Advanced → Protect logs</em>), is in <code>ETHICS.md</code>.</li>
+      <li><strong>Frames</strong> are the story's screens. Create them with <em>+ Add frame</em>, choosing a kind: a normal <em>Frame</em> with a background and <strong>elements</strong> (speech bubbles, buttons, images…), a <em>Document</em> (one zoomable image), a <em>Validation point</em> (invisible: sends readers on according to the global variables), or a <em>Minigame</em>. A frame's <em>Fade</em> is one setting: no fade, a crossfade, or a fade from black — both fades take <em>Element delay</em> seconds.</li>
+      <li><strong>Text</strong> comes from <code>/project/content.xlsx</code>: one row per text, one column per language. Pick a row for an element, or manage every row and the component fonts on the <em>Content</em> page; the images of <code>/project/materials/</code> have their own <em>Materials</em> page (upload with the + tile, or drop files). Languages are added and renamed under <em>Settings</em>.</li>
+      <li><strong>Connections</strong>: set what a button does (go to a frame, end the story, or open a language). The <em>Flowchart</em> shows the result, and the frame editor previews the frames a frame leads to. <em>Save and exit</em> returns to the Develop page or flowchart, zoomed in on the frame you edited, keeping your language selection.</li>
+      <li><strong>Regenerate</strong>, then check the preview on different phones and open the <em>Test</em> page: a quick <em>Play-test</em> while building, the thorough <em>Stress-test</em> before publishing.</li>
+      <li>Upload <code>/project/dist/</code>; later download <code>dist/logs/</code> from the server and import it under <em>Results</em>. What a story records, and how to encrypt the logs with a project key (<em>Settings → Advanced → Protect logs</em>), is in <a href="{% url 'studio:document' 'ethics' %}">Ethics &amp; data</a>.</li>
     </ol>
   </section>
   <section class="card">
     <h2>Participants and logs</h2>
-    <p>Every page load writes a new log file <code>&lt;participant&gt;--&lt;visit&gt;.jsonl</code>. The participant ID comes from the URL (default parameter <code>ppn</code>, e.g. <code>index.html?ppn=R_abc123</code> from Qualtrics) or is generated. Readers who reload continue where they were; incognito windows start over.</p>
+    <p>Every page load writes a new log file <code>&lt;participant&gt;--&lt;visit&gt;.jsonl</code>. The participant ID comes from the URL (default parameter <code>ppn</code>, e.g. <code>index.html?ppn=R_abc123</code> from Qualtrics) or is generated. Readers who reload continue where they were; incognito windows start over. <em>Settings → Advanced</em> can show the first characters of the ID on final frames, so an experimenter can read back which participant a device was on.</p>
+  </section>
+  <section class="card">
+    <h2>Playing without wifi</h2>
+    <p>For a classroom or field day without a connection: open <code>&lt;your story&gt;/offline/</code> on each device while online and press <em>Download everything</em>. The story then opens, restarts and replays offline; every session is kept on the device and uploaded — every visit into its own log file — the next time the device is online (the same page shows what is still waiting). Old story links keep working after languages change: a retired address forwards readers to the start page.</p>
   </section>
   <section class="card">
     <h2>Global variables and scoreboards</h2>
@@ -31,8 +35,8 @@
   </section>
   <section class="card">
     <h2>Keep data local</h2>
-    <p><code>/project/</code> (including the generated website in <code>/project/dist/</code>) is ignored by Git. The full developer guide, with a table of every file, is in <code>README.md</code>.</p>
-    <p class="muted">TilTale version {{ version }}</p>
+    <p><code>/project/</code> (including the generated website in <code>/project/dist/</code>) is ignored by Git. The full developer guide, with a table of every file, is under <a href="{% url 'studio:document' 'readme' %}">Docs → README</a>, together with the <a href="{% url 'studio:document' 'license' %}">license</a> and the <a href="{% url 'studio:document' 'ethics' %}">ethics &amp; data</a> notes.</p>
+    <p class="muted">TilTale version {{ version }} · started as an idea by Jan de Wit · maintained at <a href="{{ repository }}">github.com/tiltale/tiltale-refactor</a></p>
   </section>
 </main>
 {% endblock %}

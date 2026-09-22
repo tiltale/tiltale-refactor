@@ -17,8 +17,9 @@
       <nav class="nav" aria-label="Main">
         <a href="{% url 'studio:develop' %}" {% if here == 'develop' or here == 'frame_editor' %}aria-current="page"{% endif %}>Develop</a>
         <a href="{% url 'studio:flowchart' %}" {% if here == 'flowchart' %}aria-current="page"{% endif %}>Flowchart</a>
-        <a href="{% url 'studio:playtest' %}" {% if here == 'playtest' %}aria-current="page"{% endif %}>Play-test</a>
-        <a href="{% url 'studio:stresstest' %}" {% if here == 'stresstest' %}aria-current="page"{% endif %}>Stress test</a>
+        <a href="{% url 'studio:content' %}" {% if here == 'content' %}aria-current="page"{% endif %}>Content</a>
+        <a href="{% url 'studio:materials' %}" {% if here == 'materials' %}aria-current="page"{% endif %}>Materials</a>
+        <a href="{% url 'studio:test' %}" {% if here == 'test' %}aria-current="page"{% endif %}>Test</a>
         <a href="{% url 'studio:config' %}" {% if here == 'config' %}aria-current="page"{% endif %}>Settings</a>
         <a href="{% url 'studio:results' %}" {% if here == 'results' or here == 'session_detail' %}aria-current="page"{% endif %}>Results</a>
       </nav>

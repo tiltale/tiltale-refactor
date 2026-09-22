@@ -1,0 +1,187 @@
+<!doctype html>
+<!-- Made with TilTale version __VERSION__. Written to <root>/offline/index.html by Regenerate,
+     which fills in __TITLE__, __PROJECT__ and __PAGES__ (see studio/services/generate.py).
+
+     For classrooms and field work (README, "Offline classroom use"): open this page while there is
+     wifi and press Download; every language of the story ends up on this device. Then go offline:
+     the story opens, restarts and replays as often as needed, and every session is logged to a
+     queue on the device. Back online, this page (or simply opening the story) uploads the queue. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>__TITLE__ — offline use</title>
+  <link rel="icon" href="../favicon.ico">
+  <style>
+    body { margin: 0; padding: 24px; background: #111; color: #eee; font: 16px/1.5 Arial, Helvetica, sans-serif; }
+    main { max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; }
+    .card { background: #1d1d1f; border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+    button { padding: 10px 18px; border: 0; border-radius: 8px; background: #fff; color: #111; font: 600 15px/1 Arial, sans-serif; cursor: pointer; }
+    button:disabled { opacity: .5; }
+    #bar { height: 6px; margin: 12px 0 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
+    #bar i { display: block; width: 0; height: 100%; background: #6fdc8c; }
+    a { color: #9ec2ff; }
+    .muted { color: #999; font-size: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>__TITLE__ — prepare for offline use</h1>
+  <p>For a classroom or field session without wifi: press the button <strong>while this device is online</strong>. Every page and image of the story is stored on this device. After that the story opens, restarts and replays without a connection; what happens is kept on the device and uploaded the next time it is online.</p>
+
+  <div class="card">
+    <h2>1 · Download the story onto this device</h2>
+    <p class="muted">Do this on every device that will be used, and again after the story was republished. Images are stored in the size this device needs.</p>
+    <button id="download">Download everything</button>
+    <div id="bar" hidden><i></i></div>
+    <p id="download-state" class="muted"></p>
+    <p id="links" hidden></p>
+  </div>
+
+  <div class="card">
+    <h2>2 · After the session: upload what happened</h2>
+    <p id="queue-state" class="muted"></p>
+    <button id="upload">Upload now</button>
+    <p class="muted">Opening the story while online uploads automatically too; this button only makes it visible that nothing is left on the device.</p>
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var PAGES = __PAGES__;  /* [{label, folder}, ...]; folder "" is the start page / single story */
+  var ROOT = "../";
+  var SHARED = ["tiltale.js", "bubbles.js", "style.css", "logo-tiltale.png", "favicon.ico", "restart/index.html", "offline/index.html"];
+  var queueKey = "tiltale:__PROJECT__:unsent";
+  var BATCH = 25;
+
+  function pagePath(folder) { return folder ? folder + "/index.html" : "index.html"; }
+
+  /* Same choice as chooseSource in tiltale.js: the variant this screen needs. */
+  function chooseSource(sources) {
+    if (!sources || !sources.length) return null;
+    var wanted = Math.min(1920, Math.max(window.innerWidth, window.innerHeight) * (window.devicePixelRatio || 1));
+    for (var i = 0; i < sources.length; i += 1) if (sources[i].width >= wanted) return sources[i];
+    return sources[sources.length - 1];
+  }
+
+  /* Every image the story on ``folder`` can show: element images, backgrounds, documents (sharpest). */
+  function imagesOf(story) {
+    var chosen = {};
+    story.frames.forEach(function (frame) {
+      var lists = frame.elements.map(function (element) { return element.image; });
+      if (frame.background && frame.background.type === "image") lists.push(frame.background.sources);
+      lists.forEach(function (sources) {
+        var source = frame.kind === "document" && sources ? sources[sources.length - 1] : chooseSource(sources);
+        if (source) chosen[source.path] = source;
+      });
+    });
+    return Object.keys(chosen).map(function (path) { return chosen[path]; });
+  }
+
+  function storyOf(folder) {
+    return fetch(ROOT + (folder ? folder + "/" : "") + "story.js", {cache: "no-cache"}).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status + " for " + folder + "/story.js");
+      return response.text();
+    }).then(function (text) {
+      return JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    });
+  }
+
+  var downloadButton = document.getElementById("download");
+  var state = document.getElementById("download-state");
+  var bar = document.getElementById("bar");
+
+  downloadButton.addEventListener("click", function () {
+    if (!window.isSecureContext || !navigator.serviceWorker || !window.caches) {
+      state.textContent = "This browser (or a plain http address) cannot store the story for offline use. Serve the story over https.";
+      return;
+    }
+    downloadButton.disabled = true;
+    bar.hidden = false;
+    state.textContent = "Preparing…";
+    navigator.serviceWorker.register(ROOT + "sw.js").then(function () {
+      return Promise.all(PAGES.map(function (page) { return storyOf(page.folder); }));
+    }).then(function (stories) {
+      var shell = SHARED.slice();
+      var images = {};
+      stories.forEach(function (story, index) {
+        var folder = PAGES[index].folder;
+        shell.push(pagePath(folder), folder ? folder + "/story.js" : "story.js");
+        imagesOf(story).forEach(function (source) { images[source.path] = source; });
+      });
+      var sources = Object.keys(images).map(function (path) { return images[path]; });
+      var done = 0;
+      var total = shell.length + sources.length;
+      var tick = function () {
+        done += 1;
+        document.querySelector("#bar i").style.width = (done / total * 100) + "%";
+        state.textContent = "Downloading… " + Math.round(done / total * 100) + "%";
+      };
+      var fetchInto = function (cacheName, path) {
+        return window.caches.open(cacheName).then(function (cache) {
+          return fetch(ROOT + path, {cache: "no-cache"}).then(function (response) {
+            if (!response.ok) throw new Error("HTTP " + response.status + " for " + path);
+            return cache.put(ROOT + path, response);
+          });
+        }).then(tick);
+      };
+      return Promise.all([
+        Promise.all(shell.map(function (path) { return fetchInto("tiltale-shell", path); })),
+        Promise.all(sources.map(function (source) { return fetchInto("tiltale-__PROJECT__", source.path); }))
+      ]);
+    }).then(function () {
+      state.textContent = "Done. This device can now play the story without a connection.";
+      var links = document.getElementById("links");
+      links.hidden = false;
+      links.innerHTML = "Open the story: " + PAGES.map(function (page) {
+        return '<a href="' + ROOT + pagePath(page.folder) + '">' + (page.label || "Start") + "</a>";
+      }).join(" · ") + '<br><span class="muted">Restart between students with the story’s Restart element, or the address …/restart/ while online (offline, use Restart inside the story).</span>';
+    }).catch(function (error) {
+      state.textContent = "Download failed: " + (error.message || error) + " — check the connection and try again.";
+      downloadButton.disabled = false;
+    });
+  });
+
+  // ------------------------------------------------------------- the log queue
+  function readQueue() {
+    try { return JSON.parse(window.localStorage.getItem(queueKey)) || []; } catch (error) { return []; }
+  }
+
+  function showQueue() {
+    var queue = readQueue();
+    document.getElementById("queue-state").textContent = queue.length
+      ? queue.length + " log event(s) from earlier sessions are still on this device."
+      : "Nothing is waiting: every logged event is on the server.";
+    document.getElementById("upload").disabled = !queue.length;
+  }
+
+  document.getElementById("upload").addEventListener("click", function send() {
+    var queue = readQueue();
+    if (!queue.length) return showQueue();
+    // log.php takes one visit per request; the queue is chronological, so a batch stops where the next visit starts.
+    var batch = [queue[0]];
+    for (var i = 1; i < queue.length && batch.length < BATCH; i += 1) {
+      if (queue[i].participant_id !== queue[0].participant_id || queue[i].visit_id !== queue[0].visit_id) break;
+      batch.push(queue[i]);
+    }
+    fetch(ROOT + "log.php", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(batch.length === 1 ? batch[0] : batch)
+    }).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      queue.splice(0, batch.length);
+      try { window.localStorage.setItem(queueKey, JSON.stringify(queue)); } catch (error) { /* best-effort */ }
+      showQueue();
+      if (queue.length) send();
+    }).catch(function (error) {
+      document.getElementById("queue-state").textContent = "Upload failed (" + (error.message || error) + "). Check the connection and try again.";
+    });
+  });
+
+  showQueue();
+}());
+</script>
+</body>
+</html>

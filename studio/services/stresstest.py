@@ -1,9 +1,9 @@
-"""The Stress test page: does the story work everywhere? (README, Play-test and Stress test)
+"""The Stress-test half of the Test page: does the story work everywhere?
 
 A checklist of rows, each red, orange or green. The rows here need no browser and are computed when
 the page opens: the story player's compatibility with old phones, Regenerate's warnings, and what the
 logs say about real phones. The other rows (the play-test robot under pretended bad conditions) are run
-by ``setupStresstest`` in app.js, which also sorts every row so that red comes first.
+by ``runStresstest`` in app.js, which also sorts every row so that red comes first.
 """
 
 from dataclasses import dataclass
@@ -43,9 +43,9 @@ class RobotCheck:
 
 ROBOT_CHECKS: tuple[RobotCheck, ...] = (
     RobotCheck("normal", "Plays to the end", "", "pass",
-               "Open Play-test: it shows which button or frame the robot got stuck on."),
+               "Run a Play-test: its log shows which button or frame the robot got stuck on."),
     RobotCheck("slow", "Survives a slow connection", "slow", "pass",
-               "The story or its log upload does not cope with a slow line. Compare with a normal run under Play-test."),
+               "The story or its log upload does not cope with a slow line. Compare with a normal Play-test run."),
     RobotCheck("lost", "Survives a lost connection", "lost-connection", "pass",
                "Log events written while offline must arrive after the connection returns. If not, the queue in tiltale.js is broken."),
     RobotCheck("no-cache", "Works without cache storage", "no-cache", "pass",

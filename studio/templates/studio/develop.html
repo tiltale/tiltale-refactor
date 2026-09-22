@@ -1,7 +1,7 @@
 {% extends 'studio/base.html' %}
 {% block title %}TilTale | Develop{% endblock %}
 {% block body %}
-<main class="workspace" data-develop>
+<main class="workspace" data-develop data-selected="{{ selected_frame }}">
   <aside class="panel frame-panel" data-frame-panel>
     <div class="panel-head">
       <h2>Frames <span class="count">{{ frames|length }}</span></h2>
@@ -10,14 +10,14 @@
     {% if not frames %}<p class="muted">No frames yet. Create the first one with <strong>+ Add</strong> at the top right.</p>{% endif %}
     <div class="thumb-grid">
       {% for frame in frames %}
-      <article class="thumb is-{{ frame.kind }}" data-frame-name="{{ frame.name|lower }}" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}" title="Click to show this frame in the preview">
+      <article class="thumb is-{{ frame.kind }}" data-frame-id="{{ frame.id }}" data-frame-name="{{ frame.name|lower }}" data-view-frame="{{ frame.preview_url }}?preview=1&amp;frame={{ frame.key }}" title="Click to show this frame in the preview">
         <div class="thumb-screen">
           {% if dist_ready %}<iframe loading="lazy" tabindex="-1" title="{{ frame.name }}" src="{{ frame.preview_url }}?inspect=1&amp;frame={{ frame.key }}"></iframe>{% endif %}
         </div>
         <div class="thumb-foot">
           <strong>{{ frame.name }}</strong> <code class="frame-id">{{ frame.key }}</code>
           {% if frame.kind != 'frame' %}<span class="badge {{ frame.kind }}">{{ frame.get_kind_display }}</span>{% endif %}
-          <a class="button small thumb-edit" href="{% url 'studio:frame_editor' frame.id %}?lang={{ content.language }}">Edit</a>
+          <a class="button small thumb-edit" href="{% url 'studio:frame_editor' frame.id %}?lang={{ content.language }}&amp;from=develop">Edit</a>
         </div>
       </article>
       {% endfor %}
@@ -31,8 +31,7 @@
         {% csrf_token %}<input type="hidden" name="language" value="{% if picker_selected %}picker{% else %}{{ content.language }}{% endif %}">
         <button class="button primary{% if dist_stale %} attention{% endif %}" title="Rebuild /project/dist/ from the project" data-busy="Regenerating…">Regenerate</button>
       </form>
-      <a class="button" href="{% url 'studio:playtest' %}">Play-test</a>
-      <a class="button" href="{% url 'studio:stresstest' %}">Stress test</a>
+      <a class="button" href="{% url 'studio:test' %}">Test</a>
       <span class="divider"></span>
       {% if content.multilingual %}
       <form method="get">

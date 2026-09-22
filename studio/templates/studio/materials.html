@@ -1,0 +1,42 @@
+{% extends 'studio/base.html' %}
+{% block title %}TilTale | Materials{% endblock %}
+{% block body %}
+<main class="page" data-materials-page>
+  <section class="card hero">
+    <p class="eyebrow">/project/materials/</p>
+    <h1>Materials</h1>
+    <p>Every image the story can use: as a frame's background, as a placed element, or as a document. Add images with the first tile (click it, or drop files anywhere on this page); use them in any frame editor. Uploading a file with an existing name replaces that image everywhere it is used.</p>
+  </section>
+
+  <section class="card">
+    <h2>Images <span class="count">{{ materials|length }}</span></h2>
+    <div class="material-grid-page" data-dropzone>
+      <form method="post" action="{% url 'studio:upload_materials' %}" enctype="multipart/form-data" class="material-tile material-add" data-upload-form>
+        {% csrf_token %}
+        <label>
+          <input type="file" name="images" accept="image/*" multiple data-upload-input hidden>
+          <span class="material-add-plus" aria-hidden="true">+</span>
+          <span>Add images</span>
+          <span class="muted">click, or drop files here</span>
+        </label>
+      </form>
+      {% for item in materials %}
+      <article class="material-tile">
+        <img class="blur-in" src="{% url 'studio:material_thumb' item.name %}" alt="{{ item.name }}" loading="lazy" width="360" height="240">
+        <div class="material-tile-info">
+          <strong>{{ item.name }}</strong>
+          <span class="muted">{% if item.width %}{{ item.width }}×{{ item.height }} px · {% endif %}{{ item.bytes|filesizeformat }}</span>
+          <span class="muted">{% if item.uses %}Used: {{ item.uses|join:"; " }}{% else %}Not used yet{% endif %}</span>
+          <form method="post" action="{% url 'studio:delete_material' %}"
+                data-confirm="{% if item.uses %}⚠ {{ item.name }} is still used: {{ item.uses|join:'; ' }}. Those places will show a warning until you pick another image. Delete anyway?{% else %}Delete {{ item.name }}?{% endif %}">
+            {% csrf_token %}<input type="hidden" name="name" value="{{ item.name }}"><input type="hidden" name="force" value="1">
+            <button class="button small danger">Delete</button>
+          </form>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <p class="muted">Regenerate shrinks every used image to phone sizes for the published story, so large originals are fine here — but fewer, smaller pictures make the story start faster (the Test page measures it).</p>
+  </section>
+</main>
+{% endblock %}

@@ -91,6 +91,81 @@ function setupMenus() {
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeAll(); });
 }
 
+/* Grid thumbnails (Materials page, image picker): shimmer while loading, then un-blur to sharp. */
+function setupBlurIn() {
+  const ready = (image) => image.classList.add("is-loaded");
+  for (const image of document.querySelectorAll("img.blur-in")) if (image.complete && image.naturalWidth) ready(image);
+  // "load" does not bubble; the capture phase sees it for images that arrive later (lazy ones too).
+  document.addEventListener("load", (event) => {
+    if (event.target instanceof HTMLImageElement && event.target.classList.contains("blur-in")) ready(event.target);
+  }, true);
+}
+
+/* The Materials page: the first tile uploads — by click (file dialog) or by dropping files anywhere. */
+function setupMaterials() {
+  const page = document.querySelector("[data-materials-page]");
+  if (!page) return;
+  const form = page.querySelector("[data-upload-form]");
+  const input = form.querySelector("[data-upload-input]");
+  input.addEventListener("change", () => { if (input.files.length) form.submit(); });
+  const zone = page.querySelector("[data-dropzone]");
+  for (const name of ["dragover", "dragenter"]) {
+    document.addEventListener(name, (event) => {
+      event.preventDefault();
+      zone.classList.add("is-dropping");
+    });
+  }
+  document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) zone.classList.remove("is-dropping"); });
+  document.addEventListener("drop", (event) => {
+    event.preventDefault();
+    zone.classList.remove("is-dropping");
+    if (!event.dataTransfer?.files.length) return;
+    input.files = event.dataTransfer.files; // hand the dropped files to the same form
+    form.submit();
+  });
+}
+
+/* The Content page: texts save row by row without a reload, fonts preview and save on choice. */
+function setupContent() {
+  const page = document.querySelector("[data-content-page]");
+  if (!page) return;
+  for (const row of page.querySelectorAll("[data-content-row]")) {
+    const button = row.querySelector("[data-save-row]");
+    row.addEventListener("input", () => { button.disabled = false; });
+    button.addEventListener("click", async () => {
+      const values = {};
+      for (const area of row.querySelectorAll("[data-value]")) values[area.dataset.value] = area.value;
+      const body = { id: row.dataset.contentRow ? Number(row.dataset.contentRow) : null, note: row.querySelector("[data-note]").value, values };
+      button.disabled = true;
+      try {
+        await postJson(page.dataset.rowsApi, page.dataset.csrf, body);
+        button.textContent = "Saved";
+        if (!row.dataset.contentRow) location.reload(); // the new row's id comes from the workbook
+      } catch (error) {
+        button.disabled = false;
+        reportError(`Text not saved: ${error.message}`);
+      }
+    });
+  }
+  for (const fontRow of page.querySelectorAll("[data-font-row]")) {
+    const select = fontRow.querySelector("[data-font-select]");
+    select.addEventListener("change", async () => {
+      const option = select.selectedOptions[0];
+      if (!option.value) return; // "Custom": hand-edited CSS is left alone
+      fontRow.querySelector("[data-font-sample]").style.fontFamily = option.dataset.stack;
+      const state = fontRow.querySelector("[data-font-state]");
+      state.textContent = "Saving…";
+      try {
+        await postJson(page.dataset.fontsApi, page.dataset.csrf, { component: fontRow.dataset.component, preset: option.value });
+        state.textContent = "Saved. Regenerate to apply it to the story.";
+      } catch (error) {
+        state.textContent = "";
+        reportError(`Font not saved: ${error.message}`);
+      }
+    });
+  }
+}
+
 function setupConfig() {
   const input = document.querySelector("[name=finish_redirect_url]");
   const example = document.querySelector("[data-redirect-example]");
@@ -233,12 +308,23 @@ function setupDevelop() {
     const query = event.target.value.trim().toLowerCase();
     for (const thumb of page.querySelectorAll("[data-frame-name]")) thumb.hidden = !thumb.dataset.frameName.includes(query);
   });
+
+  // "Save and exit" in the frame editor returns with ?selected=<id>: scroll that frame's thumbnail
+  // into view, highlight it and show it in the preview, instead of springing back to frame 1.
+  const selected = page.querySelector(`[data-frame-id="${CSS.escape(page.dataset.selected)}"]`);
+  if (!selected) return;
+  selected.classList.add("is-selected");
+  selected.scrollIntoView({ block: "center" });
+  if (preview) preview.src = selected.dataset.viewFrame;
 }
 
 function setupEditor() {
   const page = document.querySelector("[data-editor]");
   if (!page) return;
   setupRules(page);
+  setupElementOrder(page);
+  setupPicker(page, document.getElementById("component-picker"));
+  setupPicker(page, document.getElementById("material-picker"));
   const stage = page.querySelector("[data-canvas-stage]");
   const canvas = page.querySelector("[data-canvas]");
   const picker = document.getElementById("content-picker");
@@ -265,7 +351,10 @@ function setupEditor() {
   for (const node of boxes) makeBoxEditable(node, boxes, canvas, view, onDrop);
   document.addEventListener("click", (event) => { // after setupDialogs opened it, so the preview has a size
     const opener = event.target.closest("[data-open-dialog]");
-    if (opener) TilTaleBubbles.draw(document.getElementById(opener.dataset.openDialog));
+    if (!opener) return;
+    const dialog = document.getElementById(opener.dataset.openDialog);
+    TilTaleBubbles.draw(dialog);
+    scalePreviews(dialog);
   });
   document.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
@@ -320,6 +409,99 @@ function setupEditor() {
   picker.querySelector("[data-content-filter]").addEventListener("input", (event) => {
     const query = event.target.value.trim().toLowerCase();
     for (const row of picker.querySelectorAll("[data-content-id]")) row.hidden = !row.textContent.toLowerCase().includes(query);
+  });
+}
+
+/* The "(Re)order elements" pills: drag to restack (top of the list is the front layer), or the
+   hover buttons ⤒ / ⤓. The order is saved in the background and the canvas restacks to match.
+   "Every frame" scoreboards and the background pill stay where they are (their layer is fixed). */
+function setupElementOrder(page) {
+  const list = page.querySelector("[data-element-order]");
+  if (!list) return;
+  const canvas = page.querySelector("[data-canvas]");
+  const owned = () => [...list.querySelectorAll("[data-owned]")];
+  let dragged = null;
+
+  list.addEventListener("dragstart", (event) => {
+    dragged = event.target.closest("[data-owned]");
+    if (!dragged) return;
+    dragged.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+  });
+  list.addEventListener("dragover", (event) => {
+    if (!dragged) return;
+    event.preventDefault();
+    const over = event.target.closest("[data-owned]");
+    if (!over || over === dragged) return;
+    const children = [...list.children];
+    list.insertBefore(dragged, children.indexOf(over) > children.indexOf(dragged) ? over.nextSibling : over);
+  });
+  list.addEventListener("drop", (event) => event.preventDefault());
+  list.addEventListener("dragend", () => {
+    dragged?.classList.remove("is-dragging");
+    dragged = null;
+    saveOrder();
+  });
+  list.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-order-move]");
+    if (!button) return;
+    const pill = button.closest("[data-owned]");
+    if (button.dataset.orderMove === "front") list.prepend(pill);
+    else list.insertBefore(pill, list.querySelector(".pill-locked")); // just above the locked background
+    saveOrder();
+  });
+
+  async function saveOrder() {
+    const ids = owned().map((pill) => Number(pill.dataset.elementId)); // top of the list = front
+    try {
+      await postJson(list.dataset.orderUrl, page.dataset.csrf, { order: ids });
+    } catch (error) {
+      reportError(`Order not saved: ${error.message}`);
+      return;
+    }
+    if (!canvas) return; // restack the canvas to match: its children run back to front
+    for (const id of [...ids].reverse()) {
+      const node = canvas.querySelector(`[data-dialog="element-${id}"]`);
+      if (node) canvas.appendChild(node);
+    }
+    for (const guide of canvas.querySelectorAll("[data-snap-guide]")) canvas.appendChild(guide); // guides stay on top
+  }
+}
+
+/* Component previews are real elements at their default size, text layout and font — exactly what
+   would land on the canvas — shrunk to fit their card, the way the canvas itself is scaled. */
+function scalePreviews(dialog) {
+  for (const element of dialog.querySelectorAll(".picker-preview > .story-element")) {
+    const box = element.parentElement;
+    const tailRoom = "tail" in element.dataset ? 100 : 0; // bubbles.js tails reach 90px below the body
+    const scale = Math.min(1,
+      (box.clientWidth - 16) / element.offsetWidth,
+      (box.clientHeight - 16) / (element.offsetHeight + tailRoom));
+    element.style.setProperty("--preview-scale", scale);
+    element.style.top = `calc(50% - ${tailRoom * scale / 2}px)`; // keep body plus tail centered together
+  }
+}
+
+/* The component and image pickers: clicking a card selects it and wakes the footer buttons up. */
+function setupPicker(page, dialog) {
+  if (!dialog) return;
+  const input = dialog.querySelector("[data-picked]");
+  const nameLabel = dialog.querySelector("[data-picked-name]");
+  dialog.addEventListener("click", (event) => {
+    const card = event.target.closest(".picker-card");
+    if (!card) return;
+    for (const other of dialog.querySelectorAll(".picker-card")) other.classList.toggle("is-selected", other === card);
+    input.value = card.dataset.pickComponent ?? card.dataset.pickMaterial;
+    nameLabel.textContent = card.dataset.pickName;
+    for (const button of dialog.querySelectorAll("[data-picker-confirm], [data-use-background]")) {
+      button.disabled = false;
+      if ("useBackground" in button.dataset) button.dataset.useBackground = input.value; // the shared handler reads it
+    }
+  });
+  const filter = dialog.querySelector("[data-material-filter]");
+  filter?.addEventListener("input", () => {
+    const query = filter.value.trim().toLowerCase();
+    for (const card of dialog.querySelectorAll("[data-file-name]")) card.hidden = !card.dataset.fileName.includes(query);
   });
 }
 
@@ -700,34 +882,72 @@ function showInspector(page, node, edges) {
   inspector.querySelector("[data-inspector-links]").replaceChildren(...items);
 }
 
-function setupPlaytest() {
-  const grid = document.querySelector("[data-playtest]");
-  const runButton = document.querySelector("[data-run-all]");
-  if (!grid || !runButton) return;
+/* The Test page: one place for both robots. The settings decide what runs: the quick Play-test
+   (one run per page) or the thorough Stress-test (every page under every pretended condition),
+   over the ticked pages, optionally with "Element delay" temporarily 0.01 s so the robot never
+   waits for fades (?delay=, see runtime/tiltale.js; the story itself is unchanged). */
+function setupTest() {
+  const page = document.querySelector("[data-test]");
+  const runButton = document.querySelector("[data-run-test]");
+  if (!page || !runButton) return;
+  const form = page.querySelector("[data-test-settings]");
+  const cards = [...page.querySelectorAll("[data-build-url]")];
+  const progress = page.querySelector("[data-test-progress]");
+
+  const showMode = () => {
+    for (const panel of page.querySelectorAll("[data-stress-panel]")) panel.hidden = form.elements.mode.value !== "stress";
+  };
+  form.addEventListener("change", showMode);
+  showMode();
+
   // Leaving the page ends the robot's run: ask first (links in the studio get our own words,
   // closing or reloading the tab gets the browser's generic dialog).
-  const question = "Leave this page? That ends the play-test.";
+  const question = "Leave this page? That ends the test.";
   let running = false;
   window.addEventListener("beforeunload", (event) => { if (running) event.preventDefault(); });
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a[href]");
     if (running && link && !link.target && !confirm(question)) event.preventDefault();
   });
+
+  const chosenCards = () => {
+    const boxes = [...form.querySelectorAll("[name=build]")]; // absent on a single-page story
+    if (!boxes.length) return cards;
+    const wanted = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
+    return cards.filter((card) => wanted.has(card.dataset.buildLabel));
+  };
+
   runButton.addEventListener("click", async () => {
+    const chosen = chosenCards();
+    if (!chosen.length) {
+      progress.textContent = "Tick at least one page to test.";
+      return;
+    }
     runButton.disabled = true;
     running = true;
-    for (const card of grid.querySelectorAll("[data-build-url]")) await runPlaytest(card, grid.dataset);
+    const delay = form.elements.speed.checked ? "0.01" : "";
+    if (form.elements.mode.value === "play") await runAllPlaytests(chosen, page.dataset, progress, delay);
+    else await runStresstest(page, chosen, progress, delay);
     running = false;
     runButton.disabled = false;
   });
 }
 
-async function runPlaytest(card, settings) {
+async function runAllPlaytests(cards, settings, progress, delay) {
+  for (const [index, card] of cards.entries()) {
+    progress.textContent = `Play-testing ${card.dataset.buildLabel} (${index + 1} of ${cards.length})…`;
+    card.scrollIntoView({ block: "nearest" }); // on a small screen the active page stays visible
+    await runPlaytest(card, settings, delay);
+  }
+  progress.textContent = "Done.";
+}
+
+async function runPlaytest(card, settings, delay) {
   const label = card.dataset.buildLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const participant = `playtest-${label}-${Date.now()}`;
   setPlaytestState(card, "running", "Running…", "The robot is playing this page.");
   card.querySelector("[data-log]").hidden = true;
-  const result = await waitForPlaytest(card.querySelector("[data-frame]"), card.dataset.buildUrl, settings.participantParameter, participant);
+  const result = await waitForPlaytest(card.querySelector("[data-frame]"), card.dataset.buildUrl, settings.participantParameter, participant, "", delay);
   const note = result.unvisited && result.unvisited.length ? ` Not visited on this path: ${result.unvisited.join(", ")}.` : "";
   setPlaytestState(card, result.ok ? "pass" : "fail", result.ok ? "Pass" : "Fail", result.message + note);
   if (!result.log_file) return;
@@ -737,7 +957,7 @@ async function runPlaytest(card, settings) {
 
 /* Resolves with the robot's report. stress: ?stress= conditions the story pretends (see runtime/tiltale.js).
    A report with unsent log events counts as a failure: a study would have lost them. */
-function waitForPlaytest(frame, url, parameter, participant, stress = "") {
+function waitForPlaytest(frame, url, parameter, participant, stress = "", delay = "") {
   return new Promise((resolve) => {
     // A long story takes minutes, so the clock measures time since the robot's last frame, not the whole run.
     let timer;
@@ -761,7 +981,9 @@ function waitForPlaytest(frame, url, parameter, participant, stress = "") {
     };
     wait();
     window.addEventListener("message", onMessage);
-    frame.src = `${url}?${new URLSearchParams({ autoplay: "1", preview: "1", restart: "1", stress, [parameter]: participant })}`;
+    const query = new URLSearchParams({ autoplay: "1", preview: "1", restart: "1", stress, [parameter]: participant });
+    if (delay) query.set("delay", delay);
+    frame.src = `${url}?${query}`;
   });
 }
 
@@ -788,48 +1010,41 @@ async function showPlaytestLog(card, settings, fileName) {
   box.open = card.dataset.state === "fail";
 }
 
-/* Stress test page: every [data-stress] row is one robot run per generated page; a [data-result] row was
+/* Stress-test: every [data-stress] row is one robot run per selected page; a [data-result] row was
    checked by the server when the page opened. Afterwards the rows are sorted red, orange, green. */
 const STATUS_ORDER = { red: 0, orange: 1, green: 2, "": 3 };
 const MOBILE_BYTES_PER_SECOND = 100000; // an ordinary 3G connection; 4G is about ten times faster
 
-function setupStresstest() {
-  const list = document.querySelector("[data-stresstest]");
-  const runButton = document.querySelector("[data-run-stress]");
-  if (!list || !runButton) return;
-  const progress = document.querySelector("[data-stress-progress]");
-  const cards = [...document.querySelectorAll("[data-build-url]")];
+async function runStresstest(page, cards, progress, delay) {
+  const list = page.querySelector("[data-stresstest]");
   const rows = [...list.querySelectorAll("[data-stress]")];
-  runButton.addEventListener("click", async () => {
-    runButton.disabled = true;
-    // The rows the server checked when the page opened appear now, so nothing is coloured before the run.
-    for (const row of list.querySelectorAll("[data-result]")) setStressRow(row, row.dataset.result, row.dataset.result, row.dataset.resultMessage);
-    let bytes = 0;
-    for (const [index, row] of rows.entries()) {
-      setStressRow(row, "running", "Running…", "");
-      progress.textContent = `Check ${index + 1} of ${rows.length}…`;
-      const verdicts = [];
-      for (const card of cards) {
-        const participant = `playtest-stress-${Date.now()}`;
-        card.querySelector("[data-screen-state]").textContent = `Playing: ${row.querySelector("strong").textContent}`;
-        const result = await waitForPlaytest(card.querySelector("[data-frame]"), card.dataset.buildUrl, list.dataset.participantParameter, participant, row.dataset.stress);
-        bytes = Math.max(bytes, result.bytes || 0);
-        const crashed = !result.ok && result.message.startsWith("JavaScript error");
-        const good = row.dataset.expect === "fail" ? crashed : result.ok;
-        verdicts.push({ good, text: `${card.dataset.buildLabel}: ${result.message}` });
-      }
-      const failed = verdicts.filter((verdict) => !verdict.good);
-      setStressRow(row, failed.length ? "red" : "green", failed.length ? "red" : "green", (failed.length ? failed : verdicts).map((verdict) => verdict.text).join(" · "));
+  // The rows the server checked when the page opened appear now, so nothing is coloured before the run.
+  for (const row of list.querySelectorAll("[data-result]")) setStressRow(row, row.dataset.result, row.dataset.result, row.dataset.resultMessage);
+  let bytes = 0;
+  for (const [index, row] of rows.entries()) {
+    setStressRow(row, "running", "Running…", "");
+    const verdicts = [];
+    for (const card of cards) {
+      progress.textContent = `Stress-test check ${index + 1} of ${rows.length}: ${card.dataset.buildLabel}…`;
+      setPlaytestState(card, "running", "Running…", `Playing: ${row.querySelector("strong").textContent}`);
+      card.scrollIntoView({ block: "nearest" }); // on a small screen the active page stays visible
+      const participant = `playtest-stress-${Date.now()}`;
+      const result = await waitForPlaytest(card.querySelector("[data-frame]"), card.dataset.buildUrl, page.dataset.participantParameter, participant, row.dataset.stress, delay);
+      bytes = Math.max(bytes, result.bytes || 0);
+      const crashed = !result.ok && result.message.startsWith("JavaScript error");
+      const good = row.dataset.expect === "fail" ? crashed : result.ok;
+      verdicts.push({ good, text: `${card.dataset.buildLabel}: ${result.message}` });
     }
-    const seconds = bytes / MOBILE_BYTES_PER_SECOND;
-    const loadRow = list.querySelector("[data-load-time]");
-    const status = seconds <= 20 ? "green" : seconds <= 60 ? "orange" : "red";
-    setStressRow(loadRow, status, status, `${(bytes / 1048576).toFixed(1)} MB to download before the first frame: about ${Math.round(seconds)} s on 3G, ${Math.max(1, Math.round(seconds / 10))} s on 4G.`);
-    progress.textContent = "Done. Red rows first.";
-    for (const card of cards) card.querySelector("[data-screen-state]").textContent = "Done";
-    list.replaceChildren(...[...list.children].sort((a, b) => STATUS_ORDER[a.dataset.status] - STATUS_ORDER[b.dataset.status]));
-    runButton.disabled = false;
-  });
+    const failed = verdicts.filter((verdict) => !verdict.good);
+    setStressRow(row, failed.length ? "red" : "green", failed.length ? "red" : "green", (failed.length ? failed : verdicts).map((verdict) => verdict.text).join(" · "));
+  }
+  const seconds = bytes / MOBILE_BYTES_PER_SECOND;
+  const loadRow = list.querySelector("[data-load-time]");
+  const status = seconds <= 20 ? "green" : seconds <= 60 ? "orange" : "red";
+  setStressRow(loadRow, status, status, `${(bytes / 1048576).toFixed(1)} MB to download before the first frame: about ${Math.round(seconds)} s on 3G, ${Math.max(1, Math.round(seconds / 10))} s on 4G.`);
+  progress.textContent = "Done. Red rows first.";
+  for (const card of cards) setPlaytestState(card, card.dataset.state || "pass", "Done", "");
+  list.replaceChildren(...[...list.children].sort((a, b) => STATUS_ORDER[a.dataset.status] - STATUS_ORDER[b.dataset.status]));
 }
 
 function setStressRow(row, state, badge, message) {
@@ -848,10 +1063,12 @@ setupForms();
 setupDialogs();
 setupTabs();
 setupMenus();
+setupBlurIn();
+setupMaterials();
+setupContent();
 setupConfig();
 setupDevelop();
 setupEditor();
 setupFlowchart();
 setupResults();
-setupPlaytest();
-setupStresstest();
+setupTest();

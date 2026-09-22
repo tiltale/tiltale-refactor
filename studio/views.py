@@ -6,6 +6,8 @@ from functools import wraps
 import json
 import mimetypes
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any
 from urllib.parse import urlencode
 
@@ -20,15 +22,23 @@ from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from .forms import FrameForm, NewProjectForm, ProjectSettingsForm, validate_hex
+from .forms import FrameForm, NewProjectForm, ProjectSettingsForm, normalize_language, validate_hex
+from .middleware import LANGUAGE_COOKIE, ORIGIN_COOKIE, ORIGINS
 from .models import Element, ElementLanguageOverride, Frame, ProjectSettings, Rule, Variable
 from .services.components import component_map, load_components
-from .services.content import ContentTable, append_content_row, load_content_table, update_content_row
+from .services.content import (
+    ContentTable, add_language, append_content_row, load_content_table, rename_language, update_content_row,
+)
+from .services.docs import DOCUMENTS, document_html
 from .services.flow import create_frame, tidy_layout
+from .services.fonts import FONT_PRESETS, component_fonts, preset_of, set_component_font
 from .services.frame_types import load_frame_types
 from .services.generate import dist_is_stale, generate_dist, language_folder, load_build_report, page_path, story_css
 from .services.llm import frame_prompt, parse_elements
-from .services.project import BRANDING_FILES, create_project, image_size, list_materials, project_health, project_settings, safe_child
+from .services.project import (
+    BRANDING_FILES, create_project, delete_material, image_size, list_materials,
+    material_thumbnail, project_health, project_settings, safe_child, save_material, warm_thumbnails,
+)
 from .services.log_keys import LockedLog, fingerprint, generate_key_pair, load_private_key, unlock, unlocked
 from .services.stresstest import ROBOT_CHECKS, checklist
 from .services.study_logs import append_event, device_report, import_jsonl, logs_dir, read_events, session_record, session_summaries
@@ -68,6 +78,7 @@ def project_view(view: Callable[..., HttpResponse]) -> Callable[..., HttpRespons
 
 KEY_VIEWS: frozenset[str] = frozenset({"log_key", "download_log_key", "confirm_log_key"})
 KEY_COOKIE: str = "tiltale_log_key"
+REPOSITORY_URL: str = "https://github.com/tiltale/tiltale-refactor"
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,9 +103,16 @@ def _content(request: HttpRequest, project: ProjectSettings) -> Content:
         table: ContentTable = load_content_table(settings.PROJECT_DIR / "content.xlsx")
     except (OSError, ValueError) as error:
         return Content(ContentTable((project.base_language,), ()), project.base_language, str(error))
-    requested: str = request.GET.get("lang") or request.POST.get("language") or ""
+    # The cookie (see middleware.py) keeps the selection across pages that do not name a language.
+    requested: str = request.GET.get("lang") or request.POST.get("language") or request.COOKIES.get(LANGUAGE_COOKIE, "")
     language: str = next(item for item in (requested, project.base_language, table.languages[0]) if item in table.languages)
     return Content(table, language)
+
+
+def _origin(request: HttpRequest) -> str:
+    """Where editing started, so "Save and exit" can go back: "develop" or "flowchart"."""
+    requested: str = request.GET.get("from") or request.COOKIES.get(ORIGIN_COOKIE, "")
+    return requested if requested in ORIGINS else "flowchart"
 
 
 def _to(name: str, lang: str = "", **kwargs: Any) -> HttpResponse:
@@ -227,11 +245,41 @@ def _back_to_frame(request: HttpRequest, element: Element) -> HttpResponse:
 def home(request: HttpRequest) -> HttpResponse:
     health = project_health()
     project: ProjectSettings | None = project_settings() if health.ready else None
-    return render(request, "studio/home.html", {"health": health, "project": project})
+    return render(request, "studio/home.html", {
+        "health": health, "project": project, "documents": DOCUMENTS.values(),
+        "repository": REPOSITORY_URL,
+    })
 
 
 def help_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "studio/help.html", {"project": project_settings(), "version": settings.TILTALE_VERSION})
+    return render(request, "studio/help.html", {
+        "project": project_settings(), "version": settings.TILTALE_VERSION,
+        "documents": DOCUMENTS.values(), "repository": REPOSITORY_URL,
+    })
+
+
+def document(request: HttpRequest, slug: str) -> HttpResponse:
+    """README.md, ETHICS.md or LICENSE, rendered inside the studio (services/docs.py)."""
+    if slug not in DOCUMENTS:
+        raise Http404("Unknown document.")
+    return render(request, "studio/document.html", {
+        "project": project_settings(), "document": DOCUMENTS[slug], "body": document_html(slug),
+        "documents": DOCUMENTS.values(),
+    })
+
+
+@require_POST
+def open_folder(request: HttpRequest) -> HttpResponse:
+    """Show /project/ or /project/dist/ in the computer's file manager (the studio runs locally)."""
+    folders: dict[str, Path] = {"project": settings.PROJECT_DIR, "dist": settings.DIST_DIR}
+    path: Path | None = folders.get(request.POST.get("folder", ""))
+    if path is None or not path.is_dir():
+        messages.error(request, "That folder does not exist yet. Create a project (and Regenerate for /dist/) first.")
+        return redirect("studio:home")
+    openers: dict[str, list[str]] = {"win32": ["explorer", str(path)], "darwin": ["open", str(path)]}
+    subprocess.Popen(openers.get(sys.platform, ["xdg-open", str(path)]))
+    messages.success(request, f"Opened {path} in your file manager.")
+    return redirect("studio:home")
 
 
 def new_project(request: HttpRequest) -> HttpResponse:
@@ -265,6 +313,7 @@ def develop(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
     for frame in frames:
         frame.preview_url = _preview_url("" if frame.is_language_picker else story_folder)  # type: ignore[attr-defined]
     return render(request, "studio/develop.html", {
+        "selected_frame": request.GET.get("selected", ""),  # scrolled to and highlighted ("Save and exit")
         "project": project, "content": content, "frames": frames, "frame_types": load_frame_types().values(),
         "has_pickers": has_pickers, "picker_selected": picker_selected,
         "devices": DEVICE_PRESETS,
@@ -290,30 +339,23 @@ def regenerate(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
 
 
 @project_view
-def playtest(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
-    report: dict[str, Any] | None = load_build_report()
-    builds: list[dict[str, str]] = [
-        {"label": build["label"], "url": _preview_url(build["folder"])} for build in (report or {}).get("builds", [])
-    ]
-    return render(request, "studio/playtest.html", {
-        "project": project, "builds": builds, "dist_stale": dist_is_stale(),
-        "log_api": reverse("studio:log_api", kwargs={"file_name": "FILE"}),
-        "session_url": reverse("studio:session_detail", kwargs={"file_name": "FILE"}),
-    })
+def test_page(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    """One Test page for both robots: a quick Play-test and the thorough Stress-test.
 
-
-@project_view
-def stresstest(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
-    """Does the story work everywhere? Rows computed here plus rows the robot fills in (see services/stresstest.py)."""
+    The page's settings (mode, which pages, a temporary Element delay of 0.01 s) live in app.js;
+    the Stress-test rows that need no browser come from services/stresstest.py.
+    """
     report: dict[str, Any] | None = load_build_report()
     builds: list[dict[str, str]] = [
         {"label": build["label"], "url": _preview_url(build["folder"])} for build in (report or {}).get("builds", [])
     ]
     summaries = [] if _locked(request, project) else session_summaries(_log_key(request, project))
-    return render(request, "studio/stresstest.html", {
+    return render(request, "studio/test.html", {
         "project": project, "builds": builds, "dist_stale": dist_is_stale(),
         "checks": checklist(report, summaries), "robot_checks": ROBOT_CHECKS,
         "logs_locked": _locked(request, project),
+        "log_api": reverse("studio:log_api", kwargs={"file_name": "FILE"}),
+        "session_url": reverse("studio:session_detail", kwargs={"file_name": "FILE"}),
     })
 
 
@@ -341,6 +383,155 @@ def project_config(request: HttpRequest, project: ProjectSettings) -> HttpRespon
 
 def _advanced() -> HttpResponse:
     return redirect(f"{reverse('studio:config')}?tab=advanced")
+
+
+@require_POST
+@project_view
+def save_languages(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    """Rename language columns (``rename.<code>``) and add one (``new_language``) from Settings.
+
+    A rename also updates everything that stores the code: the project's base language, per-language
+    layout overrides and picker buttons that open the language. The published folder name changes
+    with the code; a retired folder forwards readers to the start page (see generate.py).
+    """
+    workbook: Path = settings.PROJECT_DIR / "content.xlsx"
+    try:
+        languages: tuple[str, ...] = load_content_table(workbook).languages
+        for old in languages:
+            new: str = normalize_language(request.POST.get(f"rename.{old}", old) or old)
+            if new == old:
+                continue
+            rename_language(workbook, old, new)
+            if project.base_language == old:
+                project.base_language = new
+                project.save(update_fields=["base_language"])
+            ElementLanguageOverride.objects.filter(language=old).update(language=new)
+            Element.objects.filter(target_language=old).update(target_language=new)
+            messages.success(request, f"Renamed the language {old} to {new}. Press Regenerate; the old story folder will forward readers.")
+        if request.POST.get("new_language", "").strip():
+            code: str = normalize_language(request.POST["new_language"])
+            add_language(workbook, code)
+            messages.success(request, f"Added the language {code}. Fill in its texts on the Content page, then Regenerate.")
+    except (OSError, ValidationError, ValueError) as error:
+        messages.error(request, f"Languages not saved: {_error_text(error)}")
+    return redirect("studio:config")
+
+
+# ----------------------------------------------------------------- the Content page
+def _material_uses(name: str) -> list[str]:
+    """Where an image is used, in words for the delete warning ("background of Intro scene")."""
+    uses: list[str] = [f"background of {frame.name}" for frame in Frame.objects.filter(background_image=name)]
+    uses += [
+        f"element #{element.id} on {element.frame.name if element.frame else 'every frame'}"
+        for element in Element.objects.filter(image=name).select_related("frame")
+    ]
+    return uses
+
+
+@project_view
+def content_page(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    """The texts of content.xlsx and the component fonts of style-overrides.css, editable here,
+    so a story can be written and maintained without opening the source files. Images have their
+    own Materials page."""
+    content: Content = _content(request, project)
+    used_by: dict[int, int] = {}
+    for content_id in Element.objects.exclude(content_id=None).values_list("content_id", flat=True):
+        used_by[content_id] = used_by.get(content_id, 0) + 1
+    for content_id in Frame.objects.exclude(close_content_id=None).values_list("close_content_id", flat=True):
+        used_by[content_id] = used_by.get(content_id, 0) + 1
+    components = [component for component in load_components() if component.accepts_content]
+    fonts: dict[str, str] = component_fonts()
+    return render(request, "studio/content.html", {
+        "project": project, "content": content, "project_css": story_css(),  # the font previews look like the story
+        "rows": [{"row": row, "uses": used_by.get(row.content_id, 0)} for row in content.table.rows],
+        "fonts": [{
+            "component": component,
+            "stack": fonts.get(component.slug, ""),
+            "preset": preset_of(fonts.get(component.slug, "")),
+        } for component in components],
+        "presets": FONT_PRESETS.items(),
+    })
+
+
+@require_POST
+@project_view
+def content_row_api(request: HttpRequest, project: ProjectSettings) -> JsonResponse:
+    """Change one row of content.xlsx, or add one (no ``id``), from the Content page."""
+    try:
+        data: dict[str, Any] = _json_body(request)
+        values: dict[str, str] = {str(key): str(value) for key, value in dict(data.get("values", {})).items()}
+        note: str = str(data.get("note", ""))
+        if data.get("id") is None:
+            row = append_content_row(settings.PROJECT_DIR / "content.xlsx", note, values)
+        else:
+            row = update_content_row(settings.PROJECT_DIR / "content.xlsx", int(data["id"]), note, values)
+    except (OSError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    return JsonResponse({"ok": True, "id": row.content_id})
+
+
+@project_view
+def materials_page(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    """Every image of /project/materials/ as a grid: upload (click or drop), see where each is used, delete."""
+    warm_thumbnails()
+    materials: list[dict[str, Any]] = []
+    for name in list_materials():
+        try:
+            width, height = image_size(name)
+        except OSError:
+            width = height = 0  # an unreadable file still gets a tile, so it can be deleted
+        path: Path = settings.PROJECT_DIR / "materials" / name
+        materials.append({"name": name, "uses": _material_uses(name), "width": width, "height": height, "bytes": path.stat().st_size})
+    return render(request, "studio/materials.html", {"project": project, "materials": materials})
+
+
+@require_POST
+@project_view
+def upload_materials(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    before: set[str] = set(list_materials())  # upload names are cleaned, so compare the stored names
+    for uploaded in request.FILES.getlist("images"):
+        try:
+            name: str = save_material(uploaded.name, uploaded.read())
+            existed: bool = name in before
+        except ValueError as error:
+            messages.error(request, f"Not uploaded: {error}")
+        else:
+            messages.success(request, f"{'Replaced' if existed else 'Uploaded'} {name}." + ("" if existed else " Use it as a background or element in any frame editor."))
+    if not request.FILES.getlist("images"):
+        messages.error(request, "Choose one or more images first.")
+    return redirect("studio:materials")
+
+
+@require_POST
+@project_view
+def delete_material_file(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
+    name: str = request.POST.get("name", "")
+    uses: list[str] = _material_uses(name)
+    if uses and request.POST.get("force") != "1":  # the page always asks; this protects direct posts
+        messages.error(request, f"{name} is still used ({'; '.join(uses)}).")
+        return redirect("studio:materials")
+    try:
+        delete_material(name)
+    except ValueError as error:
+        messages.error(request, str(error))
+        return redirect("studio:materials")
+    messages.success(request, f"Deleted {name}." + (f" It was used by: {'; '.join(uses)} — those now warn in the preflight list until you pick another image." if uses else ""))
+    return redirect("studio:materials")
+
+
+@require_POST
+@project_view
+def save_component_font(request: HttpRequest, project: ProjectSettings) -> JsonResponse:
+    """Write one component's font line in style-overrides.css (the Fonts section of the Content page)."""
+    try:
+        data: dict[str, Any] = _json_body(request)
+        slug: str = str(data.get("component", ""))
+        if slug not in component_map():
+            raise ValueError("Unknown component.")
+        stack: str = set_component_font(slug, str(data.get("preset", "")))
+    except (OSError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    return JsonResponse({"ok": True, "stack": stack})
 
 
 # ----------------------------------------------------------------- protecting logs (ETHICS.md)
@@ -552,7 +743,7 @@ def _flow_graph(project: ProjectSettings, content: Content) -> tuple[list[dict[s
             "fade_in": frame.fade_in, "fade_from_black": frame.fade_from_black, "picker": frame.is_language_picker, "document": frame.is_document,
             "start": frame in (story_start, picker_start),
             "ends": sum(element.ends_story for element in frame.elements.all()),
-            "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_id': frame.id})}?{urlencode({'lang': content.language})}",
+            "edit_url": f"{reverse('studio:frame_editor', kwargs={'frame_id': frame.id})}?{urlencode({'lang': content.language, 'from': 'flowchart'})}",
             "preview_url": _preview_url("") if frame.is_language_picker else story_url,
         })
     return nodes, edges
@@ -578,15 +769,25 @@ def tidy_flowchart(request: HttpRequest, project: ProjectSettings) -> HttpRespon
     return _to("flowchart", lang=request.POST.get("language", ""))
 
 
+def _back_to_origin(origin: str, language: str, frame: Frame) -> HttpResponse:
+    """The Develop or Flowchart page, zoomed in on / scrolled to ``frame`` ("Save and exit")."""
+    url: str = reverse(f"studio:{origin}")
+    return redirect(f"{url}?{urlencode({'lang': language, 'selected': frame.id})}")
+
+
 @project_view
 def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) -> HttpResponse:
     frame: Frame = get_object_or_404(Frame, pk=frame_id)
     content: Content = _content(request, project)
+    origin: str = _origin(request)
+    warm_thumbnails()  # the image picker's grid
     materials: list[str] = list_materials()
     form = FrameForm(request.POST or None, instance=frame, materials=materials, content_ids=set(content.table.by_id()))
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, f"Saved the settings of {frame.name}.")
+        if "exit" in request.POST:
+            return _back_to_origin(origin, content.language, frame)
         return _to("frame_editor", lang=content.language, frame_id=frame.id)
 
     language: str = project.base_language if frame.is_language_picker else content.language
@@ -633,7 +834,24 @@ def frame_editor(request: HttpRequest, project: ProjectSettings, frame_id: int) 
             "box": frame.background_box or _cover_box(frame.background_image, project),
         }
     rules: list[Rule] = list(frame.rules.select_related("variable", "target_frame"))
+
+    # The frames this one leads to (buttons and rules), previewed in the editor so the next frame
+    # of a branch can be opened without going back to Develop or the flowchart first.
+    story_folder: str = language_folder(content.language, content.languages)
+    targets: list[Frame] = [
+        *(element.target_frame for element in frame.elements.select_related("target_frame") if element.target_frame),
+        *(rule.target_frame for rule in rules if rule.target_frame),
+    ]
+    seen: set[int] = {frame.id}
+    continues_to: list[dict[str, Any]] = []
+    for target in targets:
+        if target.id in seen:
+            continue
+        seen.add(target.id)
+        continues_to.append({"frame": target, "preview_url": _preview_url("" if target.is_language_picker else story_folder)})
     return render(request, "studio/edit_frame.html", {
+        "origin": origin, "continues_to": continues_to,
+        "dist_ready": (settings.DIST_DIR / page_path(story_folder)).is_file(),
         "project": project, "frame": frame, "frame_type": load_frame_types()[frame.kind], "form": form, "content": content,
         "language": language, "materials": materials, "components": component_list, "project_css": story_css(),
         "background": background, "elements": elements, "target_options": target_options,
@@ -803,18 +1021,23 @@ def duplicate_element(request: HttpRequest, project: ProjectSettings, element_id
 
 @require_POST
 @project_view
-def move_element(request: HttpRequest, project: ProjectSettings, element_id: int) -> HttpResponse:
-    """Swap an element with the one in front of it ("forward") or behind it ("backward")."""
-    element: Element = get_object_or_404(Element.objects.select_related("frame"), pk=element_id, frame__isnull=False)
-    siblings: list[Element] = list(element.frame.elements.all())  # back to front
-    index: int = siblings.index(element)
-    other: int = index + (1 if request.POST.get("direction") == "forward" else -1)
-    if 0 <= other < len(siblings):
-        for position, item in enumerate(siblings):
-            item.order = position
-        siblings[index].order, siblings[other].order = other, index
-        Element.objects.bulk_update(siblings, ["order"])
-    return _to("frame_editor", lang=request.POST.get("language", ""), frame_id=element.frame_id)
+def element_order_api(request: HttpRequest, project: ProjectSettings, frame_id: int) -> JsonResponse:
+    """Store the stacking order dragged together in the editor: ``{"order": [ids front to back]}``.
+
+    Only the frame's own elements are ordered; a scoreboard shown on every frame keeps its shared layer.
+    """
+    frame: Frame = get_object_or_404(Frame, pk=frame_id)
+    try:
+        ids: list[int] = [int(item) for item in _json_body(request).get("order", [])]
+    except (TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    elements: dict[int, Element] = {element.id: element for element in frame.elements.all()}
+    if set(ids) != set(elements):
+        return JsonResponse({"error": "The elements changed in the meantime. Reload the page."}, status=409)
+    for position, element_id in enumerate(reversed(ids), start=1):  # a higher order is further in front
+        elements[element_id].order = position
+    Element.objects.bulk_update(elements.values(), ["order"])
+    return JsonResponse({"ok": True})
 
 
 @require_POST
@@ -1074,8 +1297,19 @@ def material_file(request: HttpRequest, path: str) -> FileResponse:
     return _file_response(settings.PROJECT_DIR / "materials", path)
 
 
+def material_thumb(request: HttpRequest, path: str) -> FileResponse:
+    """A small cached preview of a material, for the image grids (see material_thumbnail)."""
+    try:
+        thumbnail: Path = material_thumbnail(path)
+    except (OSError, ValueError):
+        raise Http404("Image not found.") from None
+    response = FileResponse(thumbnail.open("rb"), content_type="image/webp")
+    response["Cache-Control"] = "max-age=86400"  # the name changes when the image does
+    return response
+
+
 def branding(request: HttpRequest, name: str) -> FileResponse:
     """The studio's own TilTale logo and favicon; a project's override is for its story only."""
-    if name not in BRANDING_FILES:  # BRANDING_DIR is the repository root: serve nothing else from it
+    if name not in BRANDING_FILES:  # serve nothing else from /branding/
         raise Http404("File not found.")
     return _file_response(settings.BRANDING_DIR, name)

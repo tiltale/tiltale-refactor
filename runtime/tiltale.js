@@ -54,6 +54,11 @@
   var forcedFrame = params.get("frame");
   var storyNode = document.getElementById("story");
 
+  /* ?delay= overrides "Element delay" for one run, so the studio's Test page can skip fades and
+     click delays (0.01). Only in the studio (preview or robot): readers cannot speed a story up. */
+  var delayOverride = parseFloat(params.get("delay") || "");
+  if ((preview || autoplay) && delayOverride >= 0) STORY.default_delay_seconds = delayOverride;
+
   /* ?stress=slow,no-cache makes the story pretend these conditions (see the top of this file). */
   var stress = {};
   (params.get("stress") || "").split(",").forEach(function (name) { stress[name] = true; });
@@ -183,7 +188,13 @@
   function flushUnsent() {
     if (sending || offline || !unsent.length) return;
     sending = true;
-    var batch = unsent.slice(0, BATCH);
+    // log.php takes one visit per request. After an offline classroom day the queue holds many
+    // visits (see <root>/offline/), so a batch stops where the next visit starts.
+    var batch = [unsent[0]];
+    for (var i = 1; i < unsent.length && batch.length < BATCH; i += 1) {
+      if (unsent[i].participant_id !== unsent[0].participant_id || unsent[i].visit_id !== unsent[0].visit_id) break;
+      batch.push(unsent[i]);
+    }
     request(STORY.root + "log.php", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -199,6 +210,12 @@
   }
   window.addEventListener("online", flushUnsent);
 
+  /* Offline classroom use (README): outside the studio, on HTTPS, a service worker lets a story
+     that <root>/offline/ (or an earlier visit) downloaded open and restart without a connection. */
+  if (!inspect && !preview && !autoplay && window.isSecureContext && navigator.serviceWorker) {
+    navigator.serviceWorker.register(STORY.root + "sw.js").catch(function () { /* best-effort */ });
+  }
+
   function log(event, details) {
     if (inspect) return;
     visit.seq += 1;
@@ -213,7 +230,8 @@
     };
     for (var key in details) if (Object.prototype.hasOwnProperty.call(details, key)) payload[key] = details[key];
     unsent.push(payload);
-    write(local, queueKey, unsent.slice(-2000));
+    // Room for a whole offline classroom day of sessions (events are well under 1 KB each).
+    write(local, queueKey, unsent.slice(-10000));
     flushUnsent();
   }
 
@@ -353,7 +371,22 @@
       panel.style.backgroundPosition = (box.x - box.width / 2) + "px " + (box.y - box.height / 2) + "px";
     }
     frame.elements.forEach(function (element) { panel.appendChild(makeElement(frame, element)); });
+    if (participantBadgeWanted(frame)) panel.appendChild(participantBadge());
     return panel;
+  }
+
+  /* Settings → Advanced → "Show the participant ID on final frames": the first characters of the ID
+     in the bottom-right corner of every frame with an "End story" element, so an experimenter can
+     read back which participant a device was on. Off (the default): nothing is shown. */
+  function participantBadgeWanted(frame) {
+    return STORY.show_participant_id && !inspect && frame.elements.some(function (element) { return element.ends_story; });
+  }
+
+  function participantBadge() {
+    var badge = document.createElement("div");
+    badge.className = "participant-badge";
+    badge.textContent = "ID: " + participantId.slice(0, 8) + (participantId.length > 8 ? "…" : "");
+    return badge;
   }
 
   /* A document is its image, as sharp as available, fitted into the frame; makeViewer then zooms it to the screen. */
@@ -389,13 +422,15 @@
     if (frame.kind === "validation" && !inspect) return decide(frame);
     var panel = frame.kind === "validation" ? makeValidationPanel(frame) : frame.kind === "document" ? makeDocumentPanel(frame) : makePanel(frame);
     var shown = storyNode.lastChild;
-    if (frame.fade_in && !inspect) {
+    // Either kind of fade (crossfade or from black) takes "Element delay" seconds (Settings).
+    var fading = (frame.fade_in || frame.fade_from_black) && !inspect;
+    if (fading) {
       panel.className += " frame-fade";
       panel.style.animationDuration = STORY.default_delay_seconds + "s";
     }
     storyNode.appendChild(panel);
     // A crossfade keeps the previous frame behind the new one until it is fully in; from black, it goes at once.
-    var crossfade = shown && frame.fade_in && !frame.fade_from_black && !inspect;
+    var crossfade = shown && fading && !frame.fade_from_black;
     if (crossfade) window.setTimeout(function () { storyNode.removeChild(shown); }, STORY.default_delay_seconds * 1000);
     else if (shown) storyNode.removeChild(shown);
     if (window.TilTaleBubbles) TilTaleBubbles.draw(panel);  // needs the elements' final size, so after they are in the page

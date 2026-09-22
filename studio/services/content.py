@@ -151,6 +151,31 @@ def _save(workbook: Workbook, path: Path) -> None:
         raise ValueError(LOCKED_MESSAGE) from None
 
 
+def add_language(path: Path, code: str) -> None:
+    """Add an empty language column to the workbook (the header row decides the languages)."""
+    table: ContentTable = load_content_table(path)
+    if code.casefold() in {language.casefold() for language in table.languages}:
+        raise ValueError(f"The language {code} already exists.")
+    workbook = load_workbook(path)
+    sheet: Worksheet = workbook.active
+    column: int = 3 + len(table.languages)
+    sheet.cell(1, column).value = code
+    sheet.column_dimensions[sheet.cell(1, column).column_letter].width = 42
+    _save(workbook, path)
+
+
+def rename_language(path: Path, old: str, new: str) -> None:
+    """Rename a language column header; the texts in the column stay."""
+    table: ContentTable = load_content_table(path)
+    if old not in table.languages:
+        raise ValueError(f"There is no language column {old}.")
+    if new.casefold() in {language.casefold() for language in table.languages if language != old}:
+        raise ValueError(f"The language {new} already exists.")
+    workbook = load_workbook(path)
+    workbook.active.cell(1, 3 + table.languages.index(old)).value = new
+    _save(workbook, path)
+
+
 def append_content_row(path: Path, note: str, values: dict[str, str]) -> ContentRow:
     """Append one author-created row and return it with its new stable ID."""
     table: ContentTable = load_content_table(path)

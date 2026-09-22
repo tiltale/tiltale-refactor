@@ -19,11 +19,12 @@ You do **not** need previous experience with Python, Django or command-line deve
 | [Shortcuts](#shortcuts) | Mouse and keyboard in the frame editor and the flowchart. |
 | [Frame kinds](#frame-kinds) | Frames, pickers, documents, validation points and minigames. |
 | [Global variables, validation points and scoreboards](#global-variables-validation-points-and-scoreboards) | Counting choices and routing readers by what they did. |
-| [Editing texts](#editing-texts) | Changing a row of `content.xlsx` from the studio; line breaks. |
+| [Editing texts](#editing-texts) | The Content page: texts, images and fonts without opening the source files. |
 | [Frame names](#frame-names), [Logo and favicon](#logo-and-favicon), [Fonts](#fonts), [Building with a language model](#building-with-a-language-model) | Naming, branding, fonts and LLM prompts. |
 | [Participant IDs](#participant-ids-qualtrics-prolific-) | Links, logging, restarting and the finish redirect. |
 | [Loading, full screen and a lost connection](#loading-full-screen-and-a-lost-connection) | What a reader sees while the story downloads, and what happens when the wifi drops. |
-| [Play-test and Stress test](#play-test-and-stress-test) | Two robots: one for while you build, one for before you publish, plus how to test on real phones. |
+| [Offline classroom use](#offline-classroom-use) | Download every language onto a device, play without wifi all day, upload the logs afterwards. |
+| [The Test page](#the-test-page) | One robot, two modes: a quick Play-test while you build and a thorough Stress-test before you publish, plus how to test on real phones. |
 | [Protecting logs](#protecting-logs) | Encrypting study logs with a project key; see also `ETHICS.md`. |
 | [Several languages](#several-languages), [Publishing](#publishing) | Multilingual stories and uploading. |
 | [Tech stack](#tech-stack) | A short explanation of the technologies used. |
@@ -128,16 +129,28 @@ which python3
 
 ## Get TilTale
 
+### Easiest: the start_TilTale launcher
+
+The repository root has one double-clickable launcher per operating system: `start_TilTale.bat`
+(Windows), `start_TilTale.command` (macOS) and `start_TilTale.sh` (Linux). It shows a small to-do
+window with **START** and **ABORT** buttons and a log panel (also written to `start_TilTale.log`)
+and does everything below for you: it checks Python and Git (installing them when missing),
+downloads TilTale into its folder (or, for an unpacked ZIP, connects it to GitHub without touching
+the files), offers — but never forces — an update when a newer version exists, installs
+`requirements.txt` into `.venv`, and then opens TilTale in the browser or in your editor.
+Put the launcher in an empty folder (or run the one already in this folder) and press START.
+The manual steps below do exactly the same, for people who prefer the terminal.
+
 ### Recommended: Download ZIP
 
 This is the easiest option if you are new to Git.
 
-1. Open the repository: <https://github.com/tiltale/tiltale>
+1. Open the repository: <https://github.com/tiltale/tiltale-refactor>
 2. Select **Code → Download ZIP**.
 3. Unpack the ZIP.
 4. Open VS Code.
 5. Select **File → Open Folder...**.
-6. Open the unpacked `tiltale` folder.
+6. Open the unpacked `tiltale-refactor` folder.
 7. Select **Terminal → New Terminal**.
 
 Check that you opened the correct folder:
@@ -155,8 +168,8 @@ True
 ### More experienced? Use Git
 
 ```powershell
-git clone https://github.com/tiltale/tiltale.git
-cd tiltale
+git clone https://github.com/tiltale/tiltale-refactor.git
+cd tiltale-refactor
 ```
 
 ---
@@ -216,8 +229,8 @@ python manage.py test
 1. **Develop**: add frames (**+ Add frame**, which explains each kind in one sentence), place components and images on them (click one to preview it first; see *Shortcuts* for moving and resizing), pick texts from `content.xlsx`, and set what each button does. Click a frame in the list to show it in the preview; **Edit** opens it. The preview only changes when you press **Regenerate**, which the status bar reminds you of. Large stories take a while: the terminal running `runserver` lists every image as it is converted.
 2. **Flowchart**: see how frames connect. Click a frame to zoom to it. Drag frames to arrange them; positions are saved in the project database. `Shift`+click selects several frames to move together; **Tidy up** rearranges everything automatically.
 3. **Regenerate**, then check the preview on different phone sizes.
-4. **Play-test** while you build: a robot plays every generated page to its end in a few seconds and shows pass/fail plus the full log of the run, so you see exactly where it got stuck.
-5. **Stress test** before you publish: the same robot plays every page eight times under pretended bad conditions (slow or lost connection, blocked storage, a crash), and a checklist also shows what Regenerate warned about and what real phones reported. About a minute per page; red rows first.
+4. **Test → Play-test** while you build: a robot plays every generated page to its end in a few seconds and shows pass/fail plus the full log of the run, so you see exactly where it got stuck.
+5. **Test → Stress-test** before you publish: the same robot plays every page eight times under pretended bad conditions (slow or lost connection, blocked storage, a crash), and a checklist also shows what Regenerate warned about and what real phones reported. About a minute per page; red rows first. The Test page can also run only some languages, and can temporarily set “Element delay” to 0.01 s so the robot never waits for fades.
 6. Upload `/project/dist/`. Later, download `dist/logs/` from the server and import the files under **Results**, which lists every visit with a readable timeline and draws visit counts, seconds per frame and the percentage that took each path onto the flowchart. Select one visit to see its own path highlighted.
 
 The status bar at the bottom shows whether everything is saved and in the preview. It is checked on every page load, and turns red as soon as a background save (dragging an element or frame) fails.
@@ -234,11 +247,11 @@ On a Mac, use `Cmd` wherever this says `Ctrl`.
 | `Shift` + drag | move it only horizontally or only vertically, whichever way you drag furthest. |
 | Drag a corner dot (appear on hover) | resize it from that corner; the opposite corner stays. Images and the background keep their proportions; components do not. Components that grow with their text (the `basic-*` ones) use this as their minimum height. |
 | `Shift` + drag a corner dot | the opposite: distort an image freely, or keep a component's proportions. |
-| ▲ / ▼ in the *Elements* list | bring an element forward or send it backward. The list runs back to front; new elements start in front. The background is not an element and always stays behind. |
+| Drag a pill in *(Re)order elements*, or its ⤒ / ⤓ hover buttons | restack the elements: the top of the list is the front layer; new elements start in front. The background shows as a locked pill at the very bottom: nothing goes behind it and it cannot move up. |
 | Drag the black dot (bubbles only) | point the bubble's tail at a mouth or head. The bubble itself stays where it is. |
 | Click an element or image, or `Tab` to it and press `Enter` | open its settings (text, exact size and position, colors, what a click does). |
 | `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` | undo / redo a move or resize. The history covers the current page: it starts over after anything that reloads it, such as adding an element or saving settings. Inside a text field these keys undo typing instead. |
-| Click a component or image in the side panel | preview it, then **Add to frame** (or, for images, **Use as background**). |
+| *Add elements → + Component…* or *+ Image…* | pick from a preview grid (components say what they can do; images come from the Materials page), then **Add to frame** or, for images, **Use as background**. |
 | `Esc` | close a dialog. |
 
 **Flowchart**
@@ -258,7 +271,7 @@ A frame's kind is chosen when it is created (**+ Add frame**) and cannot change 
 
 | Kind | What it is |
 |---|---|
-| **Frame** | A normal page of the story: a background with elements. **Fade this frame in** crossfades it from the previous frame, taking the *Element delay* from Settings; **Fade in from black** makes the previous frame disappear first (either box fades the frame; the flowchart shows a *Fade* or *Fade from black* badge). Documents can fade too. |
+| **Frame** | A normal page of the story: a background with elements. **Fade** is one setting with three options: *No fade in* (default), *Fade in from the previous frame* (a crossfade) and *Fade in from black* (the previous frame disappears first). Both fades take the *Element delay* from Settings; the flowchart shows a *Fade* or *Fade from black* badge. Documents can fade too. |
 | **Picker** | A page of the language start page, only for stories with several languages (see *Several languages*). |
 | **Document** | One image (a poster, a leaflet) that readers open, zoom, drag and close. Only its image and Close text are set; nothing is placed on it. Regenerate makes an extra 3840 px version so it stays sharp when zoomed. It opens as large as the screen allows: a portrait poster fills a phone's height. The Close text is a row of `content.xlsx` (empty for a plain ×). In the flowchart, documents are blue and sit right above the frame that opens them, joined by a two-way arrow; Results counts how often a visit opened one instead of a percentage. |
 | **Validation point** | Never shown to readers: its rules look at the global variables and send the reader on (below). Purple, rounded, in the flowchart. |
@@ -279,7 +292,7 @@ Every variable change and every decision is logged as its own line, is readable 
 
 ## Editing texts
 
-Texts still live in `/project/content.xlsx`, but a row can now be changed without leaving the studio: in an element's dialog, open **Edit text #N** and change any language or the note. The row keeps its id, so every element that uses it changes with it. Line breaks are kept: press Enter in the studio, or Alt+Enter in Excel, and the story shows the lines with a little space between them.
+Texts still live in `/project/content.xlsx`, but the workbook never has to be opened: the **Content** page shows every row (all languages side by side, with how many elements use it), saves changes row by row without a reload, and adds new rows. The **Materials** page uploads (click the + tile, or drop files) and deletes the images of `/project/materials/` (deleting warns when an image is still used somewhere), and the Content page picks each component's font from a fixed set, with a live preview. A single row can also be changed from an element's dialog (**Edit text #N**). A row keeps its id, so every element that uses it changes with it. Line breaks are kept: press Enter in the studio, or Alt+Enter in Excel, and the story shows the lines with a little space between them.
 
 ## Frame names
 
@@ -294,11 +307,11 @@ A new frame's default name repeats its ID number. Names must be unique, ignoring
 
 ## Logo and favicon
 
-`logo-tiltale.png` (startup screen) and `favicon.ico` (browser tab) in the repository root are used for every generated story. To use a different one for **one project**, put a file with the same name in `/project/`, for example `/project/logo-tiltale.png`, and press Regenerate. Delete it to go back to the default. The studio itself always shows the TilTale files from the repository root.
+`branding/logo-tiltale.png` (startup screen) and `branding/favicon.ico` (browser tab) are used for every generated story. To use a different one for **one project**, put a file with the same name in `/project/`, for example `/project/logo-tiltale.png`, and press Regenerate. Delete it to go back to the default. The studio itself always shows the TilTale files from `/branding/`.
 
 ## Fonts
 
-The top of `/project/style-overrides.css` is a **Fonts** block with one line per component (`.component-basic-narrator { font-family: … }`). Change the names between the braces; to give two components the same font, give them the same line. The block is written when a project is created (from the optional `"font"` in each `component.json`); a project made before 2.3 does not have it yet: add the lines you need in the same form.
+The **Content** page picks each component's font from a fixed set of stacks, with a live preview; hand-edited stacks show there as *Custom* and are left alone. Behind it, the top of `/project/style-overrides.css` is a **Fonts** block with one line per component (`.component-basic-narrator { font-family: … }`). Change the names between the braces; to give two components the same font, give them the same line. The block is written when a project is created (from the optional `"font"` in each `component.json`); a project made before 2.3 does not have it yet: add the lines you need in the same form.
 
 A browser uses the first font in the list that the device has installed, and phones, tablets and computers have different fonts installed. Never end a list with `cursive`, `fantasy` or `monospace`: Android maps `cursive` to a small handwriting face, so a line that reads fine on Windows (Comic Sans MS) turns into cramped italics on a phone. End with `sans-serif` or `serif` instead, which every device maps to a plain readable font. A story only looks the same everywhere with its **own font file**: put a `.woff2` (or `.ttf`) in `/project/fonts/`, uncomment the `@font-face` example line in the block, and use its name in the component lines. Regenerate copies `/project/fonts/` into `/dist/fonts/`. (The studio's frame editor keeps showing installed fonts; the generated story uses the file.)
 
@@ -341,13 +354,15 @@ A restart (also the *Restart the story* element) is a new page load, so it start
 
 **A lost connection.** Because everything is in memory, the reader can keep playing. Every log event is first written to a queue on the device (kept in the browser's local storage), then sent in the background, up to 25 events per request; a failed send is retried a few seconds later, at the next event, when the browser reports it is online again, and at the next visit in that browser. Nothing is lost as long as the reader either reaches *End story* with a connection (the redirect waits for the upload) or opens the story again on that device. A restart while offline still needs the connection for the (small) page itself. An image that could not be downloaded is noted in the log (*Image not downloaded*) and shown from the server when its frame opens.
 
+**Offline classroom use.** A published story (HTTPS) can be prepared for a day without wifi, for example a teacher running the story on tablets outside: open `<root>/offline/` on each device **while online** and press **Download everything**. Every language's pages and images are stored on the device (a service worker, `dist/sw.js`, serves them when there is no connection), so the story opens, restarts and replays offline as often as needed — use the story's *Restart* element between students. Every session is logged into the queue on the device (room for thousands of events); back online, opening the story — or the **Upload now** button on the same `offline/` page, which also shows how many events are still waiting — sends every session's log to the server, each visit into its own file. The service worker never gets in the way of updates: pages and code are always fetched from the network first, and the cached copy answers only when the network does not.
+
 **A browser that is too old.** Stories run on iOS Safari 13 and Chrome 61 or newer (phones from about 2015 on). An older browser gets the message *This browser is too old to play this story* instead of a blank page, and the server gets one log line (`Browser not supported`, participant `unsupported`, with the browser's name) so the study knows it happened.
 
 **A crash.** Any JavaScript error in a story is written to its log (`error`, with message, file and line) and shows up under Results, in the visit's timeline and in the *Devices seen* table, so a problem that only one phone has can be found afterwards.
 
-## Play-test and Stress test
+## The Test page
 
-Both pages use the same robot: it plays a generated page like a reader, waits for delays, clicks buttons (preferring frames it has not seen) and stops at *End story*. It fails on a button that leads nowhere, a loop, a JavaScript error, a minute without a new frame, or log events that never reach the server.
+One **Test** page runs both kinds of check — choose **Play-test** or **Stress-test** before pressing Run, tick which pages (languages) to test, and optionally speed the run up by temporarily setting “Element delay” to 0.01 seconds (the story itself is unchanged). Both modes use the same robot: it plays a generated page like a reader, waits for delays, clicks buttons (preferring frames it has not seen) and stops at *End story*. It fails on a button that leads nowhere, a loop, a JavaScript error, a minute without a new frame, or log events that never reach the server.
 
 | | Play-test | Stress test |
 |---|---|---|
@@ -356,7 +371,7 @@ Both pages use the same robot: it plays a generated page like a reader, waits fo
 | Shows | Pass/fail per page and the full log of the run: where exactly it got stuck | A checklist, red rows first; each row says what to do. The page explains the rows |
 | Leaves under Results | One `playtest-…` visit per page | Eight per page (exclude them with the filter there) |
 
-The stress test cannot pretend a real phone. To add one: open the story on the phone with `?autoplay` added to the address (`https://your-host/story/?autoplay`); it plays itself to the end and its visit lands under **Results**, where the *Devices seen* table lists every phone with its visits, finished visits and errors, and where the Stress test page counts it. Borrow the oldest phone in the group, a current iPhone and Android, a tablet; rotate the phone mid-story; turn wifi off for a few frames and on again; try a private window. A phone that is too old (before iOS 13 or Chrome 61) shows *This browser is too old to play this story* instead of a blank page and leaves a `Browser not supported` line in the logs. Phones you do not own: BrowserStack and LambdaTest offer a free tier with real older devices.
+The stress test cannot pretend a real phone. To add one: open the story on the phone with `?autoplay` added to the address (`https://your-host/story/?autoplay`); it plays itself to the end and its visit lands under **Results**, where the *Devices seen* table lists every phone with its visits, finished visits and errors, and where the Test page counts it. Borrow the oldest phone in the group, a current iPhone and Android, a tablet; rotate the phone mid-story; turn wifi off for a few frames and on again; try a private window. A phone that is too old (before iOS 13 or Chrome 61) shows *This browser is too old to play this story* instead of a blank page and leaves a `Browser not supported` line in the logs. Phones you do not own: BrowserStack and LambdaTest offer a free tier with real older devices.
 
 Any pretended condition can also be typed into a story's address, for example `?stress=slow,no-storage`; the list is at the top of `runtime/tiltale.js`.
 
@@ -381,7 +396,11 @@ dist/tiltale.js, style.css, assets/, log.php, logs/, restart/   shared by all pa
 
 ## Publishing
 
-Upload the **contents** of `/project/dist/` to a folder on a web server with PHP 7.4 or newer. `log.php` writes to `dist/logs/`, so that folder must be writable by the web server. `logs/.htaccess` blocks public access on Apache; on nginx add `location ~ /logs/ { deny all; }`. Regenerate never deletes `dist/logs/`.
+Upload the **contents** of `/project/dist/` to a folder on a web server with PHP 7.4 or newer.
+Old links keep working: when a language folder is renamed or removed, Regenerate leaves a small page
+at the old address that forwards readers (with their participant ID) to the start page, and
+`dist/.htaccess` tells browsers never to keep an outdated copy of the story's pages and code.
+Progress saved on a reader's device is untouched by this. `log.php` writes to `dist/logs/`, so that folder must be writable by the web server. `logs/.htaccess` blocks public access on Apache; on nginx add `location ~ /logs/ { deny all; }`. Regenerate never deletes `dist/logs/`.
 
 ---
 
@@ -414,7 +433,7 @@ Most changes start in one of these places:
 | a studio page's layout | `studio/templates/studio/<page>.html` |
 | how the studio looks / reacts | `studio/static/studio/app.css`, `app.js` |
 | how the published story behaves (loading, full screen, logging, fades) | `runtime/tiltale.js` |
-| the rows of the Stress test page, or what the story can pretend | `studio/services/stresstest.py` (`ROBOT_CHECKS`) and `?stress=` at the top of `runtime/tiltale.js` |
+| the rows of the Test page's Stress-test, or what the story can pretend | `studio/services/stresstest.py` (`ROBOT_CHECKS`) and `?stress=` at the top of `runtime/tiltale.js` |
 | how story elements look | `components/<name>/` and `runtime/elements.css` |
 | what is stored in the database | `studio/models.py` (then see *Changing models*) |
 | what Regenerate produces | `studio/services/generate.py` |
@@ -459,7 +478,7 @@ See `runtime/README.md` for the full table. `tiltale.js` is the story player, `l
 
 | File | Purpose |
 |---|---|
-| `logo-tiltale.png`, `favicon.ico` | Default startup logo and browser-tab icon of every story (see *Logo and favicon*). |
+| `branding/` | Default startup logo (`logo-tiltale.png`), browser-tab icon (`favicon.ico`) and the project logo (`logo.png`) of every story (see *Logo and favicon*). |
 | `frame-types/` | One folder per frame kind with its name, description and help (see *Frame kinds*). |
 | `manage.py` | Django's command-line entry point (`runserver`, `test`, `makemigrations`). |
 | `requirements.txt` | Python packages (Django, openpyxl, Pillow, cryptography). |
@@ -486,7 +505,7 @@ To keep TilTale understandable for everyone:
 
 - Prefer readable code over clever code, and the smallest change that does the job.
 - Use type hints in Python; keep functions short and named after what they do.
-- Keep the story player (`runtime/tiltale.js`) in plain ES5 JavaScript, so old phones can run it; a test and the Stress test page check this. The studio (`app.js`) may use modern JavaScript.
+- Keep the story player (`runtime/tiltale.js`) in plain ES5 JavaScript, so old phones can run it; a test and the Test page check this. The studio (`app.js`) may use modern JavaScript.
 - Put reusable logic in `studio/services/`; views only validate input and call a service.
 - Do not edit `project/`, `project/dist/` or `studio/migrations/` by hand (see *Changing models*).
 - Add or adjust a test in `studio/tests.py` when you change behavior.
@@ -508,7 +527,7 @@ The one exception so far is `0006_frame_kinds_variables_rules`, which adds a `Ru
 
 ## Tests and CI
 
-`python manage.py test` runs the behavior tests against an in-memory database, including a check that `runtime/tiltale.js` and `runtime/bubbles.js` contain no JavaScript newer than ES5 (`const`, `=>`, template strings…), so old phones can still run them; the Stress test page shows the same check. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, a syntax check of `tiltale.js`, `app.js` and `log.php`, and, on pull requests, fails when `TILTALE_VERSION` in `config/settings.py` was not bumped.
+`python manage.py test` runs the behavior tests against an in-memory database, including a check that `runtime/tiltale.js` and `runtime/bubbles.js` contain no JavaScript newer than ES5 (`const`, `=>`, template strings…), so old phones can still run them; the Test page shows the same check. GitHub Actions (`.github/workflows/tests.yml`) runs Django's checks, the migration check, the tests, a syntax check of `tiltale.js`, `app.js` and `log.php`, and, on pull requests, fails when `TILTALE_VERSION` in `config/settings.py` was not bumped.
 
 ---
 

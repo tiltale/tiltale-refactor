@@ -1,3 +1,0 @@
-.component-choice-button { --component-fill: var(--component-choice-button-fill, #fff); --component-border: var(--component-choice-button-border, #0d0e0e); --component-text: var(--component-choice-button-text, #0d0e0e); }
-.component-choice-button .choice-button-shape { fill: var(--element-fill, var(--component-fill)); stroke: var(--element-border, var(--component-border)); stroke-width: 7; vector-effect: non-scaling-stroke; transition: filter .12s ease; }
-.component-choice-button:hover .choice-button-shape { filter: brightness(.94); }

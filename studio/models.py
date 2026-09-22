@@ -45,6 +45,9 @@ class ProjectSettings(models.Model):
         validators=[RegexValidator(r"^[A-Za-z0-9_.-]+$", "Use letters, digits, '.', '_' or '-'.")],
     )
     finish_redirect_url = models.URLField(max_length=1000, blank=True, default="")
+    # Shows "ID: <first characters>…" in the bottom-right corner of every frame that has an
+    # "End story" element, so an experimenter can read back which participant a device was on.
+    show_participant_id = models.BooleanField(default=False)
     # Protecting logs (see ETHICS.md): the public key goes into /dist/, the private key is handed out
     # once and never stored. ``log_key_pending`` holds it only between generating and confirming the download.
     log_public_key = models.TextField(blank=True, default="")

@@ -29,7 +29,27 @@
   </section>
   <section class="card">
     <h2>Where things live</h2>
-    <p><code>/project/</code> holds everything you make (database, <code>content.xlsx</code>, images, logs). <code>/project/dist/</code> is the generated website; it is rebuilt by <strong>Regenerate</strong>. Git ignores the whole project folder, so study data never ends up on GitHub.</p>
+    <p><code>/project/</code> holds everything you make (database, <code>content.xlsx</code>, images, logs) — back it up. <code>/project/dist/</code> is the generated website that you upload to your web host; it is rebuilt by <strong>Regenerate</strong>. Git ignores the whole project folder, so study data never ends up on GitHub. The buttons open the folders on this computer, for backing up, uploading, or just looking around.</p>
+    {% if project %}
+    <div class="row">
+      <form method="post" action="{% url 'studio:open_folder' %}">{% csrf_token %}<input type="hidden" name="folder" value="project">
+        <button class="button">Show the “{{ project.name }}” project (/project/) folder</button></form>
+      <form method="post" action="{% url 'studio:open_folder' %}">{% csrf_token %}<input type="hidden" name="folder" value="dist">
+        <button class="button">Show the “{{ project.name }}” distribution (/dist/) folder</button></form>
+    </div>
+    {% endif %}
+  </section>
+  <section class="card">
+    <h2>Docs</h2>
+    <p>Worth reading before building or publishing a study — rendered right here, no files to open:</p>
+    <div class="choice-grid">
+      {% for item in documents %}
+      <a class="choice" href="{% url 'studio:document' item.slug %}"><strong>{{ item.title }}</strong><span>{{ item.why }}</span></a>
+      {% endfor %}
+    </div>
+    <p class="muted">TilTale started as an idea by <strong>Jan de Wit</strong> and is maintained on GitHub:
+      <a href="{{ repository }}">tiltale/tiltale-refactor — a platform for building and running interactive digital narratives (IDNs)</a>.
+      Found a problem or an idea? That is where it belongs.</p>
   </section>
 </main>
 {% endblock %}

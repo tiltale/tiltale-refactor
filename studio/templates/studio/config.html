@@ -31,16 +31,36 @@
         {% include 'studio/_field.html' with field=form.participant_parameter %}
         {% include 'studio/_field.html' with field=form.finish_redirect_url %}
         <p class="field-help" data-redirect-example hidden>Example for participant <code>R_example123</code>: <code data-redirect-result></code></p>
+        {% include 'studio/_field.html' with field=form.show_participant_id %}
+        <p class="field-help">{{ form.show_participant_id.help_text }}</p>
       </fieldset>
     </div>
     <div class="form-actions"><button class="button primary" type="submit">Save settings</button></div>
   </form>
 
   <section class="card" data-panel="basic">
-    <h2>Languages</h2>
+    <h2>Languages <span class="count">{{ content.languages|length }}</span></h2>
     {% if content.error %}<div class="alert error">{{ content.error }}</div>{% endif %}
-    <p>{% for language in content.languages %}<span class="badge">{{ language }}{% if language == project.base_language %} · base{% endif %}</span> {% endfor %}</p>
-    <p class="muted">Languages are the columns after <code>content_id</code> and <code>note</code> in <code>/project/content.xlsx</code>. To add one, type its code (e.g. <code>de-DE</code>) in the next empty column, save the workbook and reload this page. No restart needed.</p>
+    <p class="muted">Languages are the columns after <code>content_id</code> and <code>note</code> in <code>/project/content.xlsx</code>; each becomes its own page of the story. Add one here (its texts are then filled in on the Content page), or rename a code: everything that uses it — layout overrides, picker buttons, the base language — is renamed with it, and after a Regenerate the old story folder forwards readers to the start page.</p>
+    <form method="post" action="{% url 'studio:save_languages' %}" class="form" data-unsaved-guard>
+      {% csrf_token %}
+      <div class="table-wrap"><table class="table languages">
+        <thead><tr><th>Code</th><th></th></tr></thead>
+        <tbody>
+          {% for language in content.languages %}
+          <tr>
+            <td><input name="rename.{{ language }}" value="{{ language }}" required aria-label="Language code">{% if language == project.base_language %} <span class="badge">base</span>{% endif %}</td>
+            <td class="muted">{% if content.languages|length == 1 %}The whole story{% else %}Story folder /{{ language }}/{% endif %}</td>
+          </tr>
+          {% endfor %}
+          <tr>
+            <td><input name="new_language" placeholder="new language, e.g. de-DE" aria-label="New language code"></td>
+            <td class="muted">Codes look like <code>nl</code>, <code>en-US</code> or <code>pt-BR</code>.</td>
+          </tr>
+        </tbody>
+      </table></div>
+      <div class="form-actions"><button class="button primary">Save languages</button></div>
+    </form>
   </section>
 
   <section class="card" data-panel="advanced">

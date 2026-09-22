@@ -57,6 +57,7 @@ class ProjectSettingsForm(forms.ModelForm):
         fields = [
             "name", "frame_width", "frame_height", "letterbox_color",
             "default_delay_seconds", "participant_parameter", "finish_redirect_url",
+            "show_participant_id",
         ]
         labels = {
             "name": "Project name",
@@ -66,6 +67,7 @@ class ProjectSettingsForm(forms.ModelForm):
             "default_delay_seconds": "Element delay (seconds)",
             "participant_parameter": "Participant ID parameter",
             "finish_redirect_url": "Finish redirect URL",
+            "show_participant_id": "Show the participant ID on final frames",
         }
         help_texts = {
             "name": "Shown as the browser tab title of the generated story. The logs keep the slug chosen when "
@@ -77,7 +79,7 @@ class ProjectSettingsForm(forms.ModelForm):
                                "phone held upright while the story is landscape.",
             "default_delay_seconds": "Used by elements whose delay behavior is “Fade in”, “Disable click” or both: "
                                      "they fade in, or ignore clicks, for this long so readers cannot skip a frame "
-                                     "by clicking too fast. Frames set to “Fade this frame in” fade for this long too.",
+                                     "by clicking too fast. Frames whose “Fade” is set fade for this long too.",
             "participant_parameter": "URL parameter that carries an external participant ID. With the default "
                                      "“ppn”, a link such as …/index.html?ppn=R_abc123 (e.g. from Qualtrics) logs as "
                                      "participant R_abc123. Without it, the story generates a random ID.",
@@ -85,6 +87,9 @@ class ProjectSettingsForm(forms.ModelForm):
                                    "where their participant ID belongs, e.g. "
                                    "https://yourschool.qualtrics.com/jfe/form/SV_abc?ppn={ID}. Leave empty to "
                                    "show a simple end screen instead.",
+            "show_participant_id": "Shows “ID: <the first characters>…” in the bottom-right corner of every frame "
+                                   "that has an “End story” element, so an experimenter can read back which "
+                                   "participant a device was on. Off: nothing is shown.",
         }
         widgets = {
             "frame_width": forms.NumberInput(attrs={"step": "any", "min": "1"}),
@@ -97,20 +102,31 @@ class ProjectSettingsForm(forms.ModelForm):
         return validate_hex(self.cleaned_data["letterbox_color"])
 
 
+FADE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("none", "No fade in (default)"),
+    ("previous", "Fade in from the previous frame (crossfade)"),
+    ("black", "Fade in from black (the previous frame disappears first)"),
+)
+
+
 class FrameForm(forms.ModelForm):
     """Frame-level settings: name, background and fade-in. A document's background image is the document."""
 
+    # One choice instead of two checkboxes: only one kind of fade can be true at a time, and both
+    # kinds take "Element delay" seconds (Settings). Stored as the two booleans on the model.
+    fade = forms.ChoiceField(
+        choices=FADE_CHOICES, required=False, label="Fade",
+        help_text="Both fades take “Element delay” seconds (Settings).",
+    )
+
     class Meta:
         model = Frame
-        fields = ["name", "fade_in", "fade_from_black", "background_type", "background_color", "background_image", "close_content_id"]
+        fields = ["name", "background_type", "background_color", "background_image", "close_content_id"]
         labels = {
-            "fade_in": "Fade this frame in", "fade_from_black": "Fade in from black",
             "background_type": "Background", "background_image": "Image",
         }
         help_texts = {
             "name": "Only for you: spaces are fine. The story's code and logs use the fixed ID below.",
-            "fade_in": "Crossfades from the previous frame, taking “Element delay” seconds (Settings).",
-            "fade_from_black": "The previous frame disappears at once and this one fades in from black (wins over the crossfade).",
         }
         widgets = {"background_color": forms.TextInput(attrs={"type": "color"})}
 
@@ -118,6 +134,9 @@ class FrameForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.materials: list[str] = materials
         self.content_ids: set[int] = content_ids
+        self.fields["fade"].initial = (
+            "black" if self.instance.fade_from_black else "previous" if self.instance.fade_in else "none"
+        )
 
     def clean_name(self) -> str:
         name: str = " ".join(self.cleaned_data["name"].split())
@@ -141,6 +160,11 @@ class FrameForm(forms.ModelForm):
 
     def clean(self) -> dict[str, object]:
         cleaned: dict[str, object] = super().clean()
+        # The three-way choice onto the two model booleans, here rather than in save(): clean()
+        # always runs before a save, also when save() itself triggers the validation.
+        fade: str = str(cleaned.get("fade") or "none")  # validation points do not post the field
+        self.instance.fade_in = fade != "none"
+        self.instance.fade_from_black = fade == "black"
         if self.instance.is_document:  # the image is the document; the color fills the screen around it
             cleaned["background_type"] = Frame.BackgroundType.IMAGE
         kind = cleaned.get("background_type")

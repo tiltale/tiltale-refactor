@@ -1,6 +1,7 @@
 """Every TilTale route. Open the matching function in views.py to change a page."""
 
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
@@ -10,12 +11,23 @@ urlpatterns = [
     path("", views.home, name="home"),
     path("new/", views.new_project, name="new_project"),
     path("help/", views.help_page, name="help"),
+    path("docs/<slug:slug>/", views.document, name="document"),
+    path("open-folder/", views.open_folder, name="open_folder"),
 
     path("develop/", views.develop, name="develop"),
     path("develop/regenerate/", views.regenerate, name="regenerate"),
-    path("develop/playtest/", views.playtest, name="playtest"),
-    path("develop/stresstest/", views.stresstest, name="stresstest"),
+    path("develop/test/", views.test_page, name="test"),
+    # The Test page replaced Play-test and Stress test; old bookmarks land there too.
+    path("develop/playtest/", RedirectView.as_view(pattern_name="studio:test"), name="playtest"),
+    path("develop/stresstest/", RedirectView.as_view(pattern_name="studio:test"), name="stresstest"),
     path("develop/config/", views.project_config, name="config"),
+    path("develop/content/", views.content_page, name="content"),
+    path("develop/materials/", views.materials_page, name="materials"),
+    path("develop/materials/upload/", views.upload_materials, name="upload_materials"),
+    path("develop/materials/delete/", views.delete_material_file, name="delete_material"),
+    path("api/content/rows/", views.content_row_api, name="content_row_api"),
+    path("api/fonts/", views.save_component_font, name="save_component_font"),
+    path("develop/config/languages/", views.save_languages, name="save_languages"),
     path("develop/config/variables/", views.save_variables, name="save_variables"),
     path("develop/config/variables/<int:variable_id>/delete/", views.delete_variable, name="delete_variable"),
     path("develop/config/scoreboards/add/", views.add_scoreboard, name="add_scoreboard"),
@@ -37,7 +49,6 @@ urlpatterns = [
     path("develop/content/<int:content_id>/edit/", views.edit_content_row, name="edit_content_row"),
     path("develop/elements/<int:element_id>/save/", views.save_element, name="save_element"),
     path("develop/elements/<int:element_id>/duplicate/", views.duplicate_element, name="duplicate_element"),
-    path("develop/elements/<int:element_id>/move/", views.move_element, name="move_element"),
     path("develop/elements/<int:element_id>/content/add/", views.add_content_for_element, name="add_content_for_element"),
     path("develop/elements/<int:element_id>/delete/", views.delete_element, name="delete_element"),
 
@@ -47,6 +58,7 @@ urlpatterns = [
 
     path("api/elements/<int:element_id>/position/", views.element_position_api, name="element_position_api"),
     path("api/frames/<int:frame_id>/background/", views.background_box_api, name="background_box_api"),
+    path("api/frames/<int:frame_id>/elements/order/", views.element_order_api, name="element_order_api"),
     path("api/flow-positions/", views.flow_positions_api, name="flow_positions_api"),
     path("api/logs/<str:file_name>/", views.log_api, name="log_api"),
 
@@ -54,5 +66,6 @@ urlpatterns = [
     path("preview/log.php", views.preview_log, name="preview_log"),
     path("preview/<path:path>", views.preview_file, name="preview_file"),
     path("materials/<path:path>", views.material_file, name="material_file"),
+    path("materials-thumb/<path:path>", views.material_thumb, name="material_thumb"),
     path("branding/<str:name>", views.branding, name="branding"),
 ]
