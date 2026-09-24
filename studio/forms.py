@@ -88,8 +88,8 @@ class ProjectSettingsForm(forms.ModelForm):
                                    "https://yourschool.qualtrics.com/jfe/form/SV_abc?ppn={ID}. Leave empty to "
                                    "show a simple end screen instead.",
             "show_participant_id": "Shows “ID: <the first characters>…” in the bottom-right corner of every frame "
-                                   "that has an “End story” element, so an experimenter can read back which "
-                                   "participant a device was on. Off: nothing is shown.",
+                                   "that has an “End story” or “Restart the story” element, so an experimenter "
+                                   "can read back which participant a device was on. Off: nothing is shown.",
         }
         widgets = {
             "frame_width": forms.NumberInput(attrs={"step": "any", "min": "1"}),

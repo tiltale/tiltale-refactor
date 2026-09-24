@@ -383,10 +383,13 @@
     return STORY.show_participant_id && !inspect && frame.elements.some(function (element) { return element.ends_story || element.restarts_story; });
   }
 
+  /* A generated ID is "anon-" + random characters: the badge leaves out that prefix (the same for
+     everyone) and shows the random part, which matches the start of the log file name after "anon-". */
   function participantBadge() {
     var badge = document.createElement("div");
+    var shown = participantId.replace(/^(anon|preview)-/, "");
     badge.className = "participant-badge";
-    badge.textContent = "ID: " + participantId.slice(0, 8) + (participantId.length > 8 ? "…" : "");
+    badge.textContent = "ID: " + shown.slice(0, 8) + (shown.length > 8 ? "…" : "");
     return badge;
   }
 
