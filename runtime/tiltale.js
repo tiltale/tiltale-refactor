@@ -376,10 +376,11 @@
   }
 
   /* Settings → Advanced → "Show the participant ID on final frames": the first characters of the ID
-     in the bottom-right corner of every frame with an "End story" element, so an experimenter can
-     read back which participant a device was on. Off (the default): nothing is shown. */
+     in the bottom-right corner of every frame with an "End story" or "Restart the story" element, so
+     an experimenter can read back which participant a device was on (before "Play again" gives the
+     next reader a new ID). Off (the default): nothing is shown. */
   function participantBadgeWanted(frame) {
-    return STORY.show_participant_id && !inspect && frame.elements.some(function (element) { return element.ends_story; });
+    return STORY.show_participant_id && !inspect && frame.elements.some(function (element) { return element.ends_story || element.restarts_story; });
   }
 
   function participantBadge() {
