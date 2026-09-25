@@ -554,15 +554,26 @@ If nothing is returned, reinstall Python and tick **Add python.exe to PATH** in 
 
 ---
 
-### PowerShell says `activate.ps1` cannot be loaded
+### PowerShell says running scripts is disabled (`activate.ps1` cannot be loaded)
 
-Use the command-prompt version of the activation script instead:
+Allow scripts for your own account (once, no administrator rights needed), then activate again:
 
 ```powershell
-.venv\Scripts\activate.bat
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.venv\Scripts\activate
 ```
 
-This avoids changing your PowerShell security settings.
+`(.venv)` must now show at the start of the line. If activating says `is not recognized`, the `.venv` folder was never created: run `python -m venv .venv` first.
+
+---
+
+### `pip.exe` is blocked ("blocked by an application control policy" / "geblokkeerd door een beleid voor toepassingsbeheer")
+
+First check that `(.venv)` shows at the start of the line; if not, activate the environment first. If it still happens, the PC's management blocks `pip.exe`; run pip through Python instead:
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 ---
 
