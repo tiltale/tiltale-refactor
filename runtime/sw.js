@@ -4,7 +4,8 @@
  * Strategy per request:
  * - log.php and anything not GET: never touched; the log queue in tiltale.js handles being offline.
  * - images (dist/assets/): cache first; tiltale.js and the offline page already keep them in
- *   Cache Storage, and Regenerate gives a changed image list a changed story.js.
+ *   Cache Storage. Safe because Regenerate names each image after its content: a replaced image
+ *   gets a new address. <root>/reset/ removes old copies from a device.
  * - pages, code and fonts: network first, so a republished story updates as before; the cached copy
  *   of the last visit answers only when the network does not. ignoreSearch: index.html?ppn=… is index.html.
  */

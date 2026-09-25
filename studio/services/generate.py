@@ -13,6 +13,8 @@ Multi-language project::
 
 Shared by every page: ``tiltale.js``, ``bubbles.js``, ``style.css``, ``logo-tiltale.png``,
 ``favicon.ico``, ``assets/`` (responsive images), ``fonts/`` (if the project has one), ``log.php``, ``logs/`` and ``restart/``.
+Also written: ``offline/`` (download for a day without wifi) and ``reset/`` (wipe everything the story
+stored on a device, after uploading its unsent logs).
 Frames are identified by their fixed ID (``Frame.key``, e.g. ``fnr-12``) in everything generated.
 """
 
@@ -141,7 +143,9 @@ def _image_variants(relative_source: str, widths: tuple[int, ...]) -> list[dict[
     source: Path = safe_child(settings.PROJECT_DIR / "materials", relative_source)
     if not source.is_file():
         return []
-    digest: str = hashlib.sha1(relative_source.encode("utf-8")).hexdigest()[:8]
+    # The name follows the image's content, not only its name: a replaced image (same file name) gets a
+    # new address, so browsers and the service worker, which keep images by address, fetch it again.
+    digest: str = hashlib.sha1(relative_source.encode("utf-8") + b"\0" + source.read_bytes()).hexdigest()[:8]
     stem: str = re.sub(r"[^A-Za-z0-9_-]+", "-", source.stem).strip("-") or "image"
     with Image.open(source) as opened:
         image: Image.Image = ImageOps.exif_transpose(opened)
@@ -363,6 +367,18 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
         .replace("__TITLE__", escape(project.name))
         .replace("__PROJECT__", project.slug)
         .replace("__PAGES__", pages_json)
+        .replace("__VERSION__", settings.TILTALE_VERSION),
+        encoding="utf-8",
+    )
+
+    # <root>/reset/ wipes everything this story stored on a device (images, offline copy, progress,
+    # service worker) after uploading the logs still waiting there (README, "Offline classroom use").
+    reset: Path = settings.DIST_DIR / "reset"
+    reset.mkdir()
+    (reset / "index.html").write_text(
+        (settings.RUNTIME_DIR / "reset.html").read_text(encoding="utf-8")
+        .replace("__TITLE__", escape(project.name))
+        .replace("__PROJECT__", project.slug)
         .replace("__VERSION__", settings.TILTALE_VERSION),
         encoding="utf-8",
     )

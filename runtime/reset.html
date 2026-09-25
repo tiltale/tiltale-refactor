@@ -1,0 +1,158 @@
+<!doctype html>
+<!-- Made with TilTale version __VERSION__. Written to <root>/reset/index.html by Regenerate, which
+     fills in __TITLE__ and __PROJECT__ (see studio/services/generate.py).
+
+     Removes every trace of this story from this browser, e.g. after a republish when a device still
+     shows old images (README, "Resetting a device"): first the log events still waiting on the device
+     are uploaded, then the cached pages and images, the service worker, the progress and the
+     participant ID are deleted. Unsent log events are only deleted when the person confirms. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>__TITLE__ — reset this device</title>
+  <link rel="icon" href="../favicon.ico">
+  <style>
+    body { margin: 0; padding: 24px; background: #111; color: #eee; font: 16px/1.5 Arial, Helvetica, sans-serif; }
+    main { max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 22px; }
+    .card { background: #1d1d1f; border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+    button { padding: 10px 18px; margin: 4px 8px 4px 0; border: 0; border-radius: 8px; background: #fff; color: #111; font: 600 15px/1 Arial, sans-serif; cursor: pointer; }
+    button.danger { background: #ff8a80; }
+    button:disabled { opacity: .5; }
+    a { color: #9ec2ff; }
+    .muted { color: #999; font-size: 14px; }
+    .done { color: #6fdc8c; font-weight: 600; }
+    .problem { color: #ffb4a9; font-weight: 600; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>__TITLE__ — reset this device</h1>
+  <p>Use this when this device still shows an old version of the story (for example old images after a republish). It removes everything this story stored in <strong>this browser</strong>: the downloaded pages and images, the offline copy, the progress and the participant ID. Other websites are not touched.</p>
+  <p class="muted">Do this <strong>while online</strong>, close other tabs with the story first, and repeat it in every browser on this device that was used for the story.</p>
+
+  <div class="card">
+    <p id="state" class="muted"></p>
+    <button id="reset">Reset this device</button>
+    <button id="force" class="danger" hidden>Reset anyway and delete these log events</button>
+    <p id="links" hidden>Open <a href="../index.html">the story</a>, or <a href="../offline/">prepare it again for offline use</a>.</p>
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var ROOT = "../";
+  var PREFIX = "tiltale:__PROJECT__:";  /* every key tiltale.js keeps for this story */
+  var CACHES = ["tiltale-shell", "tiltale-__PROJECT__"];  /* sw.js and tiltale.js / the offline page */
+  var queueKey = PREFIX + "unsent";
+  var BATCH = 25;
+
+  var state = document.getElementById("state");
+  var resetButton = document.getElementById("reset");
+  var forceButton = document.getElementById("force");
+
+  function area(name) {
+    try { return window[name]; } catch (error) { return null; }
+  }
+
+  function readQueue() {
+    try { return JSON.parse(area("localStorage").getItem(queueKey)) || []; } catch (error) { return []; }
+  }
+
+  function writeQueue(queue) {
+    try { area("localStorage").setItem(queueKey, JSON.stringify(queue)); } catch (error) { /* best-effort */ }
+  }
+
+  /* Same as the offline page: log.php takes one visit per request, so a batch stops where the next visit starts. */
+  function upload() {
+    var queue = readQueue();
+    if (!queue.length) return Promise.resolve();
+    var batch = [queue[0]];
+    for (var i = 1; i < queue.length && batch.length < BATCH; i += 1) {
+      if (queue[i].participant_id !== queue[0].participant_id || queue[i].visit_id !== queue[0].visit_id) break;
+      batch.push(queue[i]);
+    }
+    state.textContent = "Uploading " + queue.length + " log event(s) that are still on this device…";
+    return fetch(ROOT + "log.php", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(batch.length === 1 ? batch[0] : batch)
+    }).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      queue.splice(0, batch.length);
+      writeQueue(queue);
+      return upload();
+    });
+  }
+
+  function forgetKeys(name) {
+    var storage = area(name);
+    if (!storage) return;
+    try {
+      var keys = [];
+      for (var i = 0; i < storage.length; i += 1) keys.push(storage.key(i));
+      keys.forEach(function (key) { if (key && key.indexOf(PREFIX) === 0) storage.removeItem(key); });
+    } catch (error) { /* best-effort */ }
+  }
+
+  function wipe() {
+    forgetKeys("localStorage");
+    forgetKeys("sessionStorage");
+    var caches = window.caches
+      ? Promise.all(CACHES.map(function (name) { return window.caches["delete"](name); }))
+      : Promise.resolve();
+    var scope = new URL(ROOT, window.location.href).href;
+    var workers = navigator.serviceWorker && navigator.serviceWorker.getRegistrations
+      ? navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          return Promise.all(registrations.filter(function (registration) {
+            return registration.scope.indexOf(scope) === 0;
+          }).map(function (registration) { return registration.unregister(); }));
+        })
+      : Promise.resolve();
+    return Promise.all([caches, workers]);
+  }
+
+  function finish() {
+    return wipe().then(function () {
+      state.className = "done";
+      state.textContent = "Done. This device no longer has anything of this story; it is downloaded fresh the next time it opens.";
+      forceButton.hidden = true;
+      document.getElementById("links").hidden = false;
+    })["catch"](function (error) {
+      state.className = "problem";
+      state.textContent = "Resetting failed (" + (error.message || error) + "). Clear this website's data in the browser settings instead.";
+      resetButton.disabled = false;
+    });
+  }
+
+  function showQueue() {
+    var waiting = readQueue().length;
+    state.className = "muted";
+    state.textContent = waiting
+      ? waiting + " log event(s) are still waiting on this device. They are uploaded first."
+      : "No log events are waiting on this device.";
+  }
+
+  resetButton.addEventListener("click", function () {
+    resetButton.disabled = true;
+    upload().then(finish, function (error) {
+      state.className = "problem";
+      state.textContent = "Could not upload the " + readQueue().length + " log event(s) still on this device (" +
+        (error.message || error) + "). Connect to the internet and press Reset again, or delete them.";
+      resetButton.disabled = false;
+      forceButton.hidden = false;
+    });
+  });
+
+  forceButton.addEventListener("click", function () {
+    forceButton.disabled = true;
+    resetButton.disabled = true;
+    finish();
+  });
+
+  showQueue();
+}());
+</script>
+</body>
+</html>

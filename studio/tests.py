@@ -921,6 +921,24 @@ class OfflineUseTests(ProjectTestCase):
         self.assertIn('"folder": ""', page)  # the single page: the story at the dist root
         self.assertIn("networkFirst", (self.root / "dist" / "sw.js").read_text(encoding="utf-8"))
 
+    def test_regenerate_writes_the_reset_page_for_this_project(self) -> None:
+        Frame.objects.create(name="frame-1")
+        generate_dist(self.project)
+        page = (self.root / "dist" / "reset" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('"tiltale:demo:"', page)
+        self.assertNotIn("__PROJECT__", page)
+
+    def test_a_replaced_image_with_the_same_name_gets_a_new_address(self) -> None:
+        photo = self.root / "project" / "materials" / "photo.png"
+        Image.new("RGB", (8, 8), "red").save(photo)
+        Frame.objects.create(name="frame-1", background_type="image", background_image="photo.png")
+        generate_dist(self.project)
+        before = sorted(path.name for path in (self.root / "dist" / "assets").iterdir())
+        Image.new("RGB", (8, 8), "blue").save(photo)
+        generate_dist(self.project)
+        after = sorted(path.name for path in (self.root / "dist" / "assets").iterdir())
+        self.assertNotEqual(before, after)
+
 class DocumentPageTests(TestCase):
     """The Docs pages: repository documents rendered inside the studio."""
 
