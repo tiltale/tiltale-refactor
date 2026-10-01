@@ -1,0 +1,5 @@
+# Windows batch files must keep Windows (CRLF) line endings, also in GitHub's "Download ZIP".
+*.bat     text eol=crlf
+# The macOS and Linux launchers must keep Unix (LF) line endings.
+*.sh      text eol=lf
+*.command text eol=lf
