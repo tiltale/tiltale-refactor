@@ -18,3 +18,5 @@ Thumbs.db
 # start_TilTale launcher
 start_TilTale.log
 _tiltale_tmp/
+_tiltale_download/
+.git-broken-*/

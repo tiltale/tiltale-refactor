@@ -25,6 +25,7 @@ set "TILTALE_LOG_STARTED=1"
 
 rem ==================================================================== what is here already?
 set "FIRST=1"
+set "DAMAGED="
 if exist "scripts\start_tiltale.py" set "FIRST="
 if not defined FIRST goto :detect
 rem First start: the folder must be empty apart from this file and its log, so TilTale never
@@ -32,8 +33,24 @@ rem gets unpacked into, say, the Downloads folder or the desktop.
 if exist "_tiltale_download" rd /s /q "_tiltale_download"
 if exist "tiltale.zip" del "tiltale.zip"
 set "OTHER="
-for /f "delims=" %%I in ('dir /b /a 2^>nul') do if /i not "%%I"=="%~nx0" if /i not "%%I"=="start_TilTale.log" if /i not "%%I"=="desktop.ini" if /i not "%%I"=="Thumbs.db" set "OTHER=%%I"
+for /f "delims=" %%I in ('dir /b /a 2^>nul') do if /i not "%%I"=="%~nx0" if /i not "%%I"=="start_TilTale.log" if /i not "%%I"=="start_TilTale_Mac.command" if /i not "%%I"=="start_TilTale_Linux.sh" if /i not "%%I"=="desktop.ini" if /i not "%%I"=="Thumbs.db" set "OTHER=%%I"
 if not defined OTHER goto :detect
+rem Not empty: maybe a TilTale folder with files deleted (scripts\ among them). Then get only the
+rem TilTale window back; that window shows what is missing and offers Repair. Only things a TilTale
+rem folder has count, so a folder of unrelated files never gets TilTale files added.
+set "TRACES="
+for %%T in (studio frame-types components "runtime\tiltale.js" "branding\logo-tiltale.png" "project\project.sqlite3") do if exist "%%~T" set "TRACES=1"
+for %%F in (".git\config" "README.md" "config\settings.py") do if exist "%%~F" findstr /i /m "tiltale" "%%~F" >nul 2>&1 && set "TRACES=1"
+if not defined TRACES goto :not_empty
+>>"%LOG%" echo Damaged TilTale folder: scripts\start_tiltale.py is missing.
+set "FIRST="
+set "DAMAGED=1"
+echo %BAD%Some of TilTale's own files are missing in this folder.%OFF%
+echo The TilTale window will open and offer to repair it. Your project is not touched.
+echo.
+goto :detect
+
+:not_empty
 >>"%LOG%" echo Folder is not empty, it contains for example: %OTHER%
 echo %BAD%This folder already contains other files.%OFF%
 echo Put %~nx0 in a new, empty folder and double-click it there.
@@ -141,6 +158,7 @@ goto :failed
 :python_done
 >>"%LOG%" echo Using Python: %PY%
 %PY% --version >>"%LOG%" 2>&1
+if defined DAMAGED goto :download
 if not defined FIRST goto :window
 call :done
 
@@ -148,6 +166,7 @@ rem ==================================================================== [2/3] T
 rem GitHub's ZIP of the repository: no Git needed yet (the TilTale window installs Git afterwards
 rem and connects this folder to GitHub). curl.exe is built into Windows 10/11; Python is the fallback.
 call :step 2 "TilTale"
+:download
 set "ZIP=tiltale.zip"
 set "URL=https://github.com/tiltale/tiltale-refactor/archive/refs/heads/main.zip"
 call :say "Downloading TilTale from GitHub..."
@@ -163,6 +182,7 @@ goto :failed
 call :say "Unpacking TilTale..."
 >>"%LOG%" echo --- unpack %ZIP%
 %PY% -m zipfile -e "%ZIP%" "_tiltale_download" >>"%LOG%" 2>&1
+if defined DAMAGED goto :restore_window
 rem The ZIP holds one folder (tiltale-refactor-main): move its contents here, next to this file.
 rem Nothing that already exists is replaced: above all not this .bat, which Windows is still reading.
 for /d %%D in ("_tiltale_download\*") do for /f "delims=" %%I in ('dir /b /a "%%D"') do if not exist "%%I" move "%%D\%%I" . >>"%LOG%" 2>&1
@@ -174,6 +194,21 @@ set "RC=5"
 goto :failed
 :unpacked
 call :done
+goto :window
+
+:restore_window
+rem Damaged folder: put back only the TilTale window (and its pictures when missing). Nothing else is
+rem changed here; the window's Repair button puts back the rest, after asking.
+if not exist "scripts" mkdir "scripts"
+if not exist "branding" mkdir "branding"
+for /d %%D in ("_tiltale_download\*") do copy /y "%%D\scripts\start_tiltale.py" "scripts\" >>"%LOG%" 2>&1
+for /d %%D in ("_tiltale_download\*") do for %%B in (launcher-logo.png launcher-logo@2x.png favicon.ico) do if not exist "branding\%%B" copy "%%D\branding\%%B" "branding\" >>"%LOG%" 2>&1
+rd /s /q "_tiltale_download" >nul 2>&1
+del "%ZIP%" >nul 2>&1
+if exist "scripts\start_tiltale.py" goto :window
+echo %BAD%The TilTale window could not be put back.%OFF%
+set "RC=5"
+goto :failed
 
 rem ==================================================================== [3/3] the TilTale window
 :window
@@ -208,7 +243,8 @@ echo.
 echo %GOOD%All set: the "Start TilTale" window is open.%OFF%
 if defined FIRST echo Click Start in that window. It installs what TilTale still needs, and then you
 if defined FIRST echo can open TilTale in your browser. Next time, just double-click %~nx0 again.
-if not defined FIRST echo Click Start in that window to open TilTale in your browser.
+if defined DAMAGED echo Click Start in that window: it shows what is missing and offers Repair.
+if not defined FIRST if not defined DAMAGED echo Click Start in that window to open TilTale in your browser.
 echo.
 echo This black window closes in 10 seconds.
 timeout /t 10 >nul

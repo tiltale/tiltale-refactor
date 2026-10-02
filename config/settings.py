@@ -15,7 +15,7 @@ So the absence of ``/project/`` simply means "no active project".
 from pathlib import Path
 import os
 
-TILTALE_VERSION: str = "2.6.6"  # bump on every release; CI checks this on pull requests
+TILTALE_VERSION: str = "2.6.7"  # bump on every release; CI checks this on pull requests
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 PROJECT_DIR: Path = BASE_DIR / "project"

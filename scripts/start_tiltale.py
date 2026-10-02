@@ -1,7 +1,7 @@
 """start_TilTale: a small window that sets up and starts TilTale, for people who never open a terminal.
 
-Started by ``start_TilTale.bat`` (Windows), ``start_TilTale.command`` (macOS) or ``start_TilTale.sh``
-(Linux), which make sure Python exists (and on Windows also download TilTale) and then run this file.
+Started by ``start_TilTale_Windows.bat``, ``start_TilTale_Mac.command`` or ``start_TilTale_Linux.sh``,
+which make sure Python exists, download TilTale when it is not there yet, and then run this file.
 Standard library only (tkinter), because it runs before ``requirements.txt`` is installed.
 
 What it does, as a visible to-do list with a Start and a Stop button:
@@ -57,7 +57,7 @@ def log_crash(kind: type, error: BaseException, trace) -> None:
     write_log("Crashed:\n" + "".join(traceback.format_exception(kind, error, trace)).rstrip())
 
 
-# The log starts before anything else can go wrong, even before tkinter loads. start_TilTale.bat
+# The log starts before anything else can go wrong, even before tkinter loads. The launcher
 # begins the log itself and sets TILTALE_LOG_STARTED; started any other way, this is a new log.
 if not os.environ.get("TILTALE_LOG_STARTED"):
     try:
@@ -76,8 +76,9 @@ from tkinter import font as tkfont, messagebox, ttk  # noqa: E402
 # What may sit in the folder before TilTale is there: the launcher itself, the copy of this app it
 # downloads when the repository is not there yet, its log, and OS clutter. Such a folder counts as empty.
 LAUNCHER_FILES: frozenset[str] = frozenset({
-    "start_TilTale.bat", "start_TilTale.command", "start_TilTale.sh", "start_tiltale_tmp.py",
-    "start_TilTale.log", "__pycache__", ".DS_Store", "Thumbs.db", "desktop.ini",
+    "start_TilTale_Windows.bat", "start_TilTale_Mac.command", "start_TilTale_Linux.sh",
+    "start_TilTale.bat", "start_TilTale.command", "start_TilTale.sh",  # names before 2.6.7
+    "start_tiltale_tmp.py", "start_TilTale.log", "__pycache__", ".DS_Store", "Thumbs.db", "desktop.ini",
 })
 GIT_INSTALLS: dict[str, list[str]] = {  # per OS: the quiet installer most machines have
     "Windows": ["winget", "install", "-e", "--id", "Git.Git", "--source", "winget", "--silent",
@@ -102,6 +103,25 @@ BG, SURFACE, TEXT, MUTED, LINE = "#f3f5f9", "#ffffff", "#14203a", "#5b6781", "#d
 NAVY, ON_NAVY, GOLD = "#142850", "#b8c4dc", "#eecf5a"
 ACCENT, ACCENT_DARK, ACCENT_OFF = "#2552d0", "#1c41a8", "#a9b9e8"
 OK, DANGER = "#1f8a4c", "#d0342c"
+WARN, WARN_SOFT = "#a56300", "#fff4dc"
+
+# Files and folders a working TilTale folder always has. One missing: the folder is damaged.
+REQUIRED: tuple[str, ...] = ("README.md", "manage.py", "requirements.txt", "config/settings.py", "studio", "runtime")
+# Things only a TilTale folder has: with one of them, a damaged folder may be repaired.
+TILTALE_SIGNS: tuple[str, ...] = ("studio", "frame-types", "components", "runtime/tiltale.js",
+                                  "branding/logo-tiltale.png", "project/project.sqlite3")
+# Code editors "Open in my code editor" looks for: name, command on PATH, Windows install places,
+# macOS app name, and the link type the editor registers when it is installed (vscode://file/...).
+EDITORS: tuple[tuple[str, str, tuple[str, ...], str, str], ...] = (
+    ("Visual Studio Code", "code", (r"%LocalAppData%\Programs\Microsoft VS Code\Code.exe",
+                                    r"%ProgramFiles%\Microsoft VS Code\Code.exe"), "Visual Studio Code", "vscode"),
+    ("Cursor", "cursor", (r"%LocalAppData%\Programs\cursor\Cursor.exe",), "Cursor", "cursor"),
+    ("PyCharm", "pycharm", (), "PyCharm", ""),
+)
+
+
+class NeedsRepair(Exception):
+    """The folder was a TilTale folder, but some of TilTale's own files are missing."""
 
 
 def version_in(settings_text: str) -> str:
@@ -121,12 +141,12 @@ def base_python() -> str:
     return str(console) if WINDOWS and console.is_file() else sys.executable
 
 
-def run(command: list[str], cwd: Path = ROOT) -> subprocess.CompletedProcess:
+def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run a command without opening a console window; output goes to the log. Output is read as
     UTF-8 (what git, winget and Python print), so nothing turns into strange characters."""
     flags = subprocess.CREATE_NO_WINDOW if WINDOWS else 0
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
-    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+    return subprocess.run(command, cwd=cwd or ROOT, capture_output=True, text=True, encoding="utf-8",
                           errors="replace", creationflags=flags, env=env)
 
 
@@ -171,6 +191,83 @@ def find_git() -> str:
                 found = str(candidate)
                 break
     return found or ""
+
+
+def looks_like_tiltale() -> bool:
+    """Signs that this folder was a TilTale folder once, and is not a folder of unrelated files."""
+    if any((ROOT / sign).exists() for sign in TILTALE_SIGNS):
+        return True
+    for path in (ROOT / ".git" / "config", ROOT / "README.md", ROOT / "config" / "settings.py"):
+        try:
+            if "tiltale" in path.read_text(encoding="utf-8", errors="ignore").lower():
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def find_editor() -> tuple[str, list[str]] | None:
+    """A code editor on this computer: (its name, the command that opens a folder with it)."""
+    for name, command, windows_places, app, _ in EDITORS:
+        for place in windows_places if WINDOWS else ():
+            program = Path(os.path.expandvars(place))
+            if program.is_file():
+                return name, [str(program)]
+        if platform.system() == "Darwin" and Path(f"/Applications/{app}.app").is_dir():
+            return name, ["open", "-a", app]
+        found = shutil.which(command)
+        if found:
+            return name, [found]
+    return None
+
+
+def open_editor_at(folder: Path, log) -> str:
+    """Open a folder in a code editor and return the editor's name. Tries, in order: the editor's
+    program (started the way a double-click would), then the editor's own link type (vscode://file/…),
+    which the editor registers when it is installed. Raises ValueError when no editor is found."""
+    tried: list[str] = []
+    editor = find_editor()
+    if editor:
+        name, command = editor
+        log(f"Editor found: {name}: {' '.join(command)}")
+        try:
+            if WINDOWS:
+                # ShellExecute, exactly like a double-click: no console, no inherited handles, no PATH.
+                os.startfile(command[0], arguments=f'"{folder}"', cwd=str(folder))  # type: ignore[call-arg]
+            else:
+                subprocess.Popen(command + [str(folder)], cwd=folder, start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return name
+        except (OSError, TypeError) as error:
+            tried.append(f"{name} ({error})")
+            log(f"Could not start {name}: {error}")
+    for name, _, _, _, scheme in EDITORS:
+        if not scheme:
+            continue
+        link = f"{scheme}://file/{folder.as_posix().lstrip('/')}"
+        log(f"Trying the link {link}")
+        try:
+            if WINDOWS:
+                os.startfile(link)
+            elif platform.system() == "Darwin":
+                if subprocess.run(["open", link], capture_output=True).returncode != 0:
+                    raise OSError("no app for this link")
+            elif subprocess.run(["xdg-open", link], capture_output=True).returncode != 0:
+                raise OSError("no app for this link")
+            return name
+        except OSError as error:
+            log(f"The link did not work: {error}")
+    names = ", ".join(name for name, *_ in EDITORS[:-1]) + f" or {EDITORS[-1][0]}"
+    raise ValueError((f"{tried[0]} could not be started." if tried else f"No code editor found: TilTale looks for {names}.")
+                     + " Show details has more.")
+
+
+def show_folder(folder: Path) -> None:
+    """Open a folder in Explorer (Windows), Finder (macOS) or the file manager (Linux)."""
+    if WINDOWS:
+        os.startfile(folder)  # noqa: S606  (only ever a folder of TilTale's)
+    else:
+        subprocess.Popen(["open" if platform.system() == "Darwin" else "xdg-open", str(folder)])
 
 
 def sharp_text() -> None:
@@ -255,6 +352,7 @@ class Launcher:
         self.window.title("Start TilTale")
         self.window.configure(bg=BG)
         self.aborted = False
+        self.repairing = False  # True for one run after the user chose Repair
         self.server: subprocess.Popen | None = None
         self.python: Path = venv_python()  # always the project's .venv: the computer's own Python stays untouched
 
@@ -274,6 +372,17 @@ class Launcher:
             tk.Label(header, text="TilTale", bg=NAVY, fg=GOLD, font=self.fonts["title"]).pack(anchor="w")
         tk.Label(header, text="Set up and start TilTale", bg=NAVY, fg=ON_NAVY,
                  font=self.fonts["body"]).pack(anchor="w", pady=(px(6), 0))
+
+        # Footer, always at the bottom: a reminder to keep a copy of the project somewhere else.
+        tip = tk.Frame(self.window, bg=WARN_SOFT, padx=px(28), pady=px(12))
+        tip.pack(side="bottom", fill="x")
+        tk.Label(tip, text="Tip", bg=WARN_SOFT, fg=WARN, font=self.fonts["button"]).pack(side="left", anchor="n")
+        ttk.Button(tip, text="Show project folder", style="TipLink.TButton",
+                   command=self.show_project).pack(side="right", anchor="n")
+        tk.Label(tip, text="Now and then, copy your project folder to a safe place outside the TilTale folder, "
+                           "such as a USB stick or a cloud drive. Your stories live in that folder.",
+                 bg=WARN_SOFT, fg=TEXT, font=self.fonts["small"], justify="left", anchor="w",
+                 wraplength=px(390)).pack(side="left", fill="x", padx=(px(10), px(10)))
 
         body = tk.Frame(self.window, bg=BG, padx=px(28), pady=px(20))
         body.pack(fill="both", expand=True)
@@ -317,7 +426,7 @@ class Launcher:
         self.window.attributes("-topmost", True)
         self.window.after(500, lambda: self.window.attributes("-topmost", False))
         self.window.focus_force()
-        # start_TilTale.bat waits for this exact line before it closes its own window.
+        # The launchers wait for this exact line before it closes its own window.
         self.log(f"Window open. Folder: {ROOT}")
 
     # ------------------------------------------------------------- looks
@@ -354,6 +463,10 @@ class Launcher:
         style.configure("Link.TButton", background=BG, foreground=ACCENT, bordercolor=BG, lightcolor=BG,
                         darkcolor=BG, borderwidth=0, focusthickness=0, padding=(px(4), px(8)), font=self.fonts["small"])
         style.map("Link.TButton", background=[("active", BG)], foreground=[("active", ACCENT_DARK)])
+        style.configure("TipLink.TButton", background=WARN_SOFT, foreground=WARN, bordercolor=WARN_SOFT,
+                        lightcolor=WARN_SOFT, darkcolor=WARN_SOFT, borderwidth=0, focusthickness=0,
+                        padding=(px(4), 0), font=self.fonts["small"])
+        style.map("TipLink.TButton", background=[("active", WARN_SOFT)], foreground=[("active", TEXT)])
         style.configure("Tilt.Horizontal.TProgressbar", troughcolor=BG, background=ACCENT, bordercolor=BG,
                         lightcolor=ACCENT, darkcolor=ACCENT, thickness=px(4))
 
@@ -388,6 +501,14 @@ class Launcher:
         self.hint.configure(text="Press Start to finish setting up TilTale. The first time takes a few minutes; "
                                  "after that, starting is quick.", fg=TEXT)
         self.show_buttons(("Start", "Accent", self.start))
+
+    def show_project(self) -> None:
+        project = ROOT / "project"
+        if project.is_dir():
+            show_folder(project)
+            return
+        messagebox.showinfo("No project yet", "There is no project folder yet. It appears in the TilTale folder "
+                            f"as soon as you create your first project:\n\n{project}", parent=self.window)
 
     def working(self, busy: bool) -> None:
         """Show or hide the moving bar under the to-do list."""
@@ -446,6 +567,7 @@ class Launcher:
 
     def stopped(self) -> None:
         self.working(False)
+        self.repairing = False
         self.log("Stopped. Press Start to try again.")
         self.show_ready()
 
@@ -468,6 +590,11 @@ class Launcher:
             self.mark(key, "running")
             try:
                 note = work()
+            except NeedsRepair as problem:
+                self.mark(key, "failed", str(problem))
+                self.log(f"Damaged folder: {problem}")
+                self.window.after(0, self.stopped if self.aborted else self.offer_repair)
+                return
             except Exception as error:  # any failed step stops the list; the log has the details
                 self.mark(key, "failed", str(error))
                 self.log(f"Failed: {error}")
@@ -477,8 +604,30 @@ class Launcher:
             self.log(f"Done: {dict(STEPS)[key]}: {note}")
         self.window.after(0, self.stopped if self.aborted else self.offer_open)
 
+    def offer_repair(self) -> None:
+        self.working(False)
+        self.repairing = False
+        self.hint.configure(text="If this is your TilTale folder, Repair puts back all of TilTale's own files, "
+                                 "in the newest version. Your project folder, and any other files of your own, "
+                                 "stay exactly as they are.", fg=TEXT)
+        self.show_buttons(("Repair TilTale", "Accent", self.confirm_repair), ("Start again", "Quiet", self.start))
+
+    def confirm_repair(self) -> None:
+        if not messagebox.askyesno(
+                "Repair TilTale?",
+                f"Repair the TilTale folder\n{ROOT}\n\n"
+                "TilTale's own files are downloaded again, in the newest version, and put back. "
+                "Changes made to TilTale's own files are undone.\n\n"
+                "Not touched: your project folder, and any file that is not part of TilTale.\n\n"
+                "Only repair when this folder really is your TilTale folder.",
+                icon="warning", parent=self.window):
+            return
+        self.repairing = True
+        self.start()
+
     def show_failed(self) -> None:
         self.working(False)
+        self.repairing = False
         self.hint.configure(text="Something went wrong: see the red message above. "
                                  "Press Start to try again.", fg=TEXT)
         self.show_buttons(("Start again", "Accent", self.start))
@@ -492,6 +641,8 @@ class Launcher:
     def check_requirements(self) -> str:
         # Python runs this file, so it exists; the launcher scripts installed it if needed.
         global GIT
+        if platform.system() == "Darwin":
+            self.install_apple_tools()
         git = find_git()
         if not git:
             installer = GIT_INSTALLS[platform.system()]
@@ -513,12 +664,37 @@ class Launcher:
         version = run([GIT, "--version"]).stdout.strip().replace("git version ", "")
         return f"Python {platform.python_version()}, Git {version}"
 
+    def install_apple_tools(self) -> None:
+        """macOS: /usr/bin/git exists on every Mac but only works once Apple's command line tools are
+        installed. Start that install (macOS shows its own dialog) and wait for it."""
+        if run(["xcode-select", "-p"]).returncode == 0:
+            return
+        self.log("Apple's command line tools (Git) are not installed yet. Starting the install…")
+        self.mark("requirements", "running", "macOS asks to install the command line tools (Git): click Install "
+                                             "and wait. This can take 10 to 20 minutes.")
+        run(["xcode-select", "--install"])
+        for _ in range(40 * 60):  # up to 40 minutes
+            if self.aborted:
+                raise ValueError("Stopped while waiting for the command line tools.")
+            if run(["xcode-select", "-p"]).returncode == 0:
+                self.log("Command line tools installed.")
+                return
+            time.sleep(1)
+        raise ValueError("The command line tools were not installed. Press Start to try again.")
+
     def check_root(self) -> str:
         contents = [item.name for item in ROOT.iterdir() if item.name not in LAUNCHER_FILES]
         if not contents:
             return self.clone()
-        if not (ROOT / "README.md").is_file() or not (ROOT / "studio").is_dir():
-            raise ValueError("This folder is neither empty nor a TilTale folder. Move start_TilTale into an empty folder.")
+        if self.repairing:
+            return self.repair()
+        missing = [name for name in REQUIRED if not (ROOT / name).exists()]
+        if missing:
+            if not looks_like_tiltale():
+                raise ValueError("This folder is not a TilTale folder: none of TilTale's files are here. "
+                                 "Put start_TilTale in a new, empty folder.")
+            shown = ", ".join(missing[:4]) + (", …" if len(missing) > 4 else "")
+            raise NeedsRepair(f"Some of TilTale's own files are missing: {shown}")
         fresh: bool = not (ROOT / ".git").is_dir()
         if fresh:
             self.connect()
@@ -537,6 +713,34 @@ class Launcher:
             shutil.move(str(item), str(ROOT / item.name))
         shutil.rmtree(temp, ignore_errors=True)
         return f"Downloaded TilTale {version_in((ROOT / 'config' / 'settings.py').read_text(encoding='utf-8'))}"
+
+    def repair(self) -> str:
+        """Put back every file of TilTale itself (newest version from GitHub). Git only replaces the
+        files it tracks: /project/, .venv and anything else that is not part of TilTale stay untouched."""
+        self.repairing = False
+        self.log("Repair: putting back TilTale's own files from GitHub…")
+        self.mark("root", "running", "Repairing: downloading TilTale's files…")
+        git_folder = ROOT / ".git"
+        if git_folder.exists() and run([GIT, "rev-parse", "--git-dir"]).returncode != 0:
+            aside = ROOT / f".git-broken-{time.strftime('%Y%m%d-%H%M%S')}"
+            git_folder.rename(aside)  # keep it, just in case; Git starts afresh
+            self.log(f"The folder's Git data was damaged; moved it aside to {aside.name}.")
+        if not git_folder.exists():
+            result = run([GIT, "init", "-b", "main"])
+            if result.returncode != 0:
+                raise ValueError(f"Repair failed: git init: {result.stderr.strip()}")
+        has_origin = run([GIT, "remote", "get-url", "origin"]).returncode == 0
+        run([GIT, "remote", "set-url" if has_origin else "add", "origin", REPOSITORY])
+        result = run([GIT, "fetch", "origin", "main"])
+        if result.returncode != 0:
+            self.log(result.stderr.strip())
+            raise ValueError("Repair needs the internet, and GitHub could not be reached. "
+                             "Check the connection and press Start again.")
+        result = run([GIT, "reset", "--hard", "origin/main"])
+        if result.returncode != 0:
+            raise ValueError(f"Repair failed: {result.stderr.strip()}")
+        version = version_in((ROOT / "config" / "settings.py").read_text(encoding="utf-8"))
+        return f"Repaired: TilTale {version} is complete again"
 
     def connect(self) -> None:
         """An unpacked ZIP: connect it to GitHub so future updates can be seen, touching no files."""
@@ -637,21 +841,24 @@ class Launcher:
                           ("Stop TilTale", "Quiet", self.abort))
 
     def open_editor(self) -> None:
-        if shutil.which("code"):
-            run(["code", str(ROOT), str(ROOT / "README.md")])
-            self.log("Opened the folder in Visual Studio Code, with the README. Run: python manage.py runserver")
-            self.countdown(5)
+        self.rows["open"].set("running", "Opening your code editor…")
+        try:
+            name = open_editor_at(ROOT, self.log)
+        except ValueError as problem:
+            self.log(str(problem))
+            self.rows["open"].set("failed", str(problem))
+            self.hint.configure(text="Visual Studio Code is free to download. Or simply open TilTale in your "
+                                     "browser: that is all you need to make stories.", fg=TEXT)
+            self.show_buttons(("Open in browser", "Accent", self.open_browser),
+                              ("Get VS Code", "Quiet", lambda: webbrowser.open("https://code.visualstudio.com/")),
+                              ("Show folder", "Quiet", lambda: show_folder(ROOT)))
             return
-        webbrowser.open(ROOT.as_uri())  # no editor found: at least show the folder
-        self.log("No 'code' command found. Opened the folder instead; see README.md, section 'Run TilTale'.")
-        self.mark("open", "done", "Folder opened. See README.md, section 'Run TilTale'.")
-
-    def countdown(self, seconds: int) -> None:
-        if seconds == 0:
-            self.window.destroy()
-            return
-        self.mark("open", "done", f"Opened in Visual Studio Code. This window closes in {seconds}…")
-        self.window.after(1000, lambda: self.countdown(seconds - 1))
+        self.log(f"Opened the folder in {name}. To run TilTale from there: python manage.py runserver")
+        self.rows["open"].set("done", f"The TilTale folder is open in {name}.")
+        self.hint.configure(text=f"README.md, section 'Run TilTale', explains how to start TilTale from {name}. "
+                                 "Or open it in your browser from here.", fg=TEXT)
+        self.show_buttons(("Open in browser", "Accent", self.open_browser),
+                          ("Close this window", "Quiet", self.window.destroy))
 
 
 def main() -> None:

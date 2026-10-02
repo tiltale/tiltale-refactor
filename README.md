@@ -131,14 +131,27 @@ which python3
 
 ### Easiest: the start_TilTale launcher
 
-The repository root has one double-clickable launcher per operating system: `start_TilTale.bat`
-(Windows), `start_TilTale.command` (macOS) and `start_TilTale.sh` (Linux). It shows a small to-do
-window with **START** and **ABORT** buttons and a log panel (also written to `start_TilTale.log`)
-and does everything below for you: it checks Python and Git (installing them when missing),
-downloads TilTale into its folder (or, for an unpacked ZIP, connects it to GitHub without touching
-the files), offers — but never forces — an update when a newer version exists, installs
-`requirements.txt` into `.venv`, and then opens TilTale in the browser or in your editor.
-Put the launcher in an empty folder (or run the one already in this folder) and press START.
+For people who never open a terminal. There is one launcher per operating system; download
+**only the one for yours** and put it in a new, empty folder:
+
+| | File | How to start it |
+|---|---|---|
+| Windows | `start_TilTale_Windows.bat` | Double-click it. Windows SmartScreen may ask once: choose **More info → Run anyway**. |
+| macOS | `start_TilTale_Mac.command` | The first time, right-click it and choose **Open** (macOS blocks a plain double-click for downloaded scripts). After that, double-click. |
+| Linux | `start_TilTale_Linux.sh` | Double-click where the file manager allows it, or run `bash start_TilTale_Linux.sh` in a terminal. |
+
+(Windows hides file extensions by default, which is why the operating system is part of the name.)
+
+The launcher first says what it is going to do and asks for a **Y**. It then checks Python
+(installing 3.12 when missing), downloads TilTale into its folder and opens the **Start TilTale**
+window: a to-do list with a **Start** button that installs Git when missing, connects the folder
+to GitHub, offers — but never forces — an update when a newer version exists, installs
+`requirements.txt` into `.venv`, and then opens TilTale in your browser or in your code editor.
+Every detail is written to `start_TilTale.log` next to the launcher (**Show details** in the
+window shows the same). When some of TilTale's own files are missing, the window offers
+**Repair**, which puts them back without touching `/project/`.
+
+Already have TilTale? The same launcher sits in the repository root: double-click it there.
 The manual steps below do exactly the same, for people who prefer the terminal.
 
 ### Recommended: Download ZIP
