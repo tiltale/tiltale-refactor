@@ -15,12 +15,15 @@ So the absence of ``/project/`` simply means "no active project".
 from pathlib import Path
 import os
 
-TILTALE_VERSION: str = "2.6.8"  # bump on every release; CI checks this on pull requests
+TILTALE_VERSION: str = "2.7.0"  # bump on every release; CI checks this on pull requests
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 PROJECT_DIR: Path = BASE_DIR / "project"
 PROJECT_DB: Path = PROJECT_DIR / "project.sqlite3"
 DIST_DIR: Path = PROJECT_DIR / "dist"  # the generated website lives with the project it belongs to
+# Preview and play-test logs are encrypted like study logs once a project has a key (ETHICS.md, section 4).
+# Developers who need to read /project/logs/ directly set TILTALE_PLAIN_LOCAL_LOGS=1.
+PLAIN_LOCAL_LOGS: bool = os.environ.get("TILTALE_PLAIN_LOCAL_LOGS") == "1"
 COMPONENTS_DIR: Path = BASE_DIR / "components"
 FRAME_TYPES_DIR: Path = BASE_DIR / "frame-types"  # names and help texts of the frame kinds
 RUNTIME_DIR: Path = BASE_DIR / "runtime"

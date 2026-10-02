@@ -23,7 +23,7 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from django.conf import settings
 
-from .log_keys import LockedLog, decrypt_event, is_encrypted
+from .log_keys import LockedLog, decrypt_event, encrypt_event, is_encrypted
 
 FINISHED_EVENT: str = "Story finished"
 DECISION_EVENT: str = "decision"  # a validation point chose a path (frame, element_id "rule-7", target, variables)
@@ -67,9 +67,12 @@ def log_file_name(event: dict[str, Any]) -> str:
     return f"{participant}--{visit}.jsonl"
 
 
-def append_event(event: dict[str, Any]) -> None:
+def append_event(event: dict[str, Any], public_key: str = "") -> None:
+    """Write one preview or play-test event, encrypted like log.php does when the project has a key
+    (``public_key``). TILTALE_PLAIN_LOCAL_LOGS=1 in the environment keeps local logs readable for developers."""
     path: Path = logs_dir() / log_file_name(event)
-    line: str = json.dumps({**event, "received_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
+    received: dict[str, Any] = {**event, "received_at": datetime.now(timezone.utc).isoformat()}
+    line: str = encrypt_event(received, public_key) if public_key else json.dumps(received, ensure_ascii=False)
     with _lock, path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(line + "\n")
 

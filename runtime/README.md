@@ -13,7 +13,7 @@ Framework-free files that every generated story uses. Regenerate copies them int
 | `bubbles.js` | Draws the bodies and tails of bubble components (`"tail"` in `component.json`) in pixels, so borders never scale. Also used by the frame editor. | a bubble shape or tail should look different. |
 | `style.css` | Page scaling, letterboxing, startup screen with progress bar, full-screen button, notices. | the story page should look different for every project. Per-project tweaks (and the Fonts block) go in `/project/style-overrides.css`. |
 | `elements.css` | How placed elements look (position, text box, fade). Also used by the studio's frame editor, so both always match. | every element should look different. |
-| `log.php` | Appends each event (one per request, or a list of them) to `dist/logs/<participant>--<visit>.jsonl` on the web server; encrypts them first when `log-key.pem` is next to it (see `ETHICS.md`). | the log format or storage changes. |
+| `log.php` | Appends each event (one per request, or a list of them) to `dist/logs/<participant>--<visit>.jsonl` on the web server; encrypts them first when `log-key.pem` is next to it (see `ETHICS.md`); if it cannot encrypt, it answers 500 and writes nothing. | the log format or storage changes. |
 
 The startup logo and browser-tab icon are not here: see *Logo and favicon* in the main README.
 

@@ -577,9 +577,15 @@ def download_log_key(request: HttpRequest, project: ProjectSettings) -> HttpResp
 @require_POST
 @project_view
 def confirm_log_key(request: HttpRequest, project: ProjectSettings) -> HttpResponse:
-    """Forget the private key: from now on only the downloaded file can read the logs."""
-    if request.POST.get("saved") != "yes":
-        messages.error(request, "Tick the box once the key file is safely stored.")
+    """Forget the private key once the downloaded file proves it works: upload it, and it is checked
+    against the public key. From then on only that file can read the logs."""
+    uploaded = request.FILES.get("key_file")
+    try:
+        if uploaded is None:
+            raise ValueError("Choose the key file you just downloaded.")
+        load_private_key(uploaded.read(8192), project.log_public_key)
+    except ValueError as error:
+        messages.error(request, f"{error} Download it again if needed; the key is still here until this check passes.")
         return redirect("studio:log_key")
     project.log_key_pending = ""
     project.save()
@@ -1263,14 +1269,16 @@ def log_api(request: HttpRequest, project: ProjectSettings, file_name: str) -> J
 @require_POST
 def preview_log(request: HttpRequest) -> HttpResponse:
     """Local stand-in for dist/log.php: preview events (one, or a list of them) go to /project/logs/."""
-    if project_settings() is None:
+    project = project_settings()
+    if project is None:
         return JsonResponse({"error": "No active project."}, status=409)
+    public_key: str = "" if settings.PLAIN_LOCAL_LOGS else project.log_public_key
     try:
         body: Any = json.loads(request.body.decode("utf-8"))  # a UnicodeDecodeError or JSONDecodeError is a ValueError
         for event in (body if isinstance(body, list) else [body]):
             if not isinstance(event, dict):
                 raise ValueError("Each event must be a JSON object.")
-            append_event(event)
+            append_event(event, public_key)
     except (OSError, ValueError) as error:
         return JsonResponse({"error": str(error)}, status=400)
     return HttpResponse(status=204)

@@ -52,6 +52,9 @@ if (!is_dir($directory) && mkdir($directory, 0750, true)) {
 /* One encrypted line: {"enc": wrapped key, "iv", "tag", "data"}, all base64. */
 function tiltale_encrypt(string $plain, string $publicKey): ?string
 {
+    if (!function_exists('openssl_public_encrypt')) {
+        return null;  /* no OpenSSL extension: 500, nothing written, never plaintext */
+    }
     $key = random_bytes(32);
     $iv = random_bytes(12);
     $tag = '';

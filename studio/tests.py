@@ -6,11 +6,18 @@ project database, so /project/ is never touched.
 
 import json
 import shutil
+import socket
+import subprocess
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
+from unittest import SkipTest, skipUnless
+
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
@@ -24,7 +31,7 @@ from .services.flow import STEP_X, create_frame, default_name, tidy_layout
 from .services.frame_types import load_frame_types
 from .services.generate import generate_dist, language_folder, reset_dist_directory
 from .services.llm import parse_elements
-from .services.log_keys import LockedLog, decrypt_event, encrypt_event, fingerprint, generate_key_pair, load_private_key
+from .services.log_keys import LockedLog, decrypt_event, encrypt_event, fingerprint, generate_key_pair, is_encrypted, load_private_key
 from .services.project import image_size, list_materials, material_thumbnail, project_health, safe_child
 from .services.stresstest import RUNTIME_FILES, build_check, device_checks, es5_problems
 from .services.study_logs import SessionSummary, describe_visit, device_report, final_variables, frame_visits, import_jsonl, log_file_name, parse_events, readable_events, safe_name, session_kind
@@ -265,6 +272,112 @@ class LogKeyTests(SimpleTestCase):
     def test_fingerprints_are_short_and_stable(self) -> None:
         self.assertEqual(fingerprint(self.public_pem), fingerprint(self.public_pem))
         self.assertRegex(fingerprint(self.public_pem), r"^([0-9a-f]{4}:){7}[0-9a-f]{4}$")
+
+
+NASTY_EVENTS: list[dict] = [  # everything a story could ever send
+    {"participant_id": "P1", "visit_id": "v1", "event": "frame", "frame": "start", "seq": 1},
+    {"participant_id": "P1", "visit_id": "v1", "event": "choice", "seq": 2,
+     "text": "Café naïve — “quotes” ‘and’ \\ / <b>&amp;</b> 😀 中文 🇳🇱 \u0000 \t"},
+    {"participant_id": "P1", "visit_id": "v1", "event": "variables", "seq": 3,
+     "data": {"nested": [1, 2.5, None, True, {"k": "v"}], "empty": "", "big": 10 ** 18}},
+    {"participant_id": "P1", "visit_id": "v1", "event": "note", "seq": 4, "long": "x" * 30000},
+]
+
+
+@skipUnless(shutil.which("php"), "PHP is not installed")
+class LogPhpEncryptionTests(SimpleTestCase):
+    """What log.php writes with log-key.pem next to it must open with the key file, and nothing else."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.private_pem, cls.public_pem = generate_key_pair()
+        cls.temp = TemporaryDirectory()
+        cls.dist = Path(cls.temp.name)
+        shutil.copy2(Path(settings.BASE_DIR) / "runtime" / "log.php", cls.dist / "log.php")
+        (cls.dist / "log-key.pem").write_text(cls.public_pem, encoding="utf-8")
+        if subprocess.run(["php", "-r", "exit(extension_loaded('openssl') ? 0 : 1);"]).returncode:
+            raise SkipTest("PHP has no OpenSSL extension")
+        with socket.socket() as probe:  # a free port
+            probe.bind(("127.0.0.1", 0))
+            cls.port = probe.getsockname()[1]
+        cls.server = subprocess.Popen(["php", "-S", f"127.0.0.1:{cls.port}", "-t", str(cls.dist)],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(50):  # wait until PHP listens
+            try:
+                socket.create_connection(("127.0.0.1", cls.port), timeout=0.2).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.terminate()
+        cls.server.wait()
+        cls.temp.cleanup()
+        super().tearDownClass()
+
+    def setUp(self) -> None:
+        shutil.rmtree(self.dist / "logs", ignore_errors=True)  # every test starts with an empty logs/ folder
+
+    def post(self, payload: object) -> int:
+        request = urllib.request.Request(f"http://127.0.0.1:{self.port}/log.php", data=json.dumps(payload).encode(),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            return urllib.request.urlopen(request, timeout=10).status
+        except urllib.error.HTTPError as error:
+            return error.code
+
+    def log_lines(self) -> list[str]:
+        return (self.dist / "logs" / "P1--v1.jsonl").read_text(encoding="utf-8").splitlines()
+
+    def test_php_encrypts_and_python_decrypts_every_kind_of_event(self) -> None:
+        self.assertEqual([self.post(event) for event in NASTY_EVENTS[:2]], [204, 204])  # one per request
+        self.assertEqual(self.post(NASTY_EVENTS[2:]), 204)  # a batch, as tiltale.js sends it
+        lines = self.log_lines()
+        self.assertEqual(len(lines), len(NASTY_EVENTS))
+        private = load_private_key(self.private_pem.encode(), self.public_pem)
+        for line, original in zip(lines, NASTY_EVENTS):
+            self.assertTrue(is_encrypted(json.loads(line)))
+            for secret in ("participant_id", "Café", "xxxx", "start"):
+                self.assertNotIn(secret, line, "plaintext leaked into the log")
+            event = decrypt_event(json.loads(line), private)
+            self.assertIn("received_at", event)
+            event.pop("received_at")
+            self.assertEqual(event, original)
+        # and through the studio's own reader, the way Results opens a file
+        self.assertEqual(len(parse_events("\n".join(lines), "P1--v1.jsonl", private)), len(NASTY_EVENTS))
+
+    def test_the_wrong_key_cannot_read_php_output(self) -> None:
+        self.post(NASTY_EVENTS[0])
+        other_private, other_public = generate_key_pair()
+        other = load_private_key(other_private.encode(), other_public)
+        with self.assertRaises(ValueError):
+            decrypt_event(json.loads(self.log_lines()[0]), other)
+
+    def test_a_key_file_survives_being_saved_on_any_os(self) -> None:
+        """Windows line endings, a BOM, a trailing blank line: the file still opens the logs."""
+        self.post(NASTY_EVENTS[0])
+        record = json.loads(self.log_lines()[0])
+        for variant in (self.private_pem.replace("\n", "\r\n"), "﻿" + self.private_pem, self.private_pem + "\n\n"):
+            private = load_private_key(variant.encode("utf-8"), self.public_pem)
+            self.assertEqual(decrypt_event(record, private)["event"], "frame")
+
+    def test_without_the_key_file_php_writes_plain_lines(self) -> None:
+        (self.dist / "log-key.pem").rename(self.dist / "log-key.pem.off")
+        try:
+            self.assertEqual(self.post(NASTY_EVENTS[0]), 204)
+            self.assertFalse(is_encrypted(json.loads(self.log_lines()[-1])))
+        finally:
+            (self.dist / "log-key.pem.off").rename(self.dist / "log-key.pem")
+
+    def test_a_damaged_key_file_writes_nothing_rather_than_plaintext(self) -> None:
+        (self.dist / "log-key.pem").write_text("-----BEGIN PUBLIC KEY-----\ngarbage\n-----END PUBLIC KEY-----\n")
+        try:
+            self.assertEqual(self.post(NASTY_EVENTS[0]), 500)
+            self.assertFalse((self.dist / "logs" / "P1--v1.jsonl").exists())
+        finally:
+            (self.dist / "log-key.pem").write_text(self.public_pem, encoding="utf-8")
 
 
 class FrameTypeTests(SimpleTestCase):
@@ -740,9 +853,11 @@ class StudioViewTests(ProjectTestCase):
         self.assertRedirects(self.client.get(reverse("studio:develop")), reverse("studio:log_key"), fetch_redirect_response=False)
         download = self.client.get(reverse("studio:download_log_key"))
         self.assertIn(f'filename="{project.slug}-log-key.pem"', download["Content-Disposition"])
-        self.client.post(reverse("studio:confirm_log_key"), {})  # without the tick: still pending
+        self.client.post(reverse("studio:confirm_log_key"), {})  # without the file: still pending
         self.assertTrue(ProjectSettings.objects.get().log_key_pending)
-        self.client.post(reverse("studio:confirm_log_key"), {"saved": "yes"})
+        self.client.post(reverse("studio:confirm_log_key"), {"key_file": SimpleUploadedFile("key.pem", b"not a key")})
+        self.assertTrue(ProjectSettings.objects.get().log_key_pending)  # a broken download: still pending
+        self.client.post(reverse("studio:confirm_log_key"), {"key_file": SimpleUploadedFile("key.pem", download.content)})
         self.assertEqual(ProjectSettings.objects.get().log_key_pending, "")
         self.assertEqual(self.client.get(reverse("studio:develop")).status_code, 200)
         self.assertEqual(self.client.post(reverse("studio:generate_log_key")).status_code, 302)  # once: the key stays
@@ -835,6 +950,19 @@ class StudioViewTests(ProjectTestCase):
         self.client.post(reverse("studio:background_box_api", kwargs={"frame_id": frame.id}), json.dumps(body), content_type="application/json")
         generate_dist(self.project)
         self.assertIn('"box":{"x":10.0,"y":20.0,"width":300.0,"height":150.0}', (self.root / "dist" / "story.js").read_text(encoding="utf-8"))
+
+    def test_preview_logs_are_encrypted_once_the_project_has_a_key(self) -> None:
+        private_pem, public_pem = generate_key_pair()
+        ProjectSettings.objects.update(log_public_key=public_pem)
+        self.client.post(reverse("studio:preview_log"), json.dumps({**EVENT, "visit_id": "v9"}), content_type="application/json")
+        line = (self.root / "project" / "logs" / log_file_name({**EVENT, "visit_id": "v9"})).read_text(encoding="utf-8")
+        self.assertTrue(is_encrypted(json.loads(line)))
+        private = load_private_key(private_pem.encode(), public_pem)
+        self.assertEqual(decrypt_event(json.loads(line), private)["event"], EVENT["event"])
+        with override_settings(PLAIN_LOCAL_LOGS=True):
+            self.client.post(reverse("studio:preview_log"), json.dumps({**EVENT, "visit_id": "v10"}), content_type="application/json")
+        line = (self.root / "project" / "logs" / log_file_name({**EVENT, "visit_id": "v10"})).read_text(encoding="utf-8")
+        self.assertFalse(is_encrypted(json.loads(line)))
 
     def test_preview_log_writes_one_file_per_visit(self) -> None:
         url = reverse("studio:preview_log")
