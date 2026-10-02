@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: >-
+  If you use TilTale in your research, please cite it as below, with the
+  version you used. Each release has its own DOI on Zenodo; the DOI below
+  always points to the newest version.
+type: software
+title: TilTale
+abstract: >-
+  TilTale is an authoring tool for interactive digital narratives: branching
+  stories with photos, speech bubbles and choices, made for research studies.
+  Researchers and students without programming experience build a story in a
+  local studio in the browser, play-test and stress-test it themselves, and
+  export it as a self-contained website that runs on any web host with PHP.
+  Once loaded, the story keeps working on an unstable or absent internet
+  connection: events are queued on the device and sent when the connection
+  returns. A participant ID from a survey or recruitment platform such as
+  Qualtrics or Prolific enters through the story link and is passed back
+  through a redirect when the story ends, so story logs can be linked to survey
+  data. Each visit is logged per participant, and the logs can be encrypted
+  on the server with a project key pair, so that only the holder of the
+  private key can read them.
+authors:
+  - given-names: Jan
+    family-names: De Wit
+    affiliation: Department of Communication and Cognition, Tilburg University
+    orcid: "https://orcid.org/0000-0002-7299-7992"
+  - given-names: Jonas Hubertus
+    family-names: De Brouwer
+    affiliation: Department of Communication and Cognition, Tilburg University
+    orcid: "https://orcid.org/0009-0002-1510-3339"
+doi: 10.5281/zenodo.23011186
+repository-code: "https://github.com/tiltale/tiltale-refactor"
+license: GPL-3.0-or-later
+keywords:
+  - interactive digital narrative
+  - branching narrative
+  - authoring tool
+  - research software
+  - online experiments
+  - communication research
+  - offline-first
+  - encrypted logging
