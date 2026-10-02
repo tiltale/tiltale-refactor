@@ -1,12 +1,31 @@
 #!/bin/bash
-# start_TilTale for Linux: put this file in an empty folder and run it (double-click where the file
-# manager allows it, otherwise: bash start_TilTale_Linux.sh in a terminal).
+# start_TilTale for Linux: put this file in an empty folder and start it. Ubuntu's Files app opens
+# scripts in the text editor on a double-click, so either:
+#   - right-click an empty spot in the folder > Open in Terminal, type: bash start_TilTale_Linux.sh
+#   - or right-click the file > Properties > turn on "Executable as Program", then right-click > Run as a Program.
 #   [1/3] Python:  makes sure Python 3.12 or newer (with tkinter) and Git exist; installs them when
 #                  missing with apt or dnf (asks for your password).
 #   [2/3] TilTale: downloads TilTale from GitHub into this folder when it is not there yet.
 #   [3/3] Window:  opens scripts/start_tiltale.py (the visible to-do list: updates, packages, start).
 cd "$(dirname "$0")" || exit 1
 ME="$(basename "$0")"
+
+# Started without a terminal ("Run as a Program" in the file manager runs a script invisibly): reopen
+# in a terminal window, because this script asks a question and shows its progress.
+if [ ! -t 0 ] && [ -z "$TILTALE_IN_TERMINAL" ]; then
+    export TILTALE_IN_TERMINAL=1
+    SELF="$PWD/$ME"
+    if command -v gnome-terminal >/dev/null 2>&1; then exec gnome-terminal -- bash "$SELF"
+    elif command -v ptyxis >/dev/null 2>&1; then exec ptyxis -- bash "$SELF"
+    elif command -v kgx >/dev/null 2>&1; then exec kgx -- bash "$SELF"
+    elif command -v konsole >/dev/null 2>&1; then exec konsole -e bash "$SELF"
+    elif command -v xfce4-terminal >/dev/null 2>&1; then exec xfce4-terminal -x bash "$SELF"
+    elif command -v mate-terminal >/dev/null 2>&1; then exec mate-terminal -x bash "$SELF"
+    elif command -v x-terminal-emulator >/dev/null 2>&1; then exec x-terminal-emulator -e bash "$SELF"
+    elif command -v xterm >/dev/null 2>&1; then exec xterm -e bash "$SELF"
+    fi
+    # No terminal program found: carry on without one (questions are then answered with "no").
+fi
 printf '\033]0;Starting TilTale\007'
 
 HEAD=$'\033[1;36m'; GOOD=$'\033[32m'; BAD=$'\033[1;31m'; OFF=$'\033[0m'
@@ -190,5 +209,6 @@ else
     echo "Click Start in that window to open TilTale in your browser."
 fi
 echo
-echo "You can close this window."
+echo "This terminal window closes in 10 seconds."
+sleep 10
 exit 0

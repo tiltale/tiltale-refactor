@@ -137,8 +137,8 @@ For people who never open a terminal. There is one launcher per operating system
 | | File | How to start it |
 |---|---|---|
 | Windows | `start_TilTale_Windows.bat` | Double-click it. Windows SmartScreen may ask once: choose **More info → Run anyway**. |
-| macOS | `start_TilTale_Mac.command` | The first time, right-click it and choose **Open** (macOS blocks a plain double-click for downloaded scripts). After that, double-click. |
-| Linux | `start_TilTale_Linux.sh` | Double-click where the file manager allows it, or run `bash start_TilTale_Linux.sh` in a terminal. |
+| macOS | `start_TilTale_Mac.command` | The first time, right-click it and choose **Open** (macOS blocks a plain double-click for downloaded scripts). After that, double-click. If macOS says you lack the *access privileges*: open **Terminal**, type `chmod +x ` (with a space), drag the file onto the Terminal window, press Enter, and try again. |
+| Linux | `start_TilTale_Linux.sh` | Ubuntu opens scripts in the text editor on a double-click. Instead: right-click an empty spot in the folder → **Open in Terminal**, type `bash start_TilTale_Linux.sh` and press Enter. (Or: right-click the file → **Properties** → turn on **Executable as Program**, then right-click → **Run as a Program**.) |
 
 (Windows hides file extensions by default, which is why the operating system is part of the name.)
 
