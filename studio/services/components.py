@@ -123,7 +123,7 @@ def default_font_css() -> str:
     width: int = max(len(component.slug) for component in components) + len(".component-")
     lines: list[str] = [
         "/* ==== FONTS: one line per component. Change the names between the { }. ====",
-        " * The device uses the first font it has installed, so keep a generic one (sans-serif, serif, cursive) last.",
+        " * The device uses the first font it has installed, so end with sans-serif or serif (never cursive: Android shows it as a thin script).",
         " * Phones and computers have different fonts installed, so a story looks the same everywhere only with its",
         " * own font file: put it in /project/fonts/ and uncomment the @font-face line (see the README, Fonts). */",
         "/* @font-face { font-family: \"StoryFont\"; src: url(\"fonts/StoryFont.woff2\"); } */",

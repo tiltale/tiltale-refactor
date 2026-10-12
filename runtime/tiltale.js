@@ -16,15 +16,16 @@
  *   ?stress=…    pretend bad conditions, comma-separated (the studio's Stress test page): slow (every request
  *                takes 3 s), lost-connection (no server for 10 s from the 2nd frame on), no-cache
  *                (no Cache Storage, as on plain http), no-storage (no local storage, as in some
- *                private modes), crash (a JavaScript error on the 2nd frame, to see one in the log)
+ *                private modes), crash (a JavaScript error on the 2nd frame, to see one in the log),
+ *                slow-label (from the 2nd frame on the browser reports "2g", as Chrome does on a bad moment)
  *
  * Frame kinds (STORY.frames[].kind): "frame", "picker" and "minigame" show their elements;
  * "document" shows one zoomable image; "validation" is never shown: its rules on the global
  * variables (STORY.variables, kept in state.variables) decide the next frame.
  *
- * Offline: every image of the story is downloaded before the first frame (progress bar), kept in
- * memory while playing and, where the browser allows (HTTPS), in its Cache Storage so a restart
- * does not download it again. Log events are queued on the device and sent in small batches; a lost
+ * Offline: every image of the story is downloaded before the first frame (progress bar; the story waits
+ * for missing ones, see preloadPatiently), kept in memory while playing and, where the browser allows
+ * (HTTPS), in its Cache Storage so a restart does not download it again. Log events are queued on the device and sent in small batches; a lost
  * connection only delays them (see the logging section).
  */
 (function () {
@@ -265,7 +266,10 @@
   function chooseSource(sources) {
     if (!sources || !sources.length) return null;
     var connection = navigator.connection || {};
-    var slow = connection.saveData || connection.effectiveType === "slow-2g" || connection.effectiveType === "2g";
+    var label = stress["slow-label"] && framesShown >= 2 ? "2g" : connection.effectiveType;
+    // Offline the speed label means nothing (there is nothing to download): choose by screen size, the
+    // variant <root>/offline/ stored, instead of a small one that is not on the device.
+    var slow = navigator.onLine !== false && (connection.saveData || label === "slow-2g" || label === "2g");
     var wanted = slow ? 480 : Math.min(1920, Math.max(window.innerWidth, window.innerHeight) * (window.devicePixelRatio || 1));
     for (var i = 0; i < sources.length; i += 1) if (sources[i].width >= wanted) return sources[i];
     return sources[sources.length - 1];
@@ -350,9 +354,16 @@
     return loaded[source.path] || STORY.root + source.path;
   }
 
+  /* The variant preloadImages downloaded, else the one this screen wants now. Choosing again when a frame
+     opens could pick another width (Chrome reports "2g" on a bad moment) that was never downloaded. */
+  function shownSource(sources) {
+    var downloaded = (sources || []).filter(function (source) { return loaded[source.path]; });
+    return downloaded[0] || chooseSource(sources);
+  }
+
   function makeImage(sources) {
     var image = document.createElement("img");
-    var source = chooseSource(sources);
+    var source = shownSource(sources);
     image.alt = "";
     if (source) image.src = imageUrl(source);
     return image;
@@ -363,8 +374,8 @@
     panel.className = "story-frame";
     panel.id = frame.name;
     if (frame.background.type === "solid") panel.style.backgroundColor = frame.background.color;
-    var source = frame.background.type === "image" ? chooseSource(frame.background.sources) : null;
-    if (source) panel.style.backgroundImage = "url(\"" + imageUrl(source) + "\")";
+    var source = frame.background.type === "image" ? shownSource(frame.background.sources) : null;
+    if (source) showBackground(frame, panel, source, false);
     var box = frame.background.box;  // without one, style.css makes the image cover the frame
     if (box) {
       panel.style.backgroundSize = box.width + "px " + box.height + "px";
@@ -373,6 +384,29 @@
     frame.elements.forEach(function (element) { panel.appendChild(makeElement(frame, element)); });
     if (participantBadgeWanted(frame)) panel.appendChild(participantBadge());
     return panel;
+  }
+
+  /* A background on the device shows at once. One that is not (its download failed at the start and the
+     story was started anyway) is fetched now: until it arrives the frame is grey instead of black, the log
+     notes it once, and it is tried again every few seconds while the frame is on screen. */
+  function showBackground(frame, panel, source, again) {
+    if (loaded[source.path] || inspect) {
+      panel.classList.remove("image-missing");
+      panel.style.backgroundImage = "url(\"" + imageUrl(source) + "\")";
+      return;
+    }
+    panel.classList.add("image-missing");
+    request(STORY.root + source.path).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.blob();
+    }).then(function (blob) {
+      loaded[source.path] = URL.createObjectURL(blob);
+      showBackground(frame, panel, source, true);
+    }).catch(function (error) {
+      if (!again) log("Frame shown without image", {event_type: "image_missing", frame: frame.name, path: source.path, message: String(error.message || error)});
+      if (autoplay) return report(false, frame.name + " was shown without its picture (" + source.path + ").");
+      if (panel.parentNode) window.setTimeout(function () { showBackground(frame, panel, source, true); }, RETRY_MS);
+    });
   }
 
   /* Settings → Advanced → "Show the participant ID on final frames": the first characters of the ID
@@ -729,14 +763,15 @@
   /* Downloads every image the story will show (the variant chooseSource picks for this screen) and keeps
      each in memory, so a lost connection while playing changes nothing. Browsers that offer Cache Storage
      (HTTPS) also keep them there, so a restart or a returning reader reuses them instead of downloading.
-     Resolves to {bytes, cached_bytes}; an image that fails to download is logged and shown from the server later. */
-  function preloadImages(progress) {
+     Resolves to {bytes, cached_bytes, missing}. Called again for the images still missing (preloadPatiently):
+     what arrived earlier is kept, and only the first try logs each failure. */
+  function preloadImages(progress, retry) {
     var chosen = {};
     STORY.frames.forEach(function (frame) {
       var lists = frame.elements.map(function (element) { return element.image; });  // undefined for components
       if (frame.background.type === "image") lists.push(frame.background.sources);
       lists.forEach(function (sources) {
-        var source = frame.kind === "document" ? sources[sources.length - 1] : chooseSource(sources);  // documents: the sharpest
+        var source = frame.kind === "document" ? sources[sources.length - 1] : shownSource(sources);  // documents: the sharpest
         if (source) chosen[source.path] = source;
       });
     });
@@ -749,6 +784,10 @@
     var storage = cacheStorage ? cacheStorage.open("tiltale-" + STORY.project).catch(function () { return null; }) : Promise.resolve(null);
     return storage.then(function (cache) {
       return Promise.all(sources.map(function (source) {
+        if (loaded[source.path]) {  // arrived on an earlier try
+          done += source.bytes;
+          return null;
+        }
         var url = STORY.root + source.path;
         var fromCache = cache ? cache.match(url) : Promise.resolve(null);
         return fromCache.then(function (hit) {
@@ -761,13 +800,56 @@
         }).then(function (response) { return response.blob(); }).then(function (blob) {
           loaded[source.path] = URL.createObjectURL(blob);
         }).catch(function (error) {
-          log("Image not downloaded", {path: source.path, message: String(error.message || error)});  // shown from the server when its frame opens
+          if (!retry) log("Image not downloaded", {path: source.path, message: String(error.message || error)});
         }).then(function () {
           done += source.bytes;
           progress(done / total);
         });
       }));
-    }).then(function () { return {bytes: total, cached_bytes: cachedBytes}; });
+    }).then(function () {
+      var missing = sources.filter(function (source) { return !loaded[source.path]; }).length;
+      return {bytes: total, cached_bytes: cachedBytes, missing: missing};
+    });
+  }
+
+  /* The story does not start with images missing (a tablet tapped before its wifi was back): it tries again
+     every RETRY_MS and starts by itself once they are in. After START_ANYWAY_MS the startup screen also
+     offers "Start anyway" for whoever is with the reader; frames then fetch what is missing (showBackground). */
+  var RETRY_MS = 5000;
+  var START_ANYWAY_MS = 30000;
+
+  function preloadPatiently(progress) {
+    var since = Date.now();
+    var button = document.getElementById("start-anyway");
+    var anyway = new Promise(function (resolve) { button.onclick = resolve; });
+    var startedAnyway = false;
+    function attempt(retry) {
+      return preloadImages(progress, retry).then(function (result) {
+        if (!result.missing || startedAnyway) return result;
+        var text = document.getElementById("progress-text");
+        text.className = "waiting";
+        text.textContent = "Some pictures have not arrived yet. Check the wifi: the story starts by itself once they are in.";
+        button.hidden = Date.now() - since < START_ANYWAY_MS;
+        var later = new Promise(function (resolve) { window.setTimeout(resolve, RETRY_MS); });
+        return Promise.race([
+          anyway.then(function () {
+            startedAnyway = true;
+            log("Loading IDN – started without every image", {event_type: "loading_incomplete", missing: result.missing});
+            return result;
+          }),
+          later.then(function () { return attempt(true); })
+        ]);
+      });
+    }
+    return attempt(false);
+  }
+
+  /* A project's own font files (@font-face in style-overrides.css) load during the startup screen, so the
+     first frame never draws its texts and bubbles in a fallback font first. A font that fails is skipped. */
+  function preloadFonts() {
+    var faces = [];
+    if (document.fonts) document.fonts.forEach(function (face) { faces.push(face.load().catch(function () {})); });
+    return Promise.all(faces);
   }
 
   function start() {
@@ -800,11 +882,11 @@
     log("Loading IDN – started", {event_type: "loading_started"});
     loading.hidden = Boolean(forcedFrame);  // the studio jumps straight to a frame, without the bouncing logo
     var minimum = new Promise(function (resolve) { window.setTimeout(resolve, forcedFrame ? 0 : 3000); });
-    var images = preloadImages(function (fraction) {
+    var images = preloadPatiently(function (fraction) {
       document.querySelector("#progress i").style.width = (fraction * 100) + "%";
       document.getElementById("progress-text").textContent = "Loading story\u2026 " + Math.round(fraction * 100) + "%";
     });
-    Promise.all([images, minimum]).then(function (results) {
+    Promise.all([images, minimum, preloadFonts()]).then(function (results) {
       var megabytes = function (bytes) { return (bytes / 1048576).toFixed(2) + " MB"; };
       var summary = megabytes(results[0].bytes) + (results[0].cached_bytes ? ", " + megabytes(results[0].cached_bytes) + " already on this device" : "");
       log("Loading IDN – completed (" + summary + ")", {event_type: "loading_completed", bytes: results[0].bytes, cached_bytes: results[0].cached_bytes});

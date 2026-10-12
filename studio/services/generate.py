@@ -362,11 +362,14 @@ def generate_dist(project: ProjectSettings) -> BuildReport:
     offline: Path = settings.DIST_DIR / "offline"
     offline.mkdir()
     pages_json: str = json.dumps([{"label": build.label or "Story", "folder": build.folder} for build in builds])
+    fonts: Path = settings.DIST_DIR / "fonts"  # the project's own font files, copied by _write_shared_files
+    fonts_json: str = json.dumps(sorted(f"fonts/{path.name}" for path in fonts.iterdir()) if fonts.is_dir() else [])
     (offline / "index.html").write_text(
         (settings.RUNTIME_DIR / "offline.html").read_text(encoding="utf-8")
         .replace("__TITLE__", escape(project.name))
         .replace("__PROJECT__", project.slug)
         .replace("__PAGES__", pages_json)
+        .replace("__FONTS__", fonts_json)
         .replace("__VERSION__", settings.TILTALE_VERSION),
         encoding="utf-8",
     )

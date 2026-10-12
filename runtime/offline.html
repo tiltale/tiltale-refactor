@@ -52,7 +52,7 @@
   "use strict";
   var PAGES = __PAGES__;  /* [{label, folder}, ...]; folder "" is the start page / single story */
   var ROOT = "../";
-  var SHARED = ["tiltale.js", "bubbles.js", "style.css", "logo-tiltale.png", "favicon.ico", "restart/index.html", "offline/index.html"];
+  var SHARED = ["tiltale.js", "bubbles.js", "style.css", "logo-tiltale.png", "favicon.ico", "restart/index.html", "offline/index.html"].concat(__FONTS__);
   var queueKey = "tiltale:__PROJECT__:unsent";
   var BATCH = 25;
 

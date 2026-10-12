@@ -48,6 +48,8 @@ ROBOT_CHECKS: tuple[RobotCheck, ...] = (
                "The story or its log upload does not cope with a slow line. Compare with a normal Play-test run."),
     RobotCheck("lost", "Survives a lost connection", "lost-connection", "pass",
                "Log events written while offline must arrive after the connection returns. If not, the queue in tiltale.js is broken."),
+    RobotCheck("photos", "Keeps every photo when the network gets worse", "slow-label,lost-connection", "pass",
+               "A frame was shown without its background photo: it asked for an image size that was never downloaded. See shownSource in tiltale.js."),
     RobotCheck("no-cache", "Works without cache storage", "no-cache", "pass",
                "The story must play from memory alone."),
     RobotCheck("no-storage", "Works without local storage", "no-storage", "pass",
